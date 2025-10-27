@@ -36,6 +36,21 @@ export const appRouter = router({
   config: router({
     get: protectedProcedure.query(async ({ ctx }) => {
       const config = await getConfigByUserId(ctx.user.id);
+      
+      // Retornar configuração padrão se não existir
+      if (!config) {
+        return {
+          mode: "DEMO" as const,
+          tokenDemo: null,
+          tokenReal: null,
+          symbol: "R_100",
+          stake: 100, // $1.00 em centavos
+          stopDaily: 1000, // $10.00 em centavos
+          takeDaily: 2000, // $20.00 em centavos
+          lookback: 50,
+        };
+      }
+      
       return config;
     }),
 

@@ -87,3 +87,8 @@
 - [x] Garantir que TODAS as métricas venham da DERIV ou banco de dados
 - [x] Validar que nenhum valor hardcoded está sendo exibido
 
+
+
+## Bugs Reportados
+- [x] Erro "config.get data is undefined" - Endpoint retornando undefined quando não há config
+
