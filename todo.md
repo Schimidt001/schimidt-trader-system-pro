@@ -58,6 +58,9 @@
 - [x] Input de lookback de candles históricos
 - [x] Botão Start/Stop do bot
 
+## Bugs Corrigidos
+- [x] Erro "bot.status data is undefined" - Retorno padrão implementado
+
 ## Testes de Aceite
 - [x] Engine integrada e funcional
 - [ ] Validar /predict com teste de ouro do cliente (requer dados do cliente)

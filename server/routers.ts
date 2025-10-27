@@ -64,6 +64,19 @@ export const appRouter = router({
   bot: router({
     status: protectedProcedure.query(async ({ ctx }) => {
       const state = await getBotState(ctx.user.id);
+      // Retornar estado padrão se não existir
+      if (!state) {
+        return {
+          id: 0,
+          userId: ctx.user.id,
+          state: "IDLE" as const,
+          isRunning: false,
+          currentCandleTimestamp: null,
+          currentPositionId: null,
+          lastError: null,
+          updatedAt: new Date(),
+        };
+      }
       return state;
     }),
 
