@@ -99,3 +99,7 @@
 - [x] Validar token DERIV e mostrar status de conexão
 - [x] Exibir informações da conta após conexão bem-sucedida
 
+
+
+- [x] Erro "Please log in" ao testar conexão - DerivService não aguarda conexão estabelecida
+

@@ -50,6 +50,7 @@ export class DerivService {
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(`${this.wsUrl}?app_id=${this.appId}`);
+        let authorized = false;
 
         this.ws.on("open", () => {
           console.log("[DerivService] WebSocket connected");
@@ -57,10 +58,32 @@ export class DerivService {
           
           // Autorizar com token
           if (this.token) {
+            // Aguardar autorização antes de resolver
+            const authHandler = (message: any) => {
+              if (message.authorize) {
+                console.log("[DerivService] Authorized successfully");
+                this.subscriptions.delete("authorize");
+                authorized = true;
+                resolve();
+              } else if (message.error && message.error.code === "AuthorizationRequired") {
+                this.subscriptions.delete("authorize");
+                reject(new Error("Token inválido ou expirado"));
+              }
+            };
+            this.subscriptions.set("authorize", authHandler);
             this.send({ authorize: this.token });
+            
+            // Timeout de autorização
+            setTimeout(() => {
+              if (!authorized) {
+                this.subscriptions.delete("authorize");
+                reject(new Error("Timeout ao autorizar"));
+              }
+            }, 10000);
+          } else {
+            // Sem token, resolver imediatamente
+            resolve();
           }
-          
-          resolve();
         });
 
         this.ws.on("message", (data: WebSocket.Data) => {
