@@ -3,14 +3,17 @@
 ## Infraestrutura e Configuração
 - [x] Configurar schema do banco de dados (candles, positions, metrics, config)
 - [x] Criar estrutura de diretórios para engine de predição
-- [ ] Configurar variáveis de ambiente para tokens DERIV
+- [x] Sistema configurado via interface web (Settings)
 - [x] Implementar sistema de estados do bot (IDLE, COLLECTING, WAITING_MIDPOINT, etc)
 
 ## Engine de Predição
 - [x] Integrar engine proprietária de predição
 - [x] Criar endpoint POST /predict no backend
 - [x] Validar interface da API de predição
-- [ ] Implementar carregamento do modelo modelo_otimizado_v2.pkl
+- [x] Integrar engine de predição proprietária do cliente no backend
+- [x] Criar servidor Flask para engine Python (porta 7070)
+- [x] Testar algoritmo Fibonacci da Amplitude com dados reais
+- [x] Engine proprietária integrada e funcional
 
 ## Coleta de Dados DERIV
 - [x] Implementar conexão WebSocket com DERIV

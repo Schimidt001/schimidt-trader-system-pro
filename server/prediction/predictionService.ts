@@ -8,13 +8,14 @@ import type { PredictionRequest, PredictionResponse } from "../../shared/types/p
  * NÃO MODIFICAR a lógica de predição ou substituir por outra engine
  */
 
-const PREDICTION_ENGINE_URL = process.env.PREDICTION_ENGINE_URL || "http://localhost:5000";
+const PREDICTION_ENGINE_URL = process.env.PREDICTION_ENGINE_URL || "http://localhost:7070";
 
 export class PredictionService {
   private engineUrl: string;
 
   constructor(engineUrl: string = PREDICTION_ENGINE_URL) {
     this.engineUrl = engineUrl;
+    console.log(`[PredictionService] Engine URL configurada: ${this.engineUrl}`);
   }
 
   /**
