@@ -14,6 +14,7 @@ import {
   getCandleHistory,
 } from "./db";
 import { getBotForUser, removeBotForUser } from "./deriv/tradingBot";
+import { DerivService } from "./deriv/derivService";
 import { predictionService } from "./prediction/predictionService";
 import { engineManager } from "./prediction/engineManager";
 
@@ -126,12 +127,44 @@ export const appRouter = router({
     }),
 
     balance: protectedProcedure.query(async ({ ctx }) => {
-      // TODO: Implementar busca de saldo real da DERIV
-      // Por enquanto retorna mock
-      return {
-        balance: 10000, // em centavos
-        currency: "USD",
-      };
+      // Buscar configuração do usuário para obter token
+      const config = await getConfigByUserId(ctx.user.id);
+      
+      if (!config) {
+        return {
+          balance: 0,
+          currency: "USD",
+        };
+      }
+
+      // Usar token correto baseado no modo
+      const token = config.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
+      
+      if (!token) {
+        return {
+          balance: 0,
+          currency: "USD",
+        };
+      }
+
+      try {
+        // Buscar saldo real da DERIV
+        const derivService = new DerivService(token, config.mode === "DEMO");
+        await derivService.connect();
+        const balanceValue = await derivService.getBalance();
+        derivService.disconnect();
+        
+        return {
+          balance: Math.round(balanceValue * 100), // converter para centavos
+          currency: "USD",
+        };
+      } catch (error) {
+        console.error("[Dashboard] Erro ao buscar saldo:", error);
+        return {
+          balance: 0,
+          currency: "USD",
+        };
+      }
     }),
   }),
 

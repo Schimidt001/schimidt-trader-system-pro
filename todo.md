@@ -39,11 +39,11 @@
 
 ## Interface do Usuário
 - [x] Dashboard principal com métricas (saldo, PnL dia/mês, trades, perdas)
-- [ ] Gráfico M15 com candles em tempo real
-- [ ] Visualizar linha de abertura do candle atual
-- [ ] Visualizar mínima e máxima parciais
-- [ ] Visualizar linha de predição do fechamento
-- [ ] Visualizar linha do gatilho
+- [x] Gráfico M15 com candles em tempo real
+- [x] Visualizar linha de abertura do candle atual
+- [x] Visualizar mínima e máxima parciais
+- [x] Visualizar linha de predição do fechamento
+- [x] Visualizar linha do gatilho
 - [x] Log de eventos com timestamps UTC
 - [x] Status de conexão em tempo real
 
@@ -75,4 +75,15 @@
 - [ ] Documentar fluxo de estados do bot
 - [ ] Criar guia de configuração inicial
 - [ ] Checkpoint final e validação completa
+
+
+
+## Correções Críticas Pendentes
+- [x] Implementar busca de saldo real via DERIV API
+- [x] Remover TODOS os dados sintéticos/placeholders do Dashboard
+- [x] Implementar cálculo de PnL real baseado em posições do banco
+- [x] Implementar contador de trades real do dia
+- [x] Implementar gráfico de candles M15 em tempo real
+- [x] Garantir que TODAS as métricas venham da DERIV ou banco de dados
+- [x] Validar que nenhum valor hardcoded está sendo exibido
 
