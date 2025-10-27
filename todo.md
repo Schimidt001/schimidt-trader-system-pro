@@ -107,3 +107,7 @@
 
 - [x] Erro de API aparecendo no dashboard - botão de reset adicionado
 
+
+
+- [x] Bot entra em ERROR_API durante operação - faltava parâmetro currency na API
+

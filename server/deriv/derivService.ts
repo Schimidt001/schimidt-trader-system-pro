@@ -336,6 +336,7 @@ export class DerivService {
           duration_unit: durationType,
           basis: "stake",
           amount: stake,
+          currency: "USD",
         },
       });
 
