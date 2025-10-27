@@ -30,7 +30,7 @@ export async function initializeEngine(): Promise<void> {
 
     // Verificar health
     try {
-      const response = await fetch("http://localhost:7070/health");
+      const response = await fetch("http://localhost:5070/health");
       if (response.ok) {
         const health = await response.json();
         console.log("✅ Engine health check OK:", health);
@@ -43,7 +43,7 @@ export async function initializeEngine(): Promise<void> {
     }
 
     console.log("\n🚀 Engine de predição pronta!");
-    console.log("🔗 URL interna: http://localhost:7070");
+    console.log("🔗 URL interna: http://localhost:5070");
     console.log("=".repeat(70) + "\n");
   } catch (error) {
     console.error("❌ Erro ao inicializar engine:", error);
@@ -76,8 +76,6 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 
-// Auto-inicializar quando módulo for importado
-initializeEngine().catch((error) => {
-  console.error("Erro fatal ao inicializar engine:", error);
-});
+// Engine será inicializada sob demanda via endpoint
+// Não auto-inicializar para evitar conflito com preview
 

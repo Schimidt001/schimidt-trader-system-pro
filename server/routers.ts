@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
-import "./_core/engineInit"; // Inicializar engine de predição
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -16,6 +15,7 @@ import {
 } from "./db";
 import { getBotForUser, removeBotForUser } from "./deriv/tradingBot";
 import { predictionService } from "./prediction/predictionService";
+import { engineManager } from "./prediction/engineManager";
 
 export const appRouter = router({
   system: systemRouter,
@@ -68,6 +68,12 @@ export const appRouter = router({
     }),
 
     start: protectedProcedure.mutation(async ({ ctx }) => {
+      // Garantir que engine está rodando
+      if (!engineManager.isEngineRunning()) {
+        console.log("[Bot] Iniciando engine de predição...");
+        await engineManager.start();
+      }
+      
       const bot = getBotForUser(ctx.user.id);
       await bot.start();
       return { success: true, message: "Bot iniciado" };

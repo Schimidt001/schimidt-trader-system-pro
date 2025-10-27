@@ -15,7 +15,7 @@ export class EngineManager {
   private process: ChildProcess | null = null;
   private isRunning: boolean = false;
   private enginePath: string;
-  private port: number = 7070;
+  private port: number = 5070;
 
   constructor() {
     this.enginePath = path.join(__dirname, "engine_server.py");

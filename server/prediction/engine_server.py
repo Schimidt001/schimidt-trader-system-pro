@@ -199,9 +199,9 @@ if __name__ == '__main__':
     print("  POST /predict - Fazer predição")
     print("  POST /reset   - Reiniciar engine")
     print()
-    print("Servidor rodando em: http://localhost:7070")
+    print("Servidor rodando em: http://localhost:5070")
     print("=" * 70)
     
-    # Rodar na porta 7070 (interna)
-    app.run(host='127.0.0.1', port=7070, debug=False)
+    # Rodar na porta 5070 (interna)
+    app.run(host='127.0.0.1', port=5070, debug=False)
 

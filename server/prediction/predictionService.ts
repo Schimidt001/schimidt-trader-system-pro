@@ -8,7 +8,7 @@ import type { PredictionRequest, PredictionResponse } from "../../shared/types/p
  * NÃO MODIFICAR a lógica de predição ou substituir por outra engine
  */
 
-const PREDICTION_ENGINE_URL = process.env.PREDICTION_ENGINE_URL || "http://localhost:7070";
+const PREDICTION_ENGINE_URL = process.env.PREDICTION_ENGINE_URL || "http://localhost:5070";
 
 export class PredictionService {
   private engineUrl: string;

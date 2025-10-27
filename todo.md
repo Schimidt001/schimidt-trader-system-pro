@@ -59,8 +59,9 @@
 - [x] Botão Start/Stop do bot
 
 ## Testes de Aceite
-- [ ] Validar /predict com teste de ouro do cliente
-- [ ] Validar gatilho de entrada com preço real DERIV
+- [x] Engine integrada e funcional
+- [ ] Validar /predict com teste de ouro do cliente (requer dados do cliente)
+- [ ] Validar gatilho de entrada com preço real DERIV (requer tokens DERIV)
 - [ ] Validar early close ≥ 90% payout
 - [ ] Validar encerramento 20s antes do fechamento M15
 - [ ] Validar bloqueio por stop diário
