@@ -2,7 +2,8 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import {
   getConfigByUserId,
   upsertConfig,
@@ -74,6 +75,47 @@ export const appRouter = router({
         });
         return { success: true };
       }),
+
+    testConnection: protectedProcedure.mutation(async ({ ctx }) => {
+      const config = await getConfigByUserId(ctx.user.id);
+      
+      if (!config) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Configura\u00e7\u00e3o n\u00e3o encontrada. Configure o token primeiro.",
+        });
+      }
+
+      const token = config.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
+      
+      if (!token) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Token ${config.mode} n\u00e3o configurado.`,
+        });
+      }
+
+      try {
+        const derivService = new DerivService(token, config.mode === "DEMO");
+        await derivService.connect();
+        
+        // Buscar informa\u00e7\u00f5es da conta
+        const balance = await derivService.getBalance();
+        derivService.disconnect();
+        
+        return {
+          success: true,
+          balance: Math.round(balance * 100), // em centavos
+          currency: "USD",
+          mode: config.mode,
+        };
+      } catch (error: any) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erro ao conectar: ${error.message}`,
+        });
+      }
+    }),
   }),
 
   // Controle do bot

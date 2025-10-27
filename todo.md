@@ -92,3 +92,10 @@
 ## Bugs Reportados
 - [x] Erro "config.get data is undefined" - Endpoint retornando undefined quando não há config
 
+
+
+## Novas Features Solicitadas
+- [x] Adicionar botão "Conectar à DERIV" para testar conexão antes de iniciar bot
+- [x] Validar token DERIV e mostrar status de conexão
+- [x] Exibir informações da conta após conexão bem-sucedida
+

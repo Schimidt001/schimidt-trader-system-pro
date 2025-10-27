@@ -19,6 +19,13 @@ import { toast } from "sonner";
 export default function Settings() {
   const { user, loading: authLoading } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<{
+    connected: boolean;
+    balance?: number;
+    currency?: string;
+    mode?: string;
+  } | null>(null);
 
   // Form state
   const [mode, setMode] = useState<"DEMO" | "REAL">("DEMO");
@@ -35,7 +42,25 @@ export default function Settings() {
     enabled: !!user,
   });
 
-  // Mutation
+  // Mutations
+  const testConnection = trpc.config.testConnection.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Conectado com sucesso! Saldo: $${(data.balance / 100).toFixed(2)}`);
+      setConnectionStatus({
+        connected: true,
+        balance: data.balance,
+        currency: data.currency,
+        mode: data.mode,
+      });
+      setIsTesting(false);
+    },
+    onError: (error) => {
+      toast.error(`Erro ao conectar: ${error.message}`);
+      setConnectionStatus({ connected: false });
+      setIsTesting(false);
+    },
+  });
+
   const updateConfig = trpc.config.update.useMutation({
     onSuccess: () => {
       toast.success("Configurações salvas com sucesso");
@@ -60,6 +85,46 @@ export default function Settings() {
       setLookback(config.lookback.toString());
     }
   }, [config]);
+
+  const handleTestConnection = async () => {
+    // Primeiro salvar a configuração
+    const stakeNum = parseFloat(stake);
+    const stopDailyNum = parseFloat(stopDaily);
+    const takeDailyNum = parseFloat(takeDaily);
+    const lookbackNum = parseInt(lookback);
+
+    if (mode === "DEMO" && !tokenDemo) {
+      toast.error("Token DEMO é obrigatório");
+      return;
+    }
+
+    if (mode === "REAL" && !tokenReal) {
+      toast.error("Token REAL é obrigatório");
+      return;
+    }
+
+    setIsTesting(true);
+    
+    // Salvar configuração primeiro
+    try {
+      await updateConfig.mutateAsync({
+        mode,
+        tokenDemo: tokenDemo || undefined,
+        tokenReal: tokenReal || undefined,
+        symbol,
+        stake: Math.round(stakeNum * 100),
+        stopDaily: Math.round(stopDailyNum * 100),
+        takeDaily: Math.round(takeDailyNum * 100),
+        lookback: lookbackNum,
+      });
+      
+      // Depois testar conexão
+      testConnection.mutate();
+    } catch (error) {
+      setIsTesting(false);
+      toast.error("Erro ao salvar configuração");
+    }
+  };
 
   const handleSave = () => {
     // Validações
@@ -191,6 +256,41 @@ export default function Settings() {
                   placeholder="Insira seu token de API REAL"
                   className="bg-slate-800 border-slate-700 text-white"
                 />
+              </div>
+
+              {/* Botão de Teste de Conexão */}
+              <div className="pt-4 border-t border-slate-700">
+                <Button
+                  onClick={handleTestConnection}
+                  disabled={isTesting || (!tokenDemo && !tokenReal)}
+                  variant="outline"
+                  className="w-full gap-2"
+                >
+                  {isTesting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Testando conexão...
+                    </>
+                  ) : (
+                    "Testar Conexão com DERIV"
+                  )}
+                </Button>
+                
+                {connectionStatus && (
+                  <div className={`mt-3 p-3 rounded-lg ${
+                    connectionStatus.connected 
+                      ? "bg-green-500/10 border border-green-500/30" 
+                      : "bg-red-500/10 border border-red-500/30"
+                  }`}>
+                    <p className={`text-sm font-medium ${
+                      connectionStatus.connected ? "text-green-400" : "text-red-400"
+                    }`}>
+                      {connectionStatus.connected 
+                        ? `✓ Conectado (${connectionStatus.mode}) - Saldo: $${((connectionStatus.balance || 0) / 100).toFixed(2)} ${connectionStatus.currency}`
+                        : "✗ Falha na conexão"}
+                    </p>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
