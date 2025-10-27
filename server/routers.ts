@@ -8,6 +8,7 @@ import {
   getConfigByUserId,
   upsertConfig,
   getBotState,
+  upsertBotState,
   getRecentEventLogs,
   getUserPositions,
   getTodayPositions,
@@ -155,6 +156,29 @@ export const appRouter = router({
       await bot.stop();
       removeBotForUser(ctx.user.id);
       return { success: true, message: "Bot parado" };
+    }),
+
+    reset: protectedProcedure.mutation(async ({ ctx }) => {
+      // Parar bot se estiver rodando
+      try {
+        const bot = getBotForUser(ctx.user.id);
+        await bot.stop();
+        removeBotForUser(ctx.user.id);
+      } catch (error) {
+        // Ignorar erro se bot não estiver rodando
+      }
+      
+      // Resetar estado no banco
+      await upsertBotState({
+        userId: ctx.user.id,
+        state: "IDLE",
+        isRunning: false,
+        currentCandleTimestamp: null,
+        currentPositionId: null,
+        lastError: null,
+      });
+      
+      return { success: true, message: "Estado do bot resetado" };
     }),
   }),
 

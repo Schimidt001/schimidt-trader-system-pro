@@ -71,6 +71,16 @@ export default function Dashboard() {
     },
   });
 
+  const resetBot = trpc.bot.reset.useMutation({
+    onSuccess: () => {
+      toast.success("Estado do bot resetado");
+      refetchStatus();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao resetar bot: ${error.message}`);
+    },
+  });
+
   const handleStart = () => {
     setIsStarting(true);
     startBot.mutate();
@@ -79,6 +89,10 @@ export default function Dashboard() {
   const handleStop = () => {
     setIsStopping(true);
     stopBot.mutate();
+  };
+
+  const handleReset = () => {
+    resetBot.mutate();
   };
 
   if (authLoading) {
@@ -124,11 +138,24 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <div
                 className={`w-3 h-3 rounded-full ${
-                  isRunning ? "bg-green-500 animate-pulse" : "bg-red-500"
+                  isRunning ? "bg-green-500 animate-pulse" : currentState === "ERROR_API" ? "bg-yellow-500" : "bg-red-500"
                 }`}
               />
               <span className="text-sm text-slate-300">{stateLabel}</span>
             </div>
+            {currentState === "ERROR_API" && (
+              <Button
+                onClick={handleReset}
+                disabled={resetBot.isPending}
+                variant="outline"
+                className="gap-2"
+              >
+                {resetBot.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : null}
+                Limpar Erro
+              </Button>
+            )}
             {isRunning ? (
               <Button
                 onClick={handleStop}

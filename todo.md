@@ -103,3 +103,7 @@
 
 - [x] Erro "Please log in" ao testar conexão - DerivService não aguarda conexão estabelecida
 
+
+
+- [x] Erro de API aparecendo no dashboard - botão de reset adicionado
+
