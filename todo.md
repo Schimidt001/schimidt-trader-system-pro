@@ -128,3 +128,8 @@
 - [x] Adicionar linha horizontal no preço de entrada
 - [x] Indicar tipo de ordem (CALL/PUT) com cor diferente
 
+
+
+## Bugs Reportados
+- [x] Gráfico de candlesticks aparece às vezes mas fica estático - corrigido validação de dimensões e parsing de preços
+

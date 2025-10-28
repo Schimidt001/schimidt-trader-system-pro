@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { Loader2 } from "lucide-react";
 
 interface CandlestickChartProps {
   symbol: string;
@@ -24,10 +25,17 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   
-  const { data: candles = [] } = trpc.dashboard.candles.useQuery(
+  const { data: candles = [], isLoading, error } = trpc.dashboard.candles.useQuery(
     { symbol, limit: 50 },
     { refetchInterval: 1000 } // Atualizar a cada 1 segundo
   );
+
+  useEffect(() => {
+    console.log('[CandlestickChart] Candles:', candles?.length, 'Loading:', isLoading, 'Error:', error);
+    if (candles && candles.length > 0) {
+      console.log('[CandlestickChart] First candle:', candles[0]);
+    }
+  }, [candles, isLoading, error]);
   
   const { data: positions = [] } = trpc.dashboard.todayPositions.useQuery(
     undefined,
@@ -53,7 +61,12 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
 
   // Desenhar gráfico
   useEffect(() => {
-    if (!canvasRef.current || candles.length === 0) return;
+    if (!canvasRef.current || candles.length === 0 || dimensions.width === 0 || dimensions.height === 0) {
+      console.log('[CandlestickChart] Skip render:', { hasCanvas: !!canvasRef.current, candlesCount: candles.length, dimensions });
+      return;
+    }
+    
+    console.log('[CandlestickChart] Rendering chart with', candles.length, 'candles');
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
@@ -71,18 +84,32 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
     ctx.fillStyle = "#0a0f1e";
     ctx.fillRect(0, 0, dimensions.width, dimensions.height);
 
+    // Validar dados dos candles
+    const validCandles = candles.filter(c => {
+      const isValid = c.open && c.high && c.low && c.close;
+      if (!isValid) {
+        console.warn('[CandlestickChart] Invalid candle:', c);
+      }
+      return isValid;
+    });
+
+    if (validCandles.length === 0) {
+      console.error('[CandlestickChart] No valid candles to render');
+      return;
+    }
+
     // Calcular escalas
     const padding = { top: 20, right: 60, bottom: 30, left: 10 };
     const chartWidth = dimensions.width - padding.left - padding.right;
     const chartHeight = dimensions.height - padding.top - padding.bottom;
 
-    const prices = candles.flatMap((c) => [c.high, c.low]);
+    const prices = validCandles.flatMap((c) => [parseFloat(c.high), parseFloat(c.low)]);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
     const priceRange = maxPrice - minPrice;
 
-    const candleWidth = Math.max(chartWidth / candles.length - 2, 3);
-    const candleSpacing = chartWidth / candles.length;
+    const candleWidth = Math.max(chartWidth / validCandles.length - 2, 3);
+    const candleSpacing = chartWidth / validCandles.length;
 
     // Função para converter preço em coordenada Y
     const priceToY = (price: number) => {
@@ -112,21 +139,25 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
     }
 
     // Desenhar candles
-    candles.forEach((candle, index) => {
+    validCandles.forEach((candle, index) => {
       const x = padding.left + index * candleSpacing + candleSpacing / 2;
-      const isGreen = candle.close >= candle.open;
+      const open = parseFloat(candle.open);
+      const high = parseFloat(candle.high);
+      const low = parseFloat(candle.low);
+      const close = parseFloat(candle.close);
+      const isGreen = close >= open;
 
       // Pavio (high-low)
       ctx.strokeStyle = isGreen ? "#10b981" : "#ef4444";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(x, priceToY(candle.high));
-      ctx.lineTo(x, priceToY(candle.low));
+      ctx.moveTo(x, priceToY(high));
+      ctx.lineTo(x, priceToY(low));
       ctx.stroke();
 
       // Corpo do candle
-      const openY = priceToY(candle.open);
-      const closeY = priceToY(candle.close);
+      const openY = priceToY(open);
+      const closeY = priceToY(close);
       const bodyHeight = Math.abs(closeY - openY);
       const bodyY = Math.min(openY, closeY);
 
@@ -192,10 +223,27 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
 
   }, [candles, positions, dimensions]);
 
-  if (candles.length === 0) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[400px] text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin mr-2" />
         Carregando candles...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-[400px] text-red-400">
+        Erro ao carregar candles: {error.message}
+      </div>
+    );
+  }
+
+  if (!candles || candles.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-[400px] text-muted-foreground">
+        Nenhum candle disponível
       </div>
     );
   }
