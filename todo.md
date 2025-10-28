@@ -133,3 +133,20 @@
 ## Bugs Reportados
 - [x] Gráfico não renderiza - dimensions undefined (useEffect executando fora de ordem) - RESOLVIDO com setTimeout
 
+
+
+
+## Novos Bugs Reportados pelo Usuário
+- [x] Gráfico some quando atualiza a página (F5) - RESOLVIDO: container com altura fixa + múltiplas tentativas de dimensionamento
+- [x] Candle atual não atualiza em tempo real - RESOLVIDO: conectado diretamente à API DERIV
+
+
+
+
+## Nova Feature Solicitada
+- [x] Conectar gráfico de candles diretamente à API DERIV via WebSocket
+- [x] Usar token configurado para autenticar na DERIV
+- [x] Buscar candles M15 em tempo real da DERIV
+- [x] Atualizar candle atual a cada 1 segundo (polling da API)
+- [x] Novo endpoint dashboard.liveCandles separado do bot
+

@@ -8,10 +8,10 @@ interface CandlestickChartProps {
 
 interface Candle {
   timestampUtc: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
 }
 
 interface Position {
@@ -22,71 +22,77 @@ interface Position {
 }
 
 export function CandlestickChart({ symbol }: CandlestickChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [dimensions, setDimensions] = useState({ width: 0, height: 400 });
   
-  const { data: candles = [], isLoading, error } = trpc.dashboard.candles.useQuery(
+  // Usar novo endpoint liveCandles que busca da DERIV API
+  const { data: candles = [], isLoading, error } = trpc.dashboard.liveCandles.useQuery(
     { symbol, limit: 50 },
-    { refetchInterval: 1000 } // Atualizar a cada 1 segundo
-  );
-
-  useEffect(() => {
-    console.log('[CandlestickChart] Candles:', candles?.length, 'Loading:', isLoading, 'Error:', error);
-    if (candles && candles.length > 0) {
-      console.log('[CandlestickChart] First candle:', candles[0]);
+    { 
+      refetchInterval: 1000, // Atualizar a cada 1 segundo
+      refetchOnWindowFocus: false,
     }
-  }, [candles, isLoading, error]);
+  );
   
   const { data: positions = [] } = trpc.dashboard.todayPositions.useQuery(
     undefined,
     { refetchInterval: 2000 }
   );
 
-  // Atualizar dimensões do canvas (executar ANTES de desenhar)
+  // Atualizar dimensões do canvas quando container estiver pronto
   useEffect(() => {
     const updateDimensions = () => {
-      if (canvasRef.current?.parentElement) {
-        const parent = canvasRef.current.parentElement;
-        const newDimensions = {
-          width: parent.clientWidth,
-          height: 400,
-        };
-        console.log('[CandlestickChart] Setting dimensions:', newDimensions);
-        setDimensions(newDimensions);
-      } else {
-        console.log('[CandlestickChart] No parent element for canvas');
+      if (containerRef.current) {
+        const width = containerRef.current.clientWidth;
+        if (width > 0) {
+          setDimensions({ width, height: 400 });
+          console.log('[CandlestickChart] Dimensions updated:', { width, height: 400 });
+        }
       }
     };
 
-    // Usar setTimeout para garantir que o DOM está pronto
-    const timer = setTimeout(updateDimensions, 0);
+    // Tentar múltiplas vezes para garantir que o container está pronto
+    updateDimensions();
+    const timer1 = setTimeout(updateDimensions, 50);
+    const timer2 = setTimeout(updateDimensions, 100);
+    const timer3 = setTimeout(updateDimensions, 200);
+    
     window.addEventListener("resize", updateDimensions);
+    
     return () => {
-      clearTimeout(timer);
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
       window.removeEventListener("resize", updateDimensions);
     };
   }, []);
 
-  // Desenhar gráfico (executar DEPOIS de dimensions estar pronto)
+  // Desenhar gráfico sempre que candles, positions ou dimensions mudarem
   useEffect(() => {
-    if (!canvasRef.current) {
-      console.log('[CandlestickChart] Skip render: no canvas ref');
-      return;
-    }
-    if (candles.length === 0) {
-      console.log('[CandlestickChart] Skip render: no candles');
-      return;
-    }
-    if (dimensions.width === 0 || dimensions.height === 0) {
-      console.log('[CandlestickChart] Skip render: dimensions not ready', dimensions);
+    if (!canvasRef.current || !containerRef.current) {
+      console.log('[CandlestickChart] Skip: no refs');
       return;
     }
     
-    console.log('[CandlestickChart] Rendering chart with', candles.length, 'candles');
+    if (candles.length === 0) {
+      console.log('[CandlestickChart] Skip: no candles');
+      return;
+    }
+    
+    if (dimensions.width === 0) {
+      console.log('[CandlestickChart] Skip: width is 0');
+      return;
+    }
+    
+    console.log('[CandlestickChart] Drawing chart with', candles.length, 'candles');
+    drawChart();
+  }, [candles, positions, dimensions]);
 
+  const drawChart = () => {
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
 
     // Configurar canvas com DPI correto
     const dpr = window.devicePixelRatio || 1;
@@ -100,17 +106,19 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
     ctx.fillStyle = "#0a0f1e";
     ctx.fillRect(0, 0, dimensions.width, dimensions.height);
 
-    // Validar dados dos candles
-    const validCandles = candles.filter(c => {
-      const isValid = c.open && c.high && c.low && c.close;
-      if (!isValid) {
-        console.warn('[CandlestickChart] Invalid candle:', c);
-      }
-      return isValid;
-    });
+    // Validar e converter candles
+    const validCandles = candles
+      .map(c => ({
+        ...c,
+        open: parseFloat(c.open),
+        high: parseFloat(c.high),
+        low: parseFloat(c.low),
+        close: parseFloat(c.close),
+      }))
+      .filter(c => !isNaN(c.open) && !isNaN(c.high) && !isNaN(c.low) && !isNaN(c.close));
 
     if (validCandles.length === 0) {
-      console.error('[CandlestickChart] No valid candles to render');
+      console.error('[CandlestickChart] No valid candles after parsing');
       return;
     }
 
@@ -119,7 +127,7 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
     const chartWidth = dimensions.width - padding.left - padding.right;
     const chartHeight = dimensions.height - padding.top - padding.bottom;
 
-    const prices = validCandles.flatMap((c) => [parseFloat(c.high), parseFloat(c.low)]);
+    const prices = validCandles.flatMap((c) => [c.high, c.low]);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
     const priceRange = maxPrice - minPrice;
@@ -157,10 +165,7 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
     // Desenhar candles
     validCandles.forEach((candle, index) => {
       const x = padding.left + index * candleSpacing + candleSpacing / 2;
-      const open = parseFloat(candle.open);
-      const high = parseFloat(candle.high);
-      const low = parseFloat(candle.low);
-      const close = parseFloat(candle.close);
+      const { open, high, low, close } = candle;
       const isGreen = close >= open;
 
       // Pavio (high-low)
@@ -236,22 +241,23 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
         position.contractType === "CALL" ? y - 30 : y + 35
       );
     });
+  };
 
-  }, [candles, positions, dimensions]);
-
-  if (isLoading) {
+  if (isLoading && candles.length === 0) {
     return (
       <div className="flex items-center justify-center h-[400px] text-muted-foreground">
         <Loader2 className="w-8 h-8 animate-spin mr-2" />
-        Carregando candles...
+        Conectando à DERIV...
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-[400px] text-red-400">
-        Erro ao carregar candles: {error.message}
+      <div className="flex flex-col items-center justify-center h-[400px] text-red-400 gap-2">
+        <p className="font-semibold">Erro ao carregar candles da DERIV</p>
+        <p className="text-sm text-muted-foreground">{error.message}</p>
+        <p className="text-xs text-muted-foreground">Verifique se o token está configurado corretamente</p>
       </div>
     );
   }
@@ -259,13 +265,13 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
   if (!candles || candles.length === 0) {
     return (
       <div className="flex items-center justify-center h-[400px] text-muted-foreground">
-        Nenhum candle disponível
+        Aguardando dados da DERIV...
       </div>
     );
   }
 
   return (
-    <div className="w-full h-[400px]">
+    <div ref={containerRef} className="w-full" style={{ height: '400px' }}>
       <canvas ref={canvasRef} className="w-full h-full" />
       <div className="flex items-center justify-center gap-4 mt-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
