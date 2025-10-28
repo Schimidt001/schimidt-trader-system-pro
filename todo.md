@@ -131,5 +131,5 @@
 
 
 ## Bugs Reportados
-- [x] Gráfico de candlesticks aparece às vezes mas fica estático - corrigido validação de dimensões e parsing de preços
+- [x] Gráfico só aparece ao redimensionar tela (F12) - adicionada altura fixa ao container
 

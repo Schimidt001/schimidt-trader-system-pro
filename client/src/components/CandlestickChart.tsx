@@ -249,8 +249,8 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
   }
 
   return (
-    <div className="w-full">
-      <canvas ref={canvasRef} className="w-full" />
+    <div className="w-full h-[400px]">
+      <canvas ref={canvasRef} className="w-full h-full" />
       <div className="flex items-center justify-center gap-4 mt-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 bg-green-500 rounded" />
