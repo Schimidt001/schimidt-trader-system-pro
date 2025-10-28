@@ -217,7 +217,7 @@ export class TradingBot {
 
     // Se armado, verificar gatilho
     if (this.state === "ARMED" && this.prediction) {
-      await this.checkTrigger(tick.quote);
+      await this.checkTrigger(tick.quote, elapsedSeconds);
     }
 
     // Se em posição, gerenciar saída
@@ -343,7 +343,7 @@ export class TradingBot {
   /**
    * Verifica se o gatilho foi atingido
    */
-  private async checkTrigger(currentPrice: number): Promise<void> {
+  private async checkTrigger(currentPrice: number, elapsedSeconds: number): Promise<void> {
     if (!this.prediction || !this.derivService) return;
 
     let triggered = false;
@@ -355,25 +355,30 @@ export class TradingBot {
     }
 
     if (triggered) {
-      await this.enterPosition(currentPrice);
+      await this.enterPosition(currentPrice, elapsedSeconds);
     }
   }
 
   /**
    * Entra na posição
    */
-  private async enterPosition(entryPrice: number): Promise<void> {
+  private async enterPosition(entryPrice: number, elapsedSeconds: number): Promise<void> {
     if (!this.prediction || !this.derivService) return;
 
     try {
       const contractType = this.prediction.direction === "up" ? "CALL" : "PUT";
+      
+      // Calcular duração até 20 segundos antes do fim do candle M15 (900s)
+      // Duração = (900 - elapsedSeconds - 20) segundos
+      const durationSeconds = Math.max(900 - elapsedSeconds - 20, 60); // Mínimo 60s
+      const durationMinutes = Math.ceil(durationSeconds / 60); // Arredondar para cima em minutos
       
       // Comprar contrato na DERIV
       const contract = await this.derivService.buyContract(
         this.symbol,
         contractType,
         this.stake / 100, // Converter centavos para unidade
-        1,
+        durationMinutes,
         "m"
       );
 
@@ -404,7 +409,7 @@ export class TradingBot {
       await this.updateBotState();
       await this.logEvent(
         "POSITION_ENTERED",
-        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${this.stake / 100} | Contract: ${contract.contract_id}`
+        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${this.stake / 100} | Duração: ${durationMinutes}min (${durationSeconds}s) | Contract: ${contract.contract_id}`
       );
     } catch (error) {
       console.error("[TradingBot] Error entering position:", error);
