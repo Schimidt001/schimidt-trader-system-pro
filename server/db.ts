@@ -231,6 +231,22 @@ export async function getTodayPositions(userId: number): Promise<Position[]> {
     .orderBy(desc(positions.createdAt));
 }
 
+export async function getOpenPositions(userId: number): Promise<Position[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db
+    .select()
+    .from(positions)
+    .where(
+      and(
+        eq(positions.userId, userId),
+        eq(positions.status, "ENTERED")
+      )
+    )
+    .orderBy(desc(positions.entryTime));
+}
+
 // ============= METRICS QUERIES =============
 
 export async function upsertMetric(data: InsertMetric): Promise<void> {

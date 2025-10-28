@@ -34,6 +34,11 @@ export default function Dashboard() {
     refetchInterval: 5000,
   });
 
+  const { data: openPositions } = trpc.positions.open.useQuery(undefined, {
+    enabled: !!user,
+    refetchInterval: 2000, // Atualizar a cada 2 segundos para ver ordens em tempo real
+  });
+
   const { data: config } = trpc.config.get.useQuery(undefined, {
     enabled: !!user,
   });
@@ -274,6 +279,16 @@ export default function Dashboard() {
                   low: parseFloat(c.low),
                   close: parseFloat(c.close),
                 }))}
+                openPositions={openPositions?.map((p) => ({
+                  id: p.id,
+                  direction: p.direction,
+                  entryPrice: p.entryPrice,
+                  entryTime: p.entryTime ? new Date(p.entryTime).getTime() / 1000 : 0,
+                  status: p.status,
+                  pnl: p.pnl,
+                }))}
+                predictionLine={botStatus?.state === "ARMED" || botStatus?.state === "POSITION_OPEN" ? parseFloat(openPositions?.[0]?.predictedClose || "0") || null : null}
+                triggerLine={botStatus?.state === "ARMED" || botStatus?.state === "POSITION_OPEN" ? parseFloat(openPositions?.[0]?.trigger || "0") || null : null}
               />
             ) : (
               <div className="text-center py-12 text-slate-400">
