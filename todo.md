@@ -146,3 +146,23 @@
 - [x] Corrigir sinal do offset Fibonacci (+ para UP, - para DOWN) - CORRIGIDO
 - [x] Adicionar logs detalhados com TODOS os valores usados na predição (abertura, máxima, mínima) - CONCLUÍDO
 
+
+
+
+## Verificação Urgente - Lógica de Direção
+- [ ] Verificar se engine retorna direção correta: close > abertura = UP (CALL), close < abertura = DOWN (PUT)
+- [ ] Confirmar mapeamento de "up/down" para tipo de contrato DERIV
+- [ ] Validar com logs: abertura vs close previsto vs direção retornada
+
+
+
+
+## Bug CRÍTICO - Cálculo de PnL Incorreto
+- [ ] PnL não bate com DERIV: lucro de $95 aparece como $6.65
+- [ ] Duas perdas de -$100 cada registradas
+- [ ] Saldo inicial $21,153 → atual $21,053 (diferença -$100)
+- [ ] PnL total mostrado -$193.35 não bate com variação de saldo
+- [x] Adicionar logs de debug: profit, sell_price, buy_price, payout, exit_tick - CONCLUÍDO
+- [x] Log de cálculo: finalProfit DERIV vs pnlInCents (x100) - CONCLUÍDO
+- [ ] Aguardar próxima operação para analisar logs e identificar problema
+

@@ -499,14 +499,26 @@ export class TradingBot {
       const contractInfo = await this.derivService.getContractInfo(this.contractId);
       const finalProfit = contractInfo.profit || 0;
       const exitPrice = contractInfo.exit_tick || contractInfo.current_spot || 0;
+      
+      // Log detalhado dos valores da DERIV para debug
+      await this.logEvent(
+        "CONTRACT_CLOSE_DEBUG",
+        `[DEBUG FECHAMENTO] Contract ID: ${this.contractId} | profit: ${contractInfo.profit} | sell_price: ${contractInfo.sell_price} | buy_price: ${contractInfo.buy_price} | payout: ${contractInfo.payout} | exit_tick: ${contractInfo.exit_tick} | current_spot: ${contractInfo.current_spot}`
+      );
 
       // Atualizar posição no banco
+      const pnlInCents = Math.round(finalProfit * 100);
       await updatePosition(this.currentPositionId, {
         exitPrice: exitPrice.toString(),
-        pnl: Math.round(finalProfit * 100), // Converter para centavos
+        pnl: pnlInCents,
         status: "CLOSED",
         exitTime: new Date(),
       });
+      
+      await this.logEvent(
+        "PNL_CALCULATION",
+        `[CÁLCULO PNL] finalProfit DERIV: ${finalProfit} | pnlInCents (x100): ${pnlInCents} | pnlInDollars: ${(pnlInCents / 100).toFixed(2)}`
+      );
 
       // Atualizar PnL diário
       this.dailyPnL += Math.round(finalProfit * 100);
