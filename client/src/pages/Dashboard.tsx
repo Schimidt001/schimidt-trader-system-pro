@@ -285,10 +285,10 @@ export default function Dashboard() {
                   entryPrice: p.entryPrice,
                   entryTime: p.entryTime ? new Date(p.entryTime).getTime() / 1000 : 0,
                   status: p.status,
-                  pnl: p.pnl,
+                  pnl: p.pnl ?? undefined,
                 }))}
-                predictionLine={botStatus?.state === "ARMED" || botStatus?.state === "POSITION_OPEN" ? parseFloat(openPositions?.[0]?.predictedClose || "0") || null : null}
-                triggerLine={botStatus?.state === "ARMED" || botStatus?.state === "POSITION_OPEN" ? parseFloat(openPositions?.[0]?.trigger || "0") || null : null}
+                predictionLine={botStatus?.state === "ARMED" ? parseFloat(openPositions?.[0]?.predictedClose || "0") || undefined : undefined}
+                triggerLine={botStatus?.state === "ARMED" ? parseFloat(openPositions?.[0]?.trigger || "0") || undefined : undefined}
               />
             ) : (
               <div className="text-center py-12 text-slate-400">
