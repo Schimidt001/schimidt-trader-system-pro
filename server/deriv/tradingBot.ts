@@ -185,6 +185,19 @@ export class TradingBot {
     const tickTime = new Date(tick.epoch * 1000);
     const candleTimestamp = Math.floor(tick.epoch / 900) * 900; // Arredondar para M15
 
+    // Inicializar candle atual se for o primeiro tick
+    if (this.currentCandleTimestamp === 0) {
+      this.currentCandleTimestamp = candleTimestamp;
+      this.currentCandleOpen = tick.quote;
+      this.currentCandleHigh = tick.quote;
+      this.currentCandleLow = tick.quote;
+      this.currentCandleStartTime = new Date(candleTimestamp * 1000);
+      this.state = "WAITING_MIDPOINT";
+      await this.updateBotState();
+      await this.logEvent("CANDLE_INITIALIZED", `Candle atual inicializado: timestamp=${candleTimestamp}, open=${tick.quote}`);
+      return;
+    }
+
     // Novo candle?
     if (candleTimestamp !== this.currentCandleTimestamp) {
       // Fechar candle anterior

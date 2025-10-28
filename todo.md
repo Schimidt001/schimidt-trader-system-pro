@@ -166,3 +166,12 @@
 - [x] Log de cálculo: finalProfit DERIV vs pnlInCents (x100) - CONCLUÍDO
 - [ ] Aguardar próxima operação para analisar logs e identificar problema
 
+
+
+
+## Bug - Tempo Restante Não Atualiza
+- [x] Frontend continua mostrando "Aguardando 8 minutos" mesmo após 8 minutos terem passado - RESOLVIDO
+- [x] candleStartTime retornava 0 porque currentCandleTimestamp só era definido no próximo candle - CORRIGIDO
+- [x] Adicionada inicialização do candle atual no primeiro tick recebido - CONCLUÍDO
+- [x] Log CANDLE_INITIALIZED para confirmar timestamp correto - CONCLUÍDO
+

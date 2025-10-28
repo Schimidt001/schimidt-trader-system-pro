@@ -126,6 +126,9 @@ export const appRouter = router({
       const bot = getBotForUser(ctx.user.id);
       const candleStartTime = bot.getCandleStartTime();
       
+      // Debug log
+      console.log(`[bot.status] userId: ${ctx.user.id}, state: ${state?.state}, candleStartTime: ${candleStartTime}, isRunning: ${state?.isRunning}`);
+      
       // Retornar estado padrão se não existir
       if (!state) {
         return {
