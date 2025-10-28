@@ -1,15 +1,4 @@
-import { 
-  ComposedChart, 
-  Bar,
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
-  ResponsiveContainer, 
-  ReferenceLine,
-  Line
-} from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Bar, Cell } from "recharts";
 
 interface Position {
   id: number;
@@ -75,65 +64,6 @@ const CustomTooltip = ({ active, payload }: any) => {
   );
 };
 
-// Componente customizado para renderizar candles como barras
-const CandleShape = (props: any) => {
-  const { x, y, width, height, fill, payload } = props;
-  
-  if (!payload) return null;
-  
-  const { open, close, high, low } = payload;
-  const isGreen = close >= open;
-  const color = isGreen ? "#22c55e" : "#ef4444";
-  
-  // Calcular dimensões
-  const candleTop = Math.max(open, close);
-  const candleBottom = Math.min(open, close);
-  const candleHeight = Math.abs(close - open);
-  
-  // Evitar altura zero
-  const minHeight = 2;
-  const actualCandleHeight = Math.max(candleHeight, minHeight);
-  
-  // Calcular posições relativas
-  const range = high - low;
-  const yScale = height / range;
-  
-  // Posições dos elementos
-  const wickX = x + width / 2;
-  const wickWidth = 2;
-  const candleWidth = Math.max(width * 0.7, 3);
-  
-  const highY = y;
-  const lowY = y + height;
-  const candleTopY = y + (high - candleTop) * yScale;
-  const candleBottomY = y + (high - candleBottom) * yScale;
-  
-  return (
-    <g>
-      {/* Pavio (wick) */}
-      <line
-        x1={wickX}
-        y1={highY}
-        x2={wickX}
-        y2={lowY}
-        stroke={color}
-        strokeWidth={wickWidth}
-      />
-      
-      {/* Corpo do candle */}
-      <rect
-        x={x + (width - candleWidth) / 2}
-        y={candleTopY}
-        width={candleWidth}
-        height={Math.max(candleBottomY - candleTopY, minHeight)}
-        fill={color}
-        stroke={color}
-        strokeWidth={1}
-      />
-    </g>
-  );
-};
-
 export function CandleChart({ 
   data, 
   predictionLine, 
@@ -161,8 +91,6 @@ export function CandleChart({
     low: candle.low,
     open: candle.open,
     close: candle.close,
-    // Para renderizar como barra, usamos o range
-    range: [candle.low, candle.high],
   }));
 
   // Calcular domínio Y com margem
@@ -180,7 +108,7 @@ export function CandleChart({
   return (
     <div className="w-full h-[500px] bg-slate-900/50 rounded-lg border border-slate-800 p-4">
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={chartData}>
+        <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
           
           <XAxis 
@@ -206,12 +134,35 @@ export function CandleChart({
             iconType="line"
           />
 
-          {/* Renderizar candles usando Bar com shape customizado */}
-          <Bar 
-            dataKey="range" 
-            shape={<CandleShape />}
-            isAnimationActive={false}
-            name="Candles"
+          {/* Linhas de High, Low e Close */}
+          <Line 
+            type="monotone" 
+            dataKey="high" 
+            stroke="#22c55e" 
+            strokeWidth={2}
+            dot={false}
+            name="Máxima"
+            isAnimationActive={true}
+          />
+          
+          <Line 
+            type="monotone" 
+            dataKey="low" 
+            stroke="#ef4444" 
+            strokeWidth={2}
+            dot={false}
+            name="Mínima"
+            isAnimationActive={true}
+          />
+          
+          <Line 
+            type="monotone" 
+            dataKey="close" 
+            stroke="#3b82f6" 
+            strokeWidth={2}
+            dot={false}
+            name="Fechamento"
+            isAnimationActive={true}
           />
 
           {/* Linha de abertura do candle atual */}
@@ -300,7 +251,7 @@ export function CandleChart({
               />
             );
           })}
-        </ComposedChart>
+        </LineChart>
       </ResponsiveContainer>
       
       {/* Legenda de cores e informações */}
@@ -308,11 +259,15 @@ export function CandleChart({
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-green-500 rounded"></div>
-            <span>Candle Verde (Alta)</span>
+            <span>Máxima</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-red-500 rounded"></div>
-            <span>Candle Vermelho (Baixa)</span>
+            <span>Mínima</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-blue-500 rounded"></div>
+            <span>Fechamento</span>
           </div>
           {openPositions && openPositions.length > 0 && (
             <div className="flex items-center gap-2">

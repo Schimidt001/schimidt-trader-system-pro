@@ -114,14 +114,8 @@
 
 
 ## Novas Tarefas
-- [x] Criar repositório no GitHub com todo o projeto
-- [x] Criar README.md completo e detalhado
-- [x] Fazer commit e push do código
-- [x] Gerar arquivo ZIP do projeto para backup
-
-
-
-## Bugs das Modificações do Outro Agente
-- [x] Erro TypeScript: comparação com estado "POSITION_OPEN" que não existe
-- [x] Erro TypeScript: tipo number | null não compatível com number | undefined
+- [ ] Criar repositório no GitHub com todo o projeto
+- [ ] Criar README.md completo e detalhado
+- [ ] Fazer commit e push do código
+- [ ] Gerar arquivo ZIP do projeto para backup
 

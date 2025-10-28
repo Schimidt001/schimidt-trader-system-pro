@@ -47,6 +47,7 @@ export class TradingBot {
   // Posição atual
   private currentPositionId: number | null = null;
   private contractId: string | null = null;
+  private lastContractCheckTime: number = 0;
   
   // Configurações
   private symbol: string = "R_100";
@@ -217,7 +218,7 @@ export class TradingBot {
 
     // Se armado, verificar gatilho
     if (this.state === "ARMED" && this.prediction) {
-      await this.checkTrigger(tick.quote);
+      await this.checkTrigger(tick.quote, elapsedSeconds);
     }
 
     // Se em posição, gerenciar saída
@@ -343,7 +344,7 @@ export class TradingBot {
   /**
    * Verifica se o gatilho foi atingido
    */
-  private async checkTrigger(currentPrice: number): Promise<void> {
+  private async checkTrigger(currentPrice: number, elapsedSeconds: number): Promise<void> {
     if (!this.prediction || !this.derivService) return;
 
     let triggered = false;
@@ -355,25 +356,30 @@ export class TradingBot {
     }
 
     if (triggered) {
-      await this.enterPosition(currentPrice);
+      await this.enterPosition(currentPrice, elapsedSeconds);
     }
   }
 
   /**
    * Entra na posição
    */
-  private async enterPosition(entryPrice: number): Promise<void> {
+  private async enterPosition(entryPrice: number, elapsedSeconds: number): Promise<void> {
     if (!this.prediction || !this.derivService) return;
 
     try {
       const contractType = this.prediction.direction === "up" ? "CALL" : "PUT";
+      
+      // Calcular duração até 20 segundos antes do fim do candle M15 (900s)
+      // Duração = (900 - elapsedSeconds - 20) segundos
+      const durationSeconds = Math.max(900 - elapsedSeconds - 20, 60); // Mínimo 60s
+      const durationMinutes = Math.ceil(durationSeconds / 60); // Arredondar para cima em minutos
       
       // Comprar contrato na DERIV
       const contract = await this.derivService.buyContract(
         this.symbol,
         contractType,
         this.stake / 100, // Converter centavos para unidade
-        1,
+        durationMinutes,
         "m"
       );
 
@@ -399,12 +405,13 @@ export class TradingBot {
 
       this.currentPositionId = positionId;
       this.tradesThisCandle.add(this.currentCandleTimestamp);
+      this.lastContractCheckTime = 0; // Resetar para permitir verificação imediata
 
       this.state = "ENTERED";
       await this.updateBotState();
       await this.logEvent(
         "POSITION_ENTERED",
-        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${this.stake / 100} | Contract: ${contract.contract_id}`
+        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${this.stake / 100} | Duração: ${durationMinutes}min (${durationSeconds}s) | Contract: ${contract.contract_id}`
       );
     } catch (error) {
       console.error("[TradingBot] Error entering position:", error);
@@ -420,8 +427,29 @@ export class TradingBot {
   private async managePosition(currentPrice: number, elapsedSeconds: number): Promise<void> {
     if (!this.currentPositionId || !this.contractId || !this.derivService) return;
 
+    // Fechar 20 segundos antes do fim do candle (900 - 20 = 880)
+    // Verificar isso PRIMEIRO, antes de consultar API
+    if (elapsedSeconds >= 880) {
+      try {
+        const contractInfo = await this.derivService.getContractInfo(this.contractId);
+        const sellPrice = contractInfo.sell_price || 0;
+        await this.closePosition("Fechamento automático 20s antes do fim", sellPrice);
+      } catch (error) {
+        // Se falhar, fecha mesmo assim
+        await this.closePosition("Fechamento automático 20s antes do fim (sem sell)", 0);
+      }
+      return;
+    }
+
+    // Debounce: só consultar contrato a cada 5 segundos
+    const now = Date.now();
+    if (now - this.lastContractCheckTime < 5000) {
+      return; // Pular esta verificação
+    }
+    this.lastContractCheckTime = now;
+
     try {
-      // Obter informações do contrato
+      // Obter informações do contrato para verificar early close
       const contractInfo = await this.derivService.getContractInfo(this.contractId);
       
       const payout = contractInfo.payout || 0;
@@ -433,15 +461,12 @@ export class TradingBot {
         await this.closePosition("Early close - 90% payout atingido", sellPrice);
         return;
       }
-
-      // Fechar 20 segundos antes do fim do candle (900 - 20 = 880)
-      if (elapsedSeconds >= 880) {
-        await this.closePosition("Fechamento automático 20s antes do fim", sellPrice);
-        return;
-      }
     } catch (error) {
-      console.error("[TradingBot] Error managing position:", error);
-      await this.logEvent("ERROR", `Erro ao gerenciar posição: ${error}`);
+      // Não logar erro a cada tick, apenas em caso de timeout crítico
+      // A posição continuará sendo gerenciada e fechará no tempo correto
+      if (elapsedSeconds % 30 === 0) {
+        console.error("[TradingBot] Error checking contract info:", error);
+      }
     }
   }
 

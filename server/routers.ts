@@ -12,7 +12,6 @@ import {
   getRecentEventLogs,
   getUserPositions,
   getTodayPositions,
-  getOpenPositions,
   getMetric,
   getCandleHistory,
 } from "./db";
@@ -265,11 +264,6 @@ export const appRouter = router({
 
     today: protectedProcedure.query(async ({ ctx }) => {
       const positions = await getTodayPositions(ctx.user.id);
-      return positions;
-    }),
-
-    open: protectedProcedure.query(async ({ ctx }) => {
-      const positions = await getOpenPositions(ctx.user.id);
       return positions;
     }),
   }),

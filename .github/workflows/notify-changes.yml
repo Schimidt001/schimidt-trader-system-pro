@@ -1,0 +1,51 @@
+name: Notify Changes
+
+on:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get commit info
+        id: commit
+        run: |
+          echo "message=$(git log -1 --pretty=%B)" >> $GITHUB_OUTPUT
+          echo "author=$(git log -1 --pretty=%an)" >> $GITHUB_OUTPUT
+          echo "sha=$(git log -1 --pretty=%h)" >> $GITHUB_OUTPUT
+
+      - name: Create deployment comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const message = `## 🚀 Novas mudanças detectadas!
+            
+            **Commit:** ${{ steps.commit.outputs.sha }}
+            **Autor:** ${{ steps.commit.outputs.author }}
+            **Mensagem:** ${{ steps.commit.outputs.message }}
+            
+            ### ⚠️ Ação necessária
+            
+            Para fazer deploy destas mudanças:
+            
+            1. Acesse o projeto Manus
+            2. Execute o comando: \`pnpm sync-and-checkpoint\`
+            3. Clique em **"Publish"** na interface
+            
+            Ou peça a um agente Manus:
+            "Sincronize as mudanças do GitHub e crie um checkpoint para deploy"
+            `;
+            
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: message
+            });
+
