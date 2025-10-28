@@ -290,20 +290,29 @@ export class TradingBot {
         },
       };
 
+      // Log dos valores ANTES da predição
+      await this.logEvent(
+        "PRE_PREDICTION_DATA",
+        `[ENTRADA DA PREDIÇÃO] Abertura: ${this.currentCandleOpen} | Máxima: ${this.currentCandleHigh} | Mínima: ${this.currentCandleLow} | Timestamp: ${this.currentCandleTimestamp} | Tempo decorrido: ${elapsedSeconds}s`
+      );
+
       // Chamar engine de predição
       this.prediction = await predictionService.predict(request);
 
       // Calcular gatilho (offset de 16 pontos)
       const offset = 16 * this.pipSize;
       if (this.prediction.direction === "up") {
-        this.trigger = this.prediction.predicted_close - offset;
-      } else {
+        // Para UP, gatilho ACIMA do close previsto
         this.trigger = this.prediction.predicted_close + offset;
+      } else {
+        // Para DOWN, gatilho ABAIXO do close previsto
+        this.trigger = this.prediction.predicted_close - offset;
       }
 
+      // Log detalhado da predição e cálculo do gatilho
       await this.logEvent(
         "PREDICTION_MADE",
-        `Predição: ${this.prediction.direction} | Close: ${this.prediction.predicted_close} | Gatilho: ${this.trigger} | Fase: ${this.prediction.phase} | Estratégia: ${this.prediction.strategy}`
+        `[SAÍDA DA PREDIÇÃO] Direção: ${this.prediction.direction.toUpperCase()} | Close Previsto: ${this.prediction.predicted_close} | Gatilho Calculado: ${this.trigger} (${this.prediction.direction === 'up' ? 'ACIMA' : 'ABAIXO'} do close) | Offset: ${offset} | Fase: ${this.prediction.phase} | Estratégia: ${this.prediction.strategy}`
       );
 
       // Verificar se já atingiu limite diário
@@ -356,6 +365,10 @@ export class TradingBot {
     }
 
     if (triggered) {
+      await this.logEvent(
+        "TRIGGER_HIT",
+        `[GATILHO ATINGIDO] Preço atual: ${currentPrice} | Gatilho: ${this.trigger} | Direção: ${this.prediction.direction.toUpperCase()} | Condição: ${this.prediction.direction === 'up' ? `Preço (${currentPrice}) <= Gatilho (${this.trigger})` : `Preço (${currentPrice}) >= Gatilho (${this.trigger})`}`
+      );
       await this.enterPosition(currentPrice, elapsedSeconds);
     }
   }
@@ -600,6 +613,13 @@ export class TradingBot {
    */
   getIsRunning(): boolean {
     return this.isRunning;
+  }
+
+  /**
+   * Obtém timestamp do início do candle atual (UTC)
+   */
+  getCandleStartTime(): number {
+    return this.currentCandleTimestamp;
   }
 }
 

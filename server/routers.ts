@@ -123,6 +123,9 @@ export const appRouter = router({
   bot: router({
     status: protectedProcedure.query(async ({ ctx }) => {
       const state = await getBotState(ctx.user.id);
+      const bot = getBotForUser(ctx.user.id);
+      const candleStartTime = bot.getCandleStartTime();
+      
       // Retornar estado padrão se não existir
       if (!state) {
         return {
@@ -131,12 +134,17 @@ export const appRouter = router({
           state: "IDLE" as const,
           isRunning: false,
           currentCandleTimestamp: null,
+          candleStartTime: null,
           currentPositionId: null,
           lastError: null,
           updatedAt: new Date(),
         };
       }
-      return state;
+      
+      return {
+        ...state,
+        candleStartTime: candleStartTime || null,
+      };
     }),
 
     start: protectedProcedure.mutation(async ({ ctx }) => {

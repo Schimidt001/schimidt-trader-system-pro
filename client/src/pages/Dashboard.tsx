@@ -119,7 +119,32 @@ export default function Dashboard() {
 
   const isRunning = botStatus?.isRunning || false;
   const currentState = botStatus?.state || "IDLE";
-  const stateLabel = BOT_STATES[currentState as keyof typeof BOT_STATES] || currentState;
+  
+  // Calcular tempo restante dinamicamente
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+  
+  useEffect(() => {
+    if (currentState === "WAITING_MIDPOINT" && botStatus?.candleStartTime) {
+      const interval = setInterval(() => {
+        const now = Math.floor(Date.now() / 1000); // Timestamp atual em segundos
+        const candleStart = botStatus.candleStartTime || 0;
+        const elapsed = now - candleStart; // Tempo decorrido desde início do candle
+        const remaining = Math.max(0, 480 - elapsed); // 480s = 8 minutos
+        setTimeRemaining(remaining);
+      }, 1000);
+      
+      return () => clearInterval(interval);
+    } else {
+      setTimeRemaining(null);
+    }
+  }, [currentState, botStatus?.candleStartTime]);
+  
+  // Label dinâmico baseado no tempo restante
+  let stateLabel: string = BOT_STATES[currentState as keyof typeof BOT_STATES] || currentState;
+  if (currentState === "WAITING_MIDPOINT" && timeRemaining !== null) {
+    const minutesRemaining = Math.ceil(timeRemaining / 60);
+    stateLabel = `Aguardando ${minutesRemaining} minuto${minutesRemaining !== 1 ? 's' : ''}`;
+  }
 
   const dailyPnL = metrics?.daily.pnl || 0;
   const monthlyPnL = metrics?.monthly.pnl || 0;

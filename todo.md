@@ -127,3 +127,22 @@
 - [x] Conectar gráfico de linhas à API DERIV (endpoint liveCandles) - CONCLUÍDO
 - [ ] Mostrar apenas ordem ativa (não ordens fechadas) - PENDENTE
 
+
+
+
+## Bug Crítico - Exibição de Tempo Restante
+- [x] Frontend mostra "Aguardando 8 minutos" fixo, mas deveria mostrar tempo restante dinâmico - RESOLVIDO
+- [x] Calcular tempo decorrido desde início do candle atual - CONCLUÍDO
+- [x] Atualizar display em tempo real (ex: 8min → 7min → 6min...) - CONCLUÍDO
+- [x] Backend retorna candleStartTime (timestamp UTC do início do candle da DERIV) - CONCLUÍDO
+
+
+
+
+## Bug CRÍTICO - Cálculo de Gatilho Invertido
+- [x] Predição UP com gatilho ABAIXO do close (deveria estar ACIMA) - CORRIGIDO
+- [x] Exemplo: Close=49517.8732, Gatilho=49517.8716 (errado!) - CORRIGIDO
+- [x] Verificar lógica de cálculo do trigger na predictionService - CONCLUÍDO
+- [x] Corrigir sinal do offset Fibonacci (+ para UP, - para DOWN) - CORRIGIDO
+- [x] Adicionar logs detalhados com TODOS os valores usados na predição (abertura, máxima, mínima) - CONCLUÍDO
+
