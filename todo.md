@@ -111,3 +111,11 @@
 
 - [x] Bot entra em ERROR_API durante operação - faltava parâmetro currency na API
 
+
+
+## Novas Tarefas
+- [ ] Criar repositório no GitHub com todo o projeto
+- [ ] Criar README.md completo e detalhado
+- [ ] Fazer commit e push do código
+- [ ] Gerar arquivo ZIP do projeto para backup
+

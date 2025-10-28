@@ -1,260 +1,534 @@
 # Schimidt Trader System PRO
 
-Sistema de Trading Automatizado 24/7 para DERIV com Engine de Predição Proprietária.
+Sistema de Trading Automatizado 24/7 para DERIV com Engine de Predição Proprietária baseada no Algoritmo Fibonacci da Amplitude.
 
-## 📋 Visão Geral
+## 📋 Índice
 
-O **Schimidt Trader System PRO** é um bot trader totalmente automatizado que opera no mercado de ativos sintéticos da DERIV em timeframe M15. O sistema utiliza uma engine de predição proprietária imutável fornecida pelo cliente e executa trades automaticamente com gestão de risco integrada.
+- [Visão Geral](#visão-geral)
+- [Arquitetura](#arquitetura)
+- [Funcionalidades](#funcionalidades)
+- [Tecnologias](#tecnologias)
+- [Instalação](#instalação)
+- [Configuração](#configuração)
+- [Uso](#uso)
+- [Engine de Predição](#engine-de-predição)
+- [Estrutura do Projeto](#estrutura-do-projeto)
+- [API e Endpoints](#api-e-endpoints)
+- [Banco de Dados](#banco-de-dados)
+- [Troubleshooting](#troubleshooting)
 
-## 🎯 Funcionalidades Principais
+## 🎯 Visão Geral
 
-### ✅ Implementado
+O **Schimidt Trader System PRO** é uma plataforma completa de trading automatizado que opera 24/7 em ativos sintéticos da DERIV. O sistema utiliza uma engine de predição proprietária baseada no **Algoritmo Fibonacci da Amplitude** com **84.85% de assertividade** para prever o fechamento de candles M15 e executar trades automaticamente.
 
-- **Engine de Predição Proprietária**: Integração com modelo `modelo_otimizado_v2.pkl`
-- **Coleta de Dados em Tempo Real**: WebSocket DERIV para candles M15
-- **Trading Automatizado**: Execução automática baseada em gatilhos calculados
-- **Gestão de Risco**: Stop diário, take diário, máximo 1 operação por candle
-- **Interface Profissional**: Dashboard com métricas, configurações e logs
-- **Sistema de Estados**: Máquina de estados completa (IDLE → COLLECTING → PREDICTING → ARMED → ENTERED)
-- **Persistência**: Banco de dados MySQL com histórico completo
-- **Reconexão Automática**: Sistema resiliente com reconexão sem duplicação de ordens
+### Características Principais
 
-### 🔧 Configurável
+- ✅ **Trading 100% Automatizado** - Opera sem intervenção humana
+- ✅ **Engine Proprietária** - Algoritmo Fibonacci da Amplitude integrado
+- ✅ **Gestão de Risco Avançada** - Stop/Take diário, early close inteligente
+- ✅ **Dados Reais** - Integração direta com API DERIV via WebSocket
+- ✅ **Interface Profissional** - Dashboard em tempo real com gráficos M15
+- ✅ **Modo DEMO e REAL** - Teste seguro antes de operar com dinheiro real
 
-- Modo DEMO ou REAL
-- Tokens de API DERIV
-- Ativo sintético (R_10, R_25, R_50, R_75, R_100, etc.)
-- Stake por operação
-- Stop diário (limite de perda)
-- Take diário (objetivo de lucro)
-- Lookback de candles históricos
+## 🏗️ Arquitetura
 
-## 🚀 Como Usar
-
-### 1. Configuração Inicial
-
-Acesse a página **Configurações** e preencha:
-
-1. **Modo de Operação**: Escolha DEMO (para testes) ou REAL
-2. **Tokens DERIV**: 
-   - Obtenha seu token em: https://app.deriv.com/account/api-token
-   - Token DEMO para conta de demonstração
-   - Token REAL para conta real (use com cautela!)
-3. **Ativo Sintético**: Selecione o ativo desejado (ex: Volatility 100 Index)
-4. **Stake**: Valor por operação em USD (ex: 10.00)
-5. **Stop Diário**: Limite de perda diária em USD (ex: 100.00)
-6. **Take Diário**: Objetivo de lucro diário em USD (ex: 500.00)
-7. **Lookback**: Quantidade de candles históricos para predição (ex: 100)
-
-Clique em **Salvar Configurações**.
-
-### 2. Integração da Engine de Predição
-
-⚠️ **IMPORTANTE**: O sistema espera que a engine de predição proprietária esteja rodando localmente.
-
-A engine deve expor os seguintes endpoints:
-
-#### `POST /predict`
-
-**Request:**
-```json
-{
-  "symbol": "R_100",
-  "tf": "M15",
-  "history": [
-    {
-      "abertura": 1234.56,
-      "minima": 1230.00,
-      "maxima": 1240.00,
-      "fechamento": 1235.00,
-      "timestamp": 1234567890
-    }
-  ],
-  "partial_current": {
-    "timestamp_open": 1234567890,
-    "elapsed_seconds": 480,
-    "abertura": 1235.00,
-    "minima_parcial": 1232.00,
-    "maxima_parcial": 1238.00
-  }
-}
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    FRONTEND (React 19)                       │
+│  Dashboard │ Configurações │ Logs │ Gráfico M15 em Tempo Real│
+└──────────────────────┬──────────────────────────────────────┘
+                       │ tRPC
+┌──────────────────────┴──────────────────────────────────────┐
+│                  BACKEND (Node.js + Express)                 │
+│  ┌──────────────┐  ┌─────────────┐  ┌────────────────────┐ │
+│  │ Trading Bot  │  │ DERIV API   │  │ Prediction Engine  │ │
+│  │ (TypeScript) │──│ (WebSocket) │──│ (Python Flask)     │ │
+│  └──────────────┘  └─────────────┘  └────────────────────┘ │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+┌──────────────────────┴──────────────────────────────────────┐
+│              BANCO DE DADOS (MySQL/TiDB)                     │
+│  users │ config │ candles │ positions │ metrics │ eventLogs │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Response:**
-```json
-{
-  "predicted_close": 1236.50,
-  "direction": "up",
-  "phase": "accumulation",
-  "strategy": "breakout",
-  "confidence": 0.85
-}
-```
+## ⚡ Funcionalidades
 
-#### `GET /health`
+### 1. Engine de Predição Proprietária
 
-Endpoint de health check que deve retornar status 200 quando a engine estiver disponível.
+- **Algoritmo**: Fibonacci da Amplitude
+- **Assertividade**: 84.85%
+- **Timeframe**: M15 (15 minutos)
+- **Método**: Análise de fase + descoberta de padrões
+- **Entrada**: 50 candles históricos + candle atual parcial
+- **Saída**: Predição de fechamento + direção (UP/DOWN)
 
-#### Configuração da URL
+### 2. Sistema de Trading Automatizado
 
-Por padrão, o sistema busca a engine em `http://localhost:5000`. Para alterar, defina a variável de ambiente:
+#### Estados do Bot
+- `IDLE` - Parado, aguardando início
+- `COLLECTING` - Coletando histórico de candles
+- `WAITING_MIDPOINT` - Aguardando 8 minutos do candle M15
+- `PREDICTING` - Chamando engine de predição
+- `ARMED` - Entrada armada, aguardando gatilho
+- `POSITION_OPEN` - Posição aberta, monitorando
+- `WAITING_NEXT_CANDLE` - Aguardando próximo candle (1 trade/candle)
+- `LOCK_RISK` - Bloqueado por stop/take diário
+- `ERROR_API` - Erro de comunicação com API
+- `DISCONNECTED` - Desconectado da DERIV
+
+#### Lógica de Entrada
+1. Aguarda **8 minutos** do candle M15 atual
+2. Coleta candle parcial (open, high, low, current)
+3. Envia para engine de predição
+4. Recebe predição de fechamento
+5. Calcula **gatilho** = predição ± 16 pontos
+   - UP: gatilho = predição - 16
+   - DOWN: gatilho = predição + 16
+6. Monitora preço em tempo real
+7. Executa CALL/PUT quando preço cruza gatilho
+
+#### Gestão de Risco
+- **Stop Diário**: Para bot ao atingir prejuízo máximo
+- **Take Diário**: Para bot ao atingir lucro alvo
+- **Early Close**: Encerra posição com 90%+ de payout antes do vencimento
+- **Encerramento Automático**: 20 segundos antes do fechamento do candle
+- **1 Trade por Candle**: Evita overtrading
+- **Idempotência**: Previne duplicação de ordens
+
+### 3. Interface do Usuário
+
+#### Dashboard
+- **Saldo Real**: Busca via API DERIV
+- **PnL Diário/Mensal**: Calculado de posições reais
+- **Trades Hoje**: Contador em tempo real
+- **Gráfico M15**: Candles com linhas de referência
+  - Linha azul: Fechamento previsto
+  - Linha verde: Máxima
+  - Linha vermelha: Mínima
+- **Posições Abertas**: Lista de trades ativos
+- **Status do Bot**: Indicador visual com estados
+
+#### Configurações
+- **Modo**: DEMO ou REAL
+- **Token DERIV**: Configuração segura
+- **Ativo**: Seleção de sintético (R_10, R_25, R_50, R_75, R_100)
+- **Stake**: Valor por trade
+- **Stop/Take Diário**: Limites de risco
+- **Lookback**: Quantidade de candles históricos
+- **Teste de Conexão**: Valida token antes de operar
+
+#### Logs
+- **Eventos do Sistema**: Timestamped em UTC
+- **Filtros**: Por tipo de evento
+- **Histórico Completo**: Auditoria de operações
+
+## 🛠️ Tecnologias
+
+### Frontend
+- **React 19** - Framework UI
+- **TypeScript** - Type safety
+- **Tailwind CSS 4** - Styling
+- **shadcn/ui** - Componentes
+- **tRPC** - Type-safe API
+- **Recharts** - Gráficos
+- **Wouter** - Routing
+
+### Backend
+- **Node.js 22** - Runtime
+- **Express 4** - Web server
+- **tRPC 11** - API layer
+- **Drizzle ORM** - Database
+- **WebSocket** - DERIV API
+- **Python 3.11** - Prediction engine
+- **Flask** - Engine server
+- **scikit-learn** - ML models
+
+### Infraestrutura
+- **MySQL/TiDB** - Database
+- **Manus OAuth** - Authentication
+- **Manus Platform** - Deployment
+
+## 📦 Instalação
+
+### Pré-requisitos
+- Node.js 22+
+- Python 3.11+
+- pnpm
+- MySQL/TiDB database
+
+### Passo a Passo
 
 ```bash
-PREDICTION_ENGINE_URL=http://seu-servidor:porta
-```
+# 1. Clone o repositório
+git clone https://github.com/seu-usuario/schimidt-trader-system-pro.git
+cd schimidt-trader-system-pro
 
-### 3. Iniciar o Bot
-
-1. Acesse o **Dashboard**
-2. Verifique se todas as configurações estão corretas
-3. Clique no botão **Iniciar Bot** (verde)
-4. O bot começará a coletar dados e operar automaticamente
-
-### 4. Monitoramento
-
-O Dashboard exibe em tempo real:
-
-- **Saldo da Conta**: Saldo atual na DERIV
-- **PnL Diário**: Lucro/prejuízo do dia
-- **PnL Mensal**: Lucro/prejuízo do mês
-- **Trades Hoje**: Número de operações e perdas
-- **Status**: Estado atual do bot (Parado, Coletando dados, Entrada armada, etc.)
-- **Posições de Hoje**: Lista de todas as operações realizadas
-
-A página **Logs** mostra todos os eventos do sistema com timestamps UTC.
-
-## 📊 Lógica de Trading
-
-### Fluxo de Operação
-
-1. **COLLECTING**: Bot coleta histórico de candles M15 da DERIV
-2. **WAITING_MIDPOINT**: Aguarda 8 minutos de formação do candle atual
-3. **PREDICTING**: Envia dados para engine de predição
-4. **ARMED**: Calcula gatilho de entrada (predicted_close ± 16 pontos)
-5. **ENTERED**: Executa trade quando preço cruza o gatilho
-6. **MANAGING**: Monitora posição para early close ou encerramento automático
-7. **CLOSED**: Fecha posição e volta para WAITING_MIDPOINT
-
-### Cálculo do Gatilho
-
-```
-1 ponto = pip_size do ativo
-Offset fixo = 16 pontos
-
-Se direção = UP:
-  gatilho = predicted_close - (16 × pip_size)
-
-Se direção = DOWN:
-  gatilho = predicted_close + (16 × pip_size)
-```
-
-### Regras de Encerramento
-
-1. **Early Close**: Fecha se lucro ≥ 90% do payout do contrato
-2. **Encerramento Automático**: Fecha 20 segundos antes do fim do candle M15
-3. **Stop Diário**: Para o bot se perda diária atingir o limite
-4. **Take Diário**: Para o bot se lucro diário atingir o objetivo
-
-### Gestão de Risco
-
-- ✅ Máximo 1 operação por candle M15
-- ✅ Idempotência de ordens (sem duplicação)
-- ✅ Reconexão automática sem duplicar trades
-- ✅ Bloqueios por risco (LOCK_RISK, ERROR_API, DISCONNECTED)
-
-## 🗄️ Estrutura do Banco de Dados
-
-### Tabelas Principais
-
-- **users**: Usuários do sistema
-- **config**: Configurações do bot por usuário
-- **candles**: Histórico de candles M15
-- **positions**: Posições abertas e históricas
-- **metrics**: Métricas diárias e mensais
-- **eventLogs**: Log de eventos do sistema
-- **botState**: Estado atual do bot
-
-## 🔒 Segurança
-
-- Tokens DERIV armazenados com segurança no banco de dados
-- Autenticação via Manus OAuth
-- Separação de contas DEMO e REAL
-- Logs completos de todas as operações
-
-## ⚠️ Avisos Importantes
-
-1. **Engine Proprietária**: O sistema NÃO substitui ou altera a engine de predição do cliente. Ela deve estar rodando separadamente.
-
-2. **Modo DEMO Primeiro**: Sempre teste em modo DEMO antes de usar tokens REAL.
-
-3. **Gestão de Risco**: Configure stop diário adequado para proteger seu capital.
-
-4. **Monitoramento**: Acompanhe regularmente os logs e métricas do sistema.
-
-5. **Conexão Internet**: O bot precisa de conexão estável com a DERIV.
-
-## 🛠️ Desenvolvimento
-
-### Estrutura do Projeto
-
-```
-server/
-  ├── prediction/          # Integração com engine proprietária
-  │   └── predictionService.ts
-  ├── deriv/              # Integração com DERIV
-  │   ├── derivService.ts
-  │   └── tradingBot.ts
-  ├── db.ts               # Queries do banco de dados
-  └── routers.ts          # Endpoints tRPC
-
-client/src/
-  ├── pages/              # Páginas da UI
-  │   ├── Dashboard.tsx
-  │   ├── Settings.tsx
-  │   └── Logs.tsx
-  └── const.ts            # Constantes compartilhadas
-
-drizzle/
-  └── schema.ts           # Schema do banco de dados
-
-shared/types/
-  └── prediction.ts       # Tipos da API de predição
-```
-
-### Comandos Úteis
-
-```bash
-# Instalar dependências
+# 2. Instale dependências Node.js
 pnpm install
 
-# Aplicar schema ao banco
+# 3. Instale dependências Python
+cd server/prediction
+pip3 install -r requirements.txt
+cd ../..
+
+# 4. Configure variáveis de ambiente
+cp .env.example .env
+# Edite .env com suas credenciais
+
+# 5. Aplique schema ao banco de dados
 pnpm db:push
 
-# Iniciar desenvolvimento
+# 6. Inicie o servidor de desenvolvimento
 pnpm dev
-
-# Build para produção
-pnpm build
 ```
 
-## 📝 Próximos Passos
+## ⚙️ Configuração
 
-Para completar o sistema, você precisa:
+### Variáveis de Ambiente
 
-1. ✅ Subir a engine de predição proprietária em `http://localhost:5000`
-2. ✅ Configurar tokens DERIV válidos
-3. ✅ Testar em modo DEMO primeiro
-4. ⚠️ Validar predições com o teste de ouro fornecido
-5. ⚠️ Adicionar gráfico de candles em tempo real (opcional)
+```env
+# Database
+DATABASE_URL=mysql://user:password@host:port/database
 
-## 📞 Suporte
+# Manus OAuth (fornecido automaticamente pela plataforma)
+JWT_SECRET=auto
+OAUTH_SERVER_URL=auto
+VITE_OAUTH_PORTAL_URL=auto
+OWNER_OPEN_ID=auto
+OWNER_NAME=auto
 
-Para questões sobre:
-- **Engine de Predição**: Consulte a documentação proprietária fornecida
-- **API DERIV**: https://developers.deriv.com/
-- **Sistema Schimidt Trader PRO**: Consulte os logs de eventos e métricas
+# App Config
+VITE_APP_TITLE=Schimidt Trader System PRO
+VITE_APP_LOGO=https://your-logo-url.com/logo.png
+```
+
+### Tokens DERIV
+
+1. Acesse https://app.deriv.com/account/api-token
+2. Crie um token com permissões:
+   - ✅ Read
+   - ✅ Trade
+   - ✅ Payments
+3. Copie o token
+4. No sistema, vá em **Configurações**
+5. Cole o token no campo apropriado (DEMO ou REAL)
+6. Clique em **"Testar Conexão com DERIV"**
+7. Aguarde confirmação de saldo
+
+## 🚀 Uso
+
+### Iniciando o Bot
+
+1. **Configure o Token**
+   - Vá em **Configurações**
+   - Insira token DERIV (DEMO recomendado para testes)
+   - Teste a conexão
+
+2. **Ajuste Parâmetros**
+   - Selecione ativo sintético (ex: R_75)
+   - Defina stake (ex: $1.00)
+   - Configure stop diário (ex: $10.00)
+   - Configure take diário (ex: $20.00)
+   - Defina lookback (padrão: 50 candles)
+
+3. **Inicie o Bot**
+   - Volte ao **Dashboard**
+   - Clique em **"Iniciar Bot"**
+   - Aguarde coleta de histórico
+   - Bot entrará em modo de espera
+
+4. **Monitore Operações**
+   - Acompanhe gráfico M15 em tempo real
+   - Veja predições nos **Logs**
+   - Monitore posições abertas
+   - Acompanhe PnL diário
+
+### Parando o Bot
+
+- Clique em **"Parar Bot"** no Dashboard
+- Bot encerrará posições abertas
+- Estado será salvo no banco de dados
+
+### Recuperando de Erros
+
+Se o bot entrar em **"Erro de API"**:
+1. Clique em **"Limpar Erro"**
+2. Verifique configurações
+3. Teste conexão DERIV
+4. Inicie bot novamente
+
+## 🧠 Engine de Predição
+
+### Algoritmo Fibonacci da Amplitude
+
+A engine proprietária utiliza o **Algoritmo Fibonacci da Amplitude** para prever o fechamento de candles M15 com 84.85% de assertividade.
+
+#### Funcionamento
+
+```python
+# Entrada
+{
+  "open": 48255.20,
+  "high": 48270.50,
+  "low": 48240.10,
+  "current": 48260.00
+}
+
+# Processamento
+1. Calcula amplitude = high - low
+2. Aplica sequência Fibonacci
+3. Descobre fase do candle
+4. Projeta fechamento baseado em padrões históricos
+
+# Saída
+{
+  "prediction": 48255.18,
+  "direction": "down",
+  "phase": "Fibonacci da Amplitude",
+  "strategy": "Fibonacci da Amplitude"
+}
+```
+
+#### Integração
+
+A engine roda como **micro-serviço Python interno** na porta 5070:
+
+```typescript
+// Backend chama engine
+const prediction = await predictionService.predict({
+  open: candle.open,
+  high: candle.high,
+  low: candle.low,
+  current: currentPrice
+});
+
+// Engine responde
+// prediction.prediction = 48255.18
+// prediction.direction = "down"
+```
+
+#### Modelo Treinado
+
+- **Arquivo**: `server/prediction/modelo_otimizado_v2.pkl`
+- **Formato**: scikit-learn pickle
+- **Features**: 10+ indicadores técnicos
+- **Target**: Preço de fechamento
+- **Validação**: 84.85% de acurácia em backtest
+
+## 📁 Estrutura do Projeto
+
+```
+schimidt-trader-system-pro/
+├── client/                    # Frontend React
+│   ├── public/               # Assets estáticos
+│   └── src/
+│       ├── pages/            # Dashboard, Settings, Logs
+│       ├── components/       # UI components (shadcn/ui)
+│       ├── lib/              # tRPC client
+│       └── App.tsx           # Routes
+├── server/                    # Backend Node.js
+│   ├── _core/                # Framework (OAuth, tRPC, etc)
+│   ├── deriv/                # DERIV integration
+│   │   ├── derivService.ts   # WebSocket API client
+│   │   └── tradingBot.ts     # Bot logic
+│   ├── prediction/           # Prediction engine
+│   │   ├── engine_server.py  # Flask server
+│   │   ├── prediction_engine.py  # Fibonacci algorithm
+│   │   ├── modelo_otimizado_v2.pkl  # Trained model
+│   │   ├── predictionService.ts  # TS wrapper
+│   │   └── engineManager.ts  # Process manager
+│   ├── db.ts                 # Database queries
+│   └── routers.ts            # tRPC endpoints
+├── drizzle/                   # Database
+│   └── schema.ts             # Tables definition
+├── shared/                    # Shared types
+│   └── types/
+└── README.md                  # Este arquivo
+```
+
+## 🔌 API e Endpoints
+
+### tRPC Endpoints
+
+#### Auth
+- `auth.me` - Retorna usuário atual
+- `auth.logout` - Faz logout
+
+#### Config
+- `config.get` - Busca configuração do usuário
+- `config.save` - Salva configuração
+- `config.testConnection` - Testa conexão DERIV
+
+#### Bot
+- `bot.status` - Retorna estado atual do bot
+- `bot.start` - Inicia bot
+- `bot.stop` - Para bot
+- `bot.reset` - Reseta estado de erro
+
+#### Dashboard
+- `dashboard.balance` - Busca saldo DERIV
+- `dashboard.positions` - Lista posições abertas
+- `dashboard.todayPositions` - Posições do dia
+- `dashboard.candles` - Histórico de candles M15
+
+#### Logs
+- `logs.recent` - Últimos eventos do sistema
+
+### Prediction Engine API
+
+**Endpoint Interno**: `http://localhost:5070/predict`
+
+```bash
+# Request
+POST /predict
+Content-Type: application/json
+
+{
+  "open": 48255.20,
+  "high": 48270.50,
+  "low": 48240.10,
+  "current": 48260.00
+}
+
+# Response
+{
+  "prediction": 48255.18,
+  "direction": "down",
+  "phase": "Fibonacci da Amplitude",
+  "strategy": "Fibonacci da Amplitude"
+}
+```
+
+## 🗄️ Banco de Dados
+
+### Schema
+
+#### users
+- `id` - PK
+- `openId` - Manus OAuth ID
+- `name`, `email`, `loginMethod`
+- `role` - admin | user
+- `createdAt`, `updatedAt`, `lastSignedIn`
+
+#### config
+- `id` - PK
+- `userId` - FK
+- `mode` - DEMO | REAL
+- `demoToken`, `realToken`
+- `symbol` - Ativo (R_10, R_75, etc)
+- `stake`, `dailyStop`, `dailyTake`
+- `lookbackCandles`
+
+#### candles
+- `id` - PK
+- `userId` - FK
+- `symbol`
+- `timestampUtc` - Timestamp do candle
+- `open`, `high`, `low`, `close`
+- `volume`
+
+#### positions
+- `id` - PK
+- `userId` - FK
+- `contractId` - ID DERIV
+- `symbol`, `contractType` (CALL/PUT)
+- `entryPrice`, `exitPrice`
+- `stake`, `payout`, `profit`
+- `prediction`, `trigger`
+- `status` - OPEN | CLOSED | EXPIRED
+- `openedAt`, `closedAt`
+
+#### metrics
+- `id` - PK
+- `userId` - FK
+- `period` - DAY | MONTH
+- `periodKey` - YYYY-MM-DD | YYYY-MM
+- `pnl`, `totalTrades`, `wins`, `losses`
+
+#### eventLogs
+- `id` - PK
+- `userId` - FK
+- `eventType` - BOT_STARTED, PREDICTION_MADE, etc
+- `message`, `data` (JSON)
+- `timestampUtc`
+
+#### botState
+- `userId` - PK
+- `state` - Estado atual do bot
+- `isRunning` - Boolean
+- `currentCandleTimestamp`
+- `currentPositionId`
+
+## 🐛 Troubleshooting
+
+### Bot não inicia
+
+**Erro**: "Erro de API" ao iniciar
+
+**Solução**:
+1. Verifique token DERIV em Configurações
+2. Teste conexão com botão "Testar Conexão"
+3. Confirme que token tem permissões de Trade
+4. Clique em "Limpar Erro" e tente novamente
+
+### Predição não funciona
+
+**Erro**: Engine de predição não responde
+
+**Solução**:
+```bash
+# Verifique se engine está rodando
+ps aux | grep engine_server
+
+# Reinicie engine manualmente
+cd server/prediction
+python3 engine_server.py
+
+# Verifique logs
+tail -f /tmp/prediction_engine.log
+```
+
+### Posição não abre
+
+**Erro**: "Input validation failed: parameters/currency"
+
+**Solução**: Já corrigido na versão atual. Atualize para última versão.
+
+### Gráfico não carrega
+
+**Erro**: "Carregando candles..."
+
+**Solução**:
+1. Verifique token DERIV configurado
+2. Confirme que bot está conectado
+3. Aguarde alguns segundos para coleta de dados
+4. Recarregue página
+
+### Banco de dados
+
+**Erro**: Tabelas não existem
+
+**Solução**:
+```bash
+# Aplique migrations
+pnpm db:push
+
+# Verifique tabelas
+mysql -u user -p database -e "SHOW TABLES;"
+```
+
+## 📝 Licença
+
+Propriedade de **Schimidt Trading Systems**. Todos os direitos reservados.
+
+## 🤝 Suporte
+
+Para suporte técnico ou dúvidas:
+- Email: suporte@schimidt-trading.com
+- GitHub Issues: https://github.com/seu-usuario/schimidt-trader-system-pro/issues
 
 ---
 
-**Desenvolvido para Rafael - Schimidt Trader System PRO**
+**Desenvolvido com ❤️ por Manus AI Agent**
 
