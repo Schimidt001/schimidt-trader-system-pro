@@ -38,11 +38,12 @@ export default function Dashboard() {
     enabled: !!user,
   });
 
-  const { data: candles } = trpc.candles.history.useQuery(
+  const { data: candles } = trpc.dashboard.liveCandles.useQuery(
     { symbol: config?.symbol || "R_100", limit: 50 },
     {
       enabled: !!user && !!config?.symbol,
-      refetchInterval: 15000, // Atualizar a cada 15 segundos
+      refetchInterval: 1000, // Atualizar a cada 1 segundo (tempo real)
+      refetchOnWindowFocus: false,
     }
   );
 
@@ -267,7 +268,7 @@ export default function Dashboard() {
           <CardContent>
             {candles && candles.length > 0 ? (
               <CandleChart
-                data={candles.map((c) => ({
+                data={candles.map((c: any) => ({
                   timestamp: Number(c.timestampUtc),
                   open: parseFloat(c.open),
                   high: parseFloat(c.high),

@@ -119,3 +119,11 @@
 - [ ] Fazer commit e push do código
 - [ ] Gerar arquivo ZIP do projeto para backup
 
+
+
+
+## Bug Reportado - Gráfico de Linhas
+- [x] Gráfico de linhas não está atualizando em tempo real - RESOLVIDO: conectado à DERIV API
+- [x] Conectar gráfico de linhas à API DERIV (endpoint liveCandles) - CONCLUÍDO
+- [ ] Mostrar apenas ordem ativa (não ordens fechadas) - PENDENTE
+

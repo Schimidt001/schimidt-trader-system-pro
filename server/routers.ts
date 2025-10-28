@@ -247,6 +247,57 @@ export const appRouter = router({
         };
       }
     }),
+
+    // Buscar candles em tempo real da DERIV API
+    liveCandles: protectedProcedure
+      .input(z.object({ symbol: z.string(), limit: z.number().optional().default(50) }))
+      .query(async ({ ctx, input }) => {
+        const config = await getConfigByUserId(ctx.user.id);
+        
+        if (!config) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Configuração não encontrada. Configure o token DERIV primeiro.",
+          });
+        }
+
+        const token = config.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
+        
+        if (!token) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Token ${config.mode} não configurado.`,
+          });
+        }
+
+        try {
+          const derivService = new DerivService(token, config.mode === "DEMO");
+          await derivService.connect();
+          
+          const derivCandles = await derivService.getCandleHistory(
+            input.symbol,
+            900, // M15 = 900 segundos
+            input.limit
+          );
+          
+          derivService.disconnect();
+          
+          // Converter formato DERIV para formato do frontend
+          return derivCandles.map(c => ({
+            timestampUtc: c.epoch,
+            open: c.open.toString(),
+            high: c.high.toString(),
+            low: c.low.toString(),
+            close: c.close.toString(),
+          }));
+        } catch (error: any) {
+          console.error("[Dashboard] Erro ao buscar candles da DERIV:", error);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar candles: ${error.message}`,
+          });
+        }
+      }),
   }),
 
   // Posições
