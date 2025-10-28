@@ -184,6 +184,21 @@ export const appRouter = router({
 
   // Dashboard e métricas
   dashboard: router({
+    candles: protectedProcedure
+      .input(z.object({ symbol: z.string(), limit: z.number().optional().default(50) }))
+      .query(async ({ input }) => {
+        const candles = await getCandleHistory(input.symbol, input.limit);
+        return candles;
+      }),
+    todayPositions: protectedProcedure.query(async ({ ctx }) => {
+      const positions = await getTodayPositions(ctx.user.id);
+      return positions.map(p => ({
+        id: p.id,
+        entryPrice: parseFloat(p.entryPrice),
+        contractType: p.direction === "up" ? "CALL" : "PUT",
+        timestampUtc: Number(p.candleTimestamp),
+      }));
+    }),
     metrics: protectedProcedure.query(async ({ ctx }) => {
       const today = new Date().toISOString().split("T")[0];
       const thisMonth = today.substring(0, 7); // YYYY-MM

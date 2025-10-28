@@ -119,3 +119,12 @@
 - [ ] Fazer commit e push do código
 - [ ] Gerar arquivo ZIP do projeto para backup
 
+
+
+## Melhorias no Gráfico
+- [x] Substituir gráfico de linhas por candlesticks reais
+- [x] Atualizar candles em tempo real (como DERIV)
+- [x] Mostrar marcador visual da ordem aberta pelo bot
+- [x] Adicionar linha horizontal no preço de entrada
+- [x] Indicar tipo de ordem (CALL/PUT) com cor diferente
+

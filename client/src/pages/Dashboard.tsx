@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { CandleChart } from "@/components/CandleChart";
+import { CandlestickChart } from "@/components/CandlestickChart";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square } from "lucide-react";
@@ -261,26 +261,11 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle className="text-white">Gráfico M15 - {config?.symbol || "R_100"}</CardTitle>
             <CardDescription className="text-slate-400">
-              Candles em tempo real com linhas de referência
+              Candlesticks em tempo real com marcadores de ordens
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {candles && candles.length > 0 ? (
-              <CandleChart
-                data={candles.map((c) => ({
-                  timestamp: Number(c.timestampUtc),
-                  open: parseFloat(c.open),
-                  high: parseFloat(c.high),
-                  low: parseFloat(c.low),
-                  close: parseFloat(c.close),
-                }))}
-              />
-            ) : (
-              <div className="text-center py-12 text-slate-400">
-                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
-                Carregando candles...
-              </div>
-            )}
+            <CandlestickChart symbol={config?.symbol || "R_100"} />
           </CardContent>
         </Card>
 
