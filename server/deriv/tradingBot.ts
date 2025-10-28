@@ -312,14 +312,16 @@ export class TradingBot {
       // Chamar engine de predição
       this.prediction = await predictionService.predict(request);
 
-      // Calcular gatilho (offset de 16 pontos)
-      const offset = 16 * this.pipSize;
+      // Calcular gatilho (offset de 16 pontos ABSOLUTOS)
+      // Offset é valor absoluto, NÃO multiplicar por pipSize!
+      // Exemplo: 57914.1208 ±16 = 57898.1208 ou 57930.1208
+      const offset = 16.0;
       if (this.prediction.direction === "up") {
-        // Para UP, gatilho ACIMA do close previsto
-        this.trigger = this.prediction.predicted_close + offset;
-      } else {
-        // Para DOWN, gatilho ABAIXO do close previsto
+        // Para UP (compra/verde), gatilho ABAIXO do close previsto
         this.trigger = this.prediction.predicted_close - offset;
+      } else {
+        // Para DOWN (venda/vermelho), gatilho ACIMA do close previsto
+        this.trigger = this.prediction.predicted_close + offset;
       }
 
       // Log detalhado da predição e cálculo do gatilho

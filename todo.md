@@ -175,3 +175,13 @@
 - [x] Adicionada inicialização do candle atual no primeiro tick recebido - CONCLUÍDO
 - [x] Log CANDLE_INITIALIZED para confirmar timestamp correto - CONCLUÍDO
 
+
+
+
+## Bug CRÍTICO - Offset do Gatilho Errado
+- [x] Offset calculado como 0.0016 (16 * pipSize) mas deveria ser 16.0000 - CORRIGIDO
+- [x] Exemplo: Close=49466.076, Gatilho=49466.0744 (diferença 0.0016) ❌ - IDENTIFICADO
+- [x] Correto: Close=49466.076, Gatilho=49450.076 (diferença 16.0000) ✅ - IMPLEMENTADO
+- [x] Removida multiplicação por pipSize - offset agora é 16.0 absoluto - CONCLUÍDO
+- [x] Lógica correta: UP (verde) = close - 16 | DOWN (vermelho) = close + 16 - CONCLUÍDO
+
