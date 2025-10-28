@@ -131,5 +131,5 @@
 
 
 ## Bugs Reportados
-- [x] Gráfico só aparece ao redimensionar tela (F12) - adicionada altura fixa ao container
+- [x] Gráfico não renderiza - dimensions undefined (useEffect executando fora de ordem) - RESOLVIDO com setTimeout
 

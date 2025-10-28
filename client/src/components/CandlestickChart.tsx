@@ -42,27 +42,43 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
     { refetchInterval: 2000 }
   );
 
-  // Atualizar dimensões do canvas
+  // Atualizar dimensões do canvas (executar ANTES de desenhar)
   useEffect(() => {
     const updateDimensions = () => {
       if (canvasRef.current?.parentElement) {
         const parent = canvasRef.current.parentElement;
-        setDimensions({
+        const newDimensions = {
           width: parent.clientWidth,
           height: 400,
-        });
+        };
+        console.log('[CandlestickChart] Setting dimensions:', newDimensions);
+        setDimensions(newDimensions);
+      } else {
+        console.log('[CandlestickChart] No parent element for canvas');
       }
     };
 
-    updateDimensions();
+    // Usar setTimeout para garantir que o DOM está pronto
+    const timer = setTimeout(updateDimensions, 0);
     window.addEventListener("resize", updateDimensions);
-    return () => window.removeEventListener("resize", updateDimensions);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", updateDimensions);
+    };
   }, []);
 
-  // Desenhar gráfico
+  // Desenhar gráfico (executar DEPOIS de dimensions estar pronto)
   useEffect(() => {
-    if (!canvasRef.current || candles.length === 0 || dimensions.width === 0 || dimensions.height === 0) {
-      console.log('[CandlestickChart] Skip render:', { hasCanvas: !!canvasRef.current, candlesCount: candles.length, dimensions });
+    if (!canvasRef.current) {
+      console.log('[CandlestickChart] Skip render: no canvas ref');
+      return;
+    }
+    if (candles.length === 0) {
+      console.log('[CandlestickChart] Skip render: no candles');
+      return;
+    }
+    if (dimensions.width === 0 || dimensions.height === 0) {
+      console.log('[CandlestickChart] Skip render: dimensions not ready', dimensions);
       return;
     }
     
