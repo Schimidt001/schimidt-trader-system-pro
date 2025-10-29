@@ -36,6 +36,8 @@ export class DerivService {
   private maxReconnectAttempts: number = 5;
   private reconnectDelay: number = 5000;
 
+      private pingInterval: NodeJS.Timeout | null = null;
+  
   constructor(token: string, isDemo: boolean = true) {
     this.token = token;
     if (!isDemo) {
@@ -52,9 +54,12 @@ export class DerivService {
         this.ws = new WebSocket(`${this.wsUrl}?app_id=${this.appId}`);
         let authorized = false;
 
+                  
+        
         this.ws.on("open", () => {
           console.log("[DerivService] WebSocket connected");
           this.reconnectAttempts = 0;
+                  this.startPing();
           
           // Autorizar com token
           if (this.token) {
@@ -114,6 +119,8 @@ export class DerivService {
    * Desconecta do WebSocket
    */
   disconnect(): void {
+        this.stopPing();
+    
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -174,6 +181,7 @@ export class DerivService {
    * Trata desconexão e reconexão
    */
   private handleDisconnect(): void {
+            this.stopPing();
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       console.log(`[DerivService] Reconnecting... Attempt ${this.reconnectAttempts}`);
@@ -457,4 +465,27 @@ export class DerivService {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 }
+
+
+    /**
+     * Inicia o envio de pings periódicos para manter a conexão viva
+     */
+    private startPing(): void {
+        if (this.pingInterval) return;
+        this.pingInterval = setInterval(() => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.send({ ping: 1 });
+            }
+        }, 30000);
+    }
+
+    /**
+     * Para o envio de pings
+     */
+    private stopPing(): void {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
+    }
 
