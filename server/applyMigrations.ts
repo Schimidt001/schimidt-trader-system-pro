@@ -6,9 +6,31 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { migrate } from "drizzle-orm/mysql2/migrator";
 import mysql from "mysql2/promise";
 
+function getDatabaseUrl(): string | null {
+  // Tentar usar DATABASE_URL primeiro
+  if (process.env.DATABASE_URL) {
+    return process.env.DATABASE_URL;
+  }
+
+  // Construir URL a partir de variáveis individuais do Railway
+  const host = process.env.MYSQLHOST;
+  const port = process.env.MYSQLPORT || "3306";
+  const user = process.env.MYSQLUSER || "root";
+  const password = process.env.MYSQLPASSWORD;
+  const database = process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || "railway";
+
+  if (host && password) {
+    return `mysql://${user}:${password}@${host}:${port}/${database}`;
+  }
+
+  return null;
+}
+
 export async function applyMigrations() {
-  if (!process.env.DATABASE_URL) {
-    console.log("[Migrations] DATABASE_URL não configurada, pulando migrações");
+  const databaseUrl = getDatabaseUrl();
+
+  if (!databaseUrl) {
+    console.log("[Migrations] Credenciais do banco não configuradas, pulando migrações");
     return;
   }
 
@@ -16,13 +38,11 @@ export async function applyMigrations() {
     console.log("[Migrations] 🔄 Aplicando migrações do banco de dados...");
     
     // Criar conexão
-    const connection = await mysql.createConnection(process.env.DATABASE_URL);
+    const connection = await mysql.createConnection(databaseUrl);
     const db = drizzle(connection);
 
     // Aplicar migrações
-    const migrationsFolder = process.env.NODE_ENV === "production" 
-      ? "./drizzle" 
-      : "./drizzle";
+    const migrationsFolder = "./drizzle";
     
     await migrate(db, { migrationsFolder });
 
