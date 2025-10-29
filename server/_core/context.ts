@@ -1,7 +1,7 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
-import { getUserByOpenId, createUser } from "../db";
+import { getUserByOpenId, upsertUser } from "../db";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -26,7 +26,7 @@ export async function createContext(
       user = await getUserByOpenId(mockOpenId);
       
       if (!user) {
-        await createUser({
+        await upsertUser({
           openId: mockOpenId,
           name: "Admin",
           email: "admin@railway.app",
