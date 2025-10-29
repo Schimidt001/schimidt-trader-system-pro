@@ -19,7 +19,7 @@ export class EngineManager {
   private port: number = 5070;
 
   constructor() {
-    this.enginePath = path.join(__dirname, "engine_server.py");
+    this.enginePath =  path.join(__dirname, "prediction", "engine_server.py");
   }
 
   /**
