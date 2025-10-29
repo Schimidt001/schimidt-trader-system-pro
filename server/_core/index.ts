@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { engineManager } from "../prediction/engineManager";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -28,6 +29,15 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Iniciar engine de predição Python primeiro
+  console.log("🤖 Iniciando engine de predição proprietária...");
+  try {
+    await engineManager.start();
+    console.log("✅ Engine de predição iniciada com sucesso");
+  } catch (error) {
+    console.warn("⚠️ Engine de predição não iniciou, mas continuando...", error);
+  }
+
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
@@ -59,6 +69,20 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    console.log("🚀 Sistema pronto para operar!");
+  });
+
+  // Tratar sinais de encerramento
+  process.on("SIGINT", async () => {
+    console.log("\n🛑 Encerrando sistema...");
+    await engineManager.stop();
+    process.exit(0);
+  });
+
+  process.on("SIGTERM", async () => {
+    console.log("\n🛑 Encerrando sistema...");
+    await engineManager.stop();
+    process.exit(0);
   });
 }
 
