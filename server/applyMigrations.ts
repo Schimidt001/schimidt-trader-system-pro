@@ -20,7 +20,11 @@ export async function applyMigrations() {
     const db = drizzle(connection);
 
     // Aplicar migrações
-    await migrate(db, { migrationsFolder: "./drizzle" });
+    const migrationsFolder = process.env.NODE_ENV === "production" 
+      ? "./drizzle" 
+      : "./drizzle";
+    
+    await migrate(db, { migrationsFolder });
 
     console.log("[Migrations] ✅ Migrações aplicadas com sucesso!");
     
