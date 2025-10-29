@@ -33,8 +33,9 @@ export class EngineManager {
     return new Promise((resolve, reject) => {
       console.log("[EngineManager] Iniciando engine de predição proprietária...");
 
-      // Spawn processo Python
-      this.process = spawn("python3", [this.enginePath], {
+      // Spawn processo Python (tentar python3 primeiro, depois python)
+      const pythonCmd = process.env.PYTHON_CMD || "python3.11";
+      this.process = spawn(pythonCmd, [this.enginePath], {
         cwd: path.dirname(this.enginePath),
         stdio: ["ignore", "pipe", "pipe"],
       });
