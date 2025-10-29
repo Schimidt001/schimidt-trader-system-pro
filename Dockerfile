@@ -50,8 +50,8 @@ RUN npm install -g pnpm
 COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
 
-# Instalar apenas dependências de produção
-RUN pnpm install --prod --frozen-lockfile
+# Instalar dependências (incluindo dev e prod)
+RUN pnpm install --frozen-lockfile
 
 # Copiar arquivos buildados do stage anterior
 COPY --from=builder /app/dist ./dist
@@ -60,8 +60,7 @@ COPY --from=builder /app/server/prediction ./server/prediction
 
 # Instalar dependências Python
 COPY server/prediction/requirements.txt ./requirements.txt
-RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages 
-
+RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
 
 # Copiar arquivos Python para dist
 RUN cp -r server/prediction/* dist/prediction/ 2>/dev/null || true
