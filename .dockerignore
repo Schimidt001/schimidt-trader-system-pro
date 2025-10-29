@@ -1,0 +1,45 @@
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# Build outputs (serão copiados do builder)
+dist
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env files (usar variáveis do Railway)
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+
+# Temporary files
+tmp
+temp
+*.tmp
+
+# Documentation
+README.md
+DEPLOY_MANUS.md
+RAILWAY_DEPLOY.md
+
+# Railway
+railway.json
+nixpacks.toml
