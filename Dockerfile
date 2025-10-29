@@ -1,4 +1,5 @@
-e# Multi-stage Dockerfile para Schimidt Trader System PRO
+# Multi-stage Dockerfile para Schimidt Trader System PRO
+
 # Garante que Node.js 22 + Python 3.11 estejam disponíveis
 
 # ============================================
