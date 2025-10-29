@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { engineManager } from "../prediction/engineManager";
+import { applyMigrations } from "../applyMigrations";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -29,7 +30,10 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
-  // Iniciar engine de predição Python primeiro
+  // Aplicar migrações do banco de dados primeiro
+  await applyMigrations();
+
+  // Iniciar engine de predição Python
   console.log("🤖 Iniciando engine de predição proprietária...");
   try {
     await engineManager.start();
