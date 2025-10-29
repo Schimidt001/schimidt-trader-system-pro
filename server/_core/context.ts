@@ -1,6 +1,7 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
+import { getUserByOpenId, createUser } from "../db";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -20,7 +21,6 @@ export async function createContext(
     // Se OAuth não estiver configurado, criar usuário mock
     if (!process.env.OAUTH_SERVER_URL) {
       // Criar ou buscar usuário padrão "admin"
-      const { getUserByOpenId, createUser } = await import("../db");
       const mockOpenId = "railway-admin";
       
       user = await getUserByOpenId(mockOpenId);
