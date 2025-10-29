@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+import { findPythonCommand } from "./findPython";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -33,8 +34,9 @@ export class EngineManager {
     return new Promise((resolve, reject) => {
       console.log("[EngineManager] Iniciando engine de predição proprietária...");
 
-      // Spawn processo Python (tentar python3 primeiro, depois python)
-      const pythonCmd = process.env.PYTHON_CMD || "python3.11";
+      // Spawn processo Python
+      const pythonCmd = findPythonCommand();
+      console.log(`[EngineManager] Usando comando Python: ${pythonCmd}`);
       this.process = spawn(pythonCmd, [this.enginePath], {
         cwd: path.dirname(this.enginePath),
         stdio: ["ignore", "pipe", "pipe"],
