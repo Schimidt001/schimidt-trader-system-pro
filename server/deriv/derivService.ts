@@ -463,7 +463,7 @@ export class DerivService {
    */
   isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
-  }
+  
 }
 
 
@@ -489,3 +489,5 @@ export class DerivService {
         }
     }
 
+
+}
