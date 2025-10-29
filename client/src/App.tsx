@@ -22,7 +22,10 @@ function Navigation() {
     },
   });
 
-  if (!user) return null;
+  const oauthConfigured = import.meta.env.VITE_OAUTH_PORTAL_URL && import.meta.env.VITE_APP_ID;
+  
+  // Só esconder navegação se OAuth está configurado E não tem usuário
+  if (!user && oauthConfigured) return null;
 
   const navItems = [
     { path: "/", label: "Dashboard", icon: BarChart3 },
@@ -59,16 +62,18 @@ function Navigation() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-400">{user.name || user.email}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => logoutMutation.mutate()}
-              className="gap-2 text-slate-400 hover:text-white"
-            >
-              <LogOut className="w-4 h-4" />
-              Sair
-            </Button>
+            {user && <span className="text-sm text-slate-400">{user.name || user.email}</span>}
+            {oauthConfigured && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => logoutMutation.mutate()}
+                className="gap-2 text-slate-400 hover:text-white"
+              >
+                <LogOut className="w-4 h-4" />
+                Sair
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -87,7 +92,10 @@ function Router() {
     );
   }
 
-  if (!user) {
+  // Se não tem usuário E OAuth está configurado, mostrar tela de login
+  const oauthConfigured = import.meta.env.VITE_OAUTH_PORTAL_URL && import.meta.env.VITE_APP_ID;
+  
+  if (!user && oauthConfigured) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
         <div className="text-center">
@@ -99,6 +107,11 @@ function Router() {
         </div>
       </div>
     );
+  }
+  
+  // Se OAuth não está configurado, continuar sem usuário (modo mock no backend)
+  if (!user && !oauthConfigured) {
+    console.log('[App] OAuth não configurado, continuando sem autenticação');
   }
 
   return (
