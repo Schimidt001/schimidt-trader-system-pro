@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile para Schimidt Trader System PRO
+e# Multi-stage Dockerfile para Schimidt Trader System PRO
 # Garante que Node.js 22 + Python 3.11 estejam disponíveis
 
 # ============================================
@@ -59,7 +59,8 @@ COPY --from=builder /app/server/prediction ./server/prediction
 
 # Instalar dependências Python
 COPY server/prediction/requirements.txt ./requirements.txt
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages 
+
 
 # Copiar arquivos Python para dist
 RUN cp -r server/prediction/* dist/prediction/ 2>/dev/null || true
