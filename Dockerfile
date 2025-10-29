@@ -11,8 +11,9 @@ WORKDIR /app
 # Instalar pnpm
 RUN npm install -g pnpm
 
-# Copiar package files
+# Copiar package files e patches
 COPY package.json pnpm-lock.yaml ./
+COPY patches ./patches
 
 # Instalar dependências
 RUN pnpm install --frozen-lockfile
@@ -44,8 +45,9 @@ RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
 # Instalar pnpm
 RUN npm install -g pnpm
 
-# Copiar package files
+# Copiar package files e patches
 COPY package.json pnpm-lock.yaml ./
+COPY patches ./patches
 
 # Instalar apenas dependências de produção
 RUN pnpm install --prod --frozen-lockfile
