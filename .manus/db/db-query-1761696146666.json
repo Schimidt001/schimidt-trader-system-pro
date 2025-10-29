@@ -1,0 +1,98 @@
+{
+  "query": "SELECT id, direction, entryPrice, exitPrice, pnl, status, entryTime, exitTime, contractId \nFROM positions \nORDER BY entryTime DESC \nLIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 32FXxMrLNiSSyK9.root --database RiqWVARBwLNVLnmZTAuiFx --execute SELECT id, direction, entryPrice, exitPrice, pnl, status, entryTime, exitTime, contractId \nFROM positions \nORDER BY entryTime DESC \nLIMIT 20;",
+  "rows": [
+    {
+      "id": "150002",
+      "direction": "down",
+      "entryPrice": "49660.3898",
+      "exitPrice": "49803.8089",
+      "pnl": "-10000",
+      "status": "CLOSED",
+      "entryTime": "2025-10-28 23:53:00",
+      "exitTime": "2025-10-28 23:59:40",
+      "contractId": "297987959768"
+    },
+    {
+      "id": "150001",
+      "direction": "up",
+      "entryPrice": "49758.4425",
+      "exitPrice": "49697.5282",
+      "pnl": "-10000",
+      "status": "CLOSED",
+      "entryTime": "2025-10-28 23:43:54",
+      "exitTime": "2025-10-28 23:44:42",
+      "contractId": "297987571928"
+    },
+    {
+      "id": "120002",
+      "direction": "down",
+      "entryPrice": "49440.5453",
+      "exitPrice": "NULL",
+      "pnl": "NULL",
+      "status": "ENTERED",
+      "entryTime": "2025-10-28 23:08:00",
+      "exitTime": "NULL",
+      "contractId": "297985924048"
+    },
+    {
+      "id": "120001",
+      "direction": "down",
+      "entryPrice": "49500.7591",
+      "exitPrice": "49454.9839",
+      "pnl": "6688",
+      "status": "CLOSED",
+      "entryTime": "2025-10-28 22:59:04",
+      "exitTime": "2025-10-28 22:59:40",
+      "contractId": "297985503048"
+    },
+    {
+      "id": "90001",
+      "direction": "up",
+      "entryPrice": "49514.6842",
+      "exitPrice": "49455.6771",
+      "pnl": "-10000",
+      "status": "CLOSED",
+      "entryTime": "2025-10-28 22:23:40",
+      "exitTime": "2025-10-28 22:29:40",
+      "contractId": "297983853648"
+    },
+    {
+      "id": "60001",
+      "direction": "down",
+      "entryPrice": "49385.146",
+      "exitPrice": "49386.2796",
+      "pnl": "665",
+      "status": "CLOSED",
+      "entryTime": "2025-10-28 22:09:34",
+      "exitTime": "2025-10-28 22:14:40",
+      "contractId": "297983141128"
+    },
+    {
+      "id": "30001",
+      "direction": "down",
+      "entryPrice": "48743.4817",
+      "exitPrice": "48759.0796",
+      "pnl": "-10000",
+      "status": "CLOSED",
+      "entryTime": "2025-10-28 19:38:02",
+      "exitTime": "2025-10-28 19:44:54",
+      "contractId": "297974058848"
+    },
+    {
+      "id": "1",
+      "direction": "down",
+      "entryPrice": "49185.6434",
+      "exitPrice": "49146.5555",
+      "pnl": "9523",
+      "status": "CLOSED",
+      "entryTime": "2025-10-27 20:24:03",
+      "exitTime": "2025-10-27 20:30:00",
+      "contractId": "297893313528"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tdirection\tentryPrice\texitPrice\tpnl\tstatus\tentryTime\texitTime\tcontractId\n150002\tdown\t49660.3898\t49803.8089\t-10000\tCLOSED\t2025-10-28 23:53:00\t2025-10-28 23:59:40\t297987959768\n150001\tup\t49758.4425\t49697.5282\t-10000\tCLOSED\t2025-10-28 23:43:54\t2025-10-28 23:44:42\t297987571928\n120002\tdown\t49440.5453\tNULL\tNULL\tENTERED\t2025-10-28 23:08:00\tNULL\t297985924048\n120001\tdown\t49500.7591\t49454.9839\t6688\tCLOSED\t2025-10-28 22:59:04\t2025-10-28 22:59:40\t297985503048\n90001\tup\t49514.6842\t49455.6771\t-10000\tCLOSED\t2025-10-28 22:23:40\t2025-10-28 22:29:40\t297983853648\n60001\tdown\t49385.146\t49386.2796\t665\tCLOSED\t2025-10-28 22:09:34\t2025-10-28 22:14:40\t297983141128\n30001\tdown\t48743.4817\t48759.0796\t-10000\tCLOSED\t2025-10-28 19:38:02\t2025-10-28 19:44:54\t297974058848\n1\tdown\t49185.6434\t49146.5555\t9523\tCLOSED\t2025-10-27 20:24:03\t2025-10-27 20:30:00\t297893313528\n",
+  "stderr": "",
+  "execution_time_ms": 51
+}

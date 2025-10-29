@@ -105,8 +105,42 @@ export function CandleChart({
   const margin = (maxPrice - minPrice) * 0.1;
   const yDomain = [minPrice - margin, maxPrice + margin];
 
+  // Pegar último candle (candle atual)
+  const currentCandle = data[data.length - 1];
+
   return (
-    <div className="w-full h-[500px] bg-slate-900/50 rounded-lg border border-slate-800 p-4">
+    <div className="w-full h-[500px] bg-slate-900/50 rounded-lg border border-slate-800 p-4 relative">
+      {/* Painel de Candle Atual */}
+      {currentCandle && (
+        <div className="absolute top-6 right-6 bg-slate-800/90 border border-slate-700 rounded-lg p-3 shadow-xl z-10 min-w-[180px]">
+          <div className="text-xs font-semibold text-slate-300 mb-2 border-b border-slate-700 pb-1">
+            CANDLE ATUAL
+          </div>
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Abertura</span>
+              <span className="text-blue-400 font-mono font-semibold">{currentCandle.open.toFixed(4)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Máxima</span>
+              <span className="text-green-400 font-mono font-semibold">{currentCandle.high.toFixed(4)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Mínima</span>
+              <span className="text-red-400 font-mono font-semibold">{currentCandle.low.toFixed(4)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Fechamento</span>
+              <span className={`font-mono font-semibold ${
+                currentCandle.close >= currentCandle.open ? "text-green-400" : "text-red-400"
+              }`}>
+                {currentCandle.close.toFixed(4)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+      
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />

@@ -1,0 +1,18 @@
+{
+  "query": "SELECT \n  id,\n  direction,\n  CAST(entryPrice AS TEXT) as entryPrice,\n  CAST(exitPrice AS TEXT) as exitPrice,\n  pnl as pnl_cents,\n  ROUND(CAST(pnl AS REAL) / 100, 2) as pnl_dollars,\n  status,\n  contractId,\n  datetime(entryTime) as entry_time,\n  datetime(exitTime) as exit_time\nFROM positions \nORDER BY entryTime DESC \nLIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 32FXxMrLNiSSyK9.root --database RiqWVARBwLNVLnmZTAuiFx --execute SELECT \n  id,\n  direction,\n  CAST(entryPrice AS TEXT) as entryPrice,\n  CAST(exitPrice AS TEXT) as exitPrice,\n  pnl as pnl_cents,\n  ROUND(CAST(pnl AS REAL) / 100, 2) as pnl_dollars,\n  status,\n  contractId,\n  datetime(entryTime) as entry_time,\n  datetime(exitTime) as exit_time\nFROM positions \nORDER BY entryTime DESC \nLIMIT 10;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your TiDB version for the right syntax to use line 4 column 26 near \"TEXT) as entryPrice,",
+    "  CAST(exitPrice AS TEXT) as exitPrice,",
+    "  pnl as pnl_cents,",
+    "  ROUND(CAST(pnl AS REAL) / 100, 2) as pnl_dollars,",
+    "  status,",
+    "  contractId,",
+    "  datetime(entryTime) as entry_time,",
+    "  datetime(exitTime) as exit_time",
+    "FROM positions ",
+    "ORDER BY entryTime DESC ",
+    "LIMIT 10\""
+  ]
+}

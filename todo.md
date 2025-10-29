@@ -185,3 +185,14 @@
 - [x] Removida multiplicação por pipSize - offset agora é 16.0 absoluto - CONCLUÍDO
 - [x] Lógica correta: UP (verde) = close - 16 | DOWN (vermelho) = close + 16 - CONCLUÍDO
 
+
+
+
+## Nova Feature - Painel de Candle Atual no Gráfico
+- [x] Adicionar painel lateral fixo no gráfico mostrando valores do candle atual - CONCLUÍDO
+- [x] Exibir: Abertura, Máxima, Mínima, Fechamento - CONCLUÍDO
+- [x] Valores do último candle (candle atual em tempo real) - CONCLUÍDO
+- [x] Cores: Abertura (azul), Máxima (verde), Mínima (vermelho), Fechamento (verde/vermelho) - CONCLUÍDO
+- [x] Atualiza a cada 1 segundo junto com o gráfico - CONCLUÍDO
+- [x] Posicionado no canto superior direito com fundo semi-transparente - CONCLUÍDO
+
