@@ -27,6 +27,12 @@ function getDatabaseUrl(): string | null {
 }
 
 export async function applyMigrations() {
+  // Debug: mostrar quais variáveis estão disponíveis
+  console.log("[Migrations] Verificando variáveis de ambiente:");
+  console.log("  DATABASE_URL:", process.env.DATABASE_URL ? "[SET]" : "[NOT SET]");
+  console.log("  MYSQLHOST:", process.env.MYSQLHOST ? "[SET]" : "[NOT SET]");
+  console.log("  MYSQLPASSWORD:", process.env.MYSQLPASSWORD ? "[SET]" : "[NOT SET]");
+  
   const databaseUrl = getDatabaseUrl();
 
   if (!databaseUrl) {
