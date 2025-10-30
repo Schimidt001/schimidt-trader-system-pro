@@ -199,9 +199,21 @@ export class TradingBot {
       }
 
       // Iniciar novo candle
-      // A abertura do novo candle é o fechamento do candle anterior
-      // Ou o primeiro tick se for o primeiro candle
-      const candleOpen = this.currentCandleTimestamp > 0 ? this.currentCandleClose : tick.quote;
+      // Buscar valor real de abertura da DERIV
+      let candleOpen = tick.quote; // Fallback: usar primeiro tick
+      
+      try {
+        // Buscar último candle da DERIV para obter abertura real
+        const candles = await this.derivService.getCandleHistory(this.symbol, 900, 1);
+        if (candles.length > 0 && candles[0].epoch === candleTimestamp) {
+          candleOpen = candles[0].open;
+          console.log(`[CANDLE_OPEN] Usando abertura da DERIV: ${candleOpen}`);
+        } else {
+          console.log(`[CANDLE_OPEN] Candle não encontrado na DERIV, usando primeiro tick: ${tick.quote}`);
+        }
+      } catch (error) {
+        console.error(`[CANDLE_OPEN] Erro ao buscar candle da DERIV:`, error);
+      }
       
       this.currentCandleTimestamp = candleTimestamp;
       this.currentCandleOpen = candleOpen;
