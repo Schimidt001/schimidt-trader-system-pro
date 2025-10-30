@@ -176,33 +176,24 @@ export class TradingBot {
 
     await this.logEvent("CANDLE_COLLECTED", `Histórico de ${history.length} candles coletado`);
 
-    // Inscrever-se em ticks para atualização em tempo real
+    // Inscrever-se em candles OHLC para receber dados precisos
+    this.derivService.subscribeCandles(this.symbol, 900, (candle: DerivCandle) => {
+      this.handleCandle(candle);
+    });
+    
+    // Inscrever-se em ticks para atualização do preço atual
     this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
       this.handleTick(tick);
     });
   }
 
   /**
-   * Trata cada tick recebido
+   * Trata candle OHLC recebido da DERIV
    */
-  private async handleTick(tick: DerivTick): Promise<void> {
+  private async handleCandle(candle: DerivCandle): Promise<void> {
     if (!this.isRunning) return;
 
-    const tickTime = new Date(tick.epoch * 1000);
-    const candleTimestamp = Math.floor(tick.epoch / 900) * 900; // Arredondar para M15
-
-    // Inicializar candle atual se for o primeiro tick
-    if (this.currentCandleTimestamp === 0) {
-      this.currentCandleTimestamp = candleTimestamp;
-      this.currentCandleOpen = tick.quote;
-      this.currentCandleHigh = tick.quote;
-      this.currentCandleLow = tick.quote;
-      this.currentCandleStartTime = new Date(candleTimestamp * 1000);
-      this.state = "WAITING_MIDPOINT";
-      await this.updateBotState();
-      await this.logEvent("CANDLE_INITIALIZED", `Candle atual inicializado: timestamp=${candleTimestamp}, open=${tick.quote}`);
-      return;
-    }
+    const candleTimestamp = candle.epoch;
 
     // Novo candle?
     if (candleTimestamp !== this.currentCandleTimestamp) {
@@ -211,23 +202,43 @@ export class TradingBot {
         await this.closeCurrentCandle();
       }
 
-      // Iniciar novo candle
+      // Iniciar novo candle com valores REAIS da DERIV
       this.currentCandleTimestamp = candleTimestamp;
-      this.currentCandleOpen = tick.quote;
-      this.currentCandleHigh = tick.quote;
-      this.currentCandleLow = tick.quote;
+      this.currentCandleOpen = candle.open;  // Valor REAL de abertura
+      this.currentCandleHigh = candle.high;
+      this.currentCandleLow = candle.low;
       this.currentCandleStartTime = new Date(candleTimestamp * 1000);
       this.tradesThisCandle.clear();
 
       this.state = "WAITING_MIDPOINT";
       await this.updateBotState();
+      await this.logEvent("CANDLE_INITIALIZED", `Novo candle: timestamp=${candleTimestamp}, open=${candle.open} (DERIV)`);
+      
+      // Salvar candle no banco
+      await insertCandle({
+        symbol: this.symbol,
+        timeframe: "M15",
+        timestampUtc: candleTimestamp,
+        open: candle.open.toString(),
+        high: candle.high.toString(),
+        low: candle.low.toString(),
+        close: candle.close.toString(),
+      });
     } else {
-      // Atualizar candle atual
-      this.currentCandleHigh = Math.max(this.currentCandleHigh, tick.quote);
-      this.currentCandleLow = Math.min(this.currentCandleLow, tick.quote);
+      // Atualizar candle atual com valores da DERIV
+      this.currentCandleHigh = candle.high;
+      this.currentCandleLow = candle.low;
     }
+  }
 
-    // Calcular segundos decorridos
+  /**
+   * Trata cada tick recebido (apenas para preço atual)
+   */
+  private async handleTick(tick: DerivTick): Promise<void> {
+    if (!this.isRunning) return;
+    if (this.currentCandleTimestamp === 0) return; // Aguardar candle OHLC primeiro
+
+    // Calcular segundos decorridos desde o início do candle
     const elapsedSeconds = Math.floor((tick.epoch - this.currentCandleTimestamp));
 
     // Momento da predição: waitTime configurado (em segundos)
