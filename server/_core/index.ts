@@ -53,7 +53,13 @@ async function startServer() {
   // Endpoint especial de migração
   app.get("/api/migrate", async (req, res) => {
     try {
-      const { db } = await import("../db");
+      const { getDb } = await import("../db");
+      const db = await getDb();
+      
+      if (!db) {
+        return res.status(500).json({ success: false, error: "Database not available" });
+      }
+      
       console.log("[Migration] Verificando colunas...");
       
       // Tentar adicionar as colunas (ignora se já existem)
