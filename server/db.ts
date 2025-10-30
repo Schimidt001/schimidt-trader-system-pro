@@ -212,16 +212,50 @@ export async function getUserPositions(userId: number, limit: number = 50): Prom
     .limit(limit);
 }
 
-export async function getTodayPositions(userId: number): Promise<Position[]> {
+export async function getTodayPositions(userId: number): Promise<any[]> {
   const db = await getDb();
   if (!db) return [];
   
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
-  return db
-    .select()
+  // Fazer JOIN com candles para obter open, high, low do candle
+  const results = await db
+    .select({
+      id: positions.id,
+      userId: positions.userId,
+      contractId: positions.contractId,
+      symbol: positions.symbol,
+      direction: positions.direction,
+      stake: positions.stake,
+      entryPrice: positions.entryPrice,
+      exitPrice: positions.exitPrice,
+      predictedClose: positions.predictedClose,
+      trigger: positions.trigger,
+      phase: positions.phase,
+      strategy: positions.strategy,
+      confidence: positions.confidence,
+      pnl: positions.pnl,
+      status: positions.status,
+      candleTimestamp: positions.candleTimestamp,
+      entryTime: positions.entryTime,
+      exitTime: positions.exitTime,
+      createdAt: positions.createdAt,
+      updatedAt: positions.updatedAt,
+      // Dados do candle
+      candleOpen: candles.open,
+      candleHigh: candles.high,
+      candleLow: candles.low,
+      candleClose: candles.close,
+    })
     .from(positions)
+    .leftJoin(
+      candles,
+      and(
+        eq(candles.symbol, positions.symbol),
+        eq(candles.timestampUtc, positions.candleTimestamp)
+      )
+    )
     .where(
       and(
         eq(positions.userId, userId),
@@ -229,6 +263,8 @@ export async function getTodayPositions(userId: number): Promise<Position[]> {
       )
     )
     .orderBy(desc(positions.createdAt));
+  
+  return results;
 }
 
 // ============= METRICS QUERIES =============

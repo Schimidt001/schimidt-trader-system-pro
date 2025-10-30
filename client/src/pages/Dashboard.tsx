@@ -315,7 +315,7 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle className="text-white">Posições de Hoje</CardTitle>
             <CardDescription className="text-slate-400">
-              Histórico de operações realizadas hoje
+              Histórico detalhado de operações realizadas hoje
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -324,38 +324,96 @@ export default function Dashboard() {
                 Nenhuma posição aberta hoje
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-4">
                 {todayPositions.map((position) => (
                   <div
                     key={position.id}
-                    className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700"
+                    className="p-4 bg-slate-800/50 rounded-lg border border-slate-700 space-y-3"
                   >
-                    <div className="flex items-center gap-4">
-                      <div
-                        className={`px-2 py-1 rounded text-xs font-semibold ${
-                          position.direction === "up"
-                            ? "bg-green-500/20 text-green-400"
-                            : "bg-red-500/20 text-red-400"
-                        }`}
-                      >
-                        {position.direction === "up" ? "CALL" : "PUT"}
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium text-white">{position.symbol}</div>
-                        <div className="text-xs text-slate-400">
-                          Entrada: {parseFloat(position.entryPrice).toFixed(4)}
+                    {/* Cabeçalho da posição */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`px-3 py-1 rounded text-sm font-bold ${
+                            position.direction === "up"
+                              ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                              : "bg-red-500/20 text-red-400 border border-red-500/30"
+                          }`}
+                        >
+                          {position.direction === "up" ? "CALL" : "PUT"}
+                        </div>
+                        <div>
+                          <div className="text-base font-semibold text-white">{position.symbol}</div>
+                          <div className="text-xs text-slate-400">
+                            {new Date(position.createdAt).toLocaleTimeString('pt-BR')}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <div
-                        className={`text-sm font-semibold ${
-                          (position.pnl || 0) >= 0 ? "text-green-400" : "text-red-400"
-                        }`}
-                      >
-                        ${((position.pnl || 0) / 100).toFixed(2)}
+                      <div className="text-right">
+                        <div
+                          className={`text-lg font-bold ${
+                            (position.pnl || 0) >= 0 ? "text-green-400" : "text-red-400"
+                          }`}
+                        >
+                          {(position.pnl || 0) >= 0 ? "+" : ""}${((position.pnl || 0) / 100).toFixed(2)}
+                        </div>
+                        <div className="text-xs text-slate-400">{position.status}</div>
                       </div>
-                      <div className="text-xs text-slate-400">{position.status}</div>
+                    </div>
+
+                    {/* Grid de informações detalhadas */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-slate-700">
+                      {/* Dados do Candle */}
+                      <div>
+                        <div className="text-xs text-slate-500 mb-1">Abertura</div>
+                        <div className="text-sm font-medium text-slate-200">
+                          {position.candleOpen ? parseFloat(position.candleOpen).toFixed(4) : "N/A"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 mb-1">Máxima</div>
+                        <div className="text-sm font-medium text-green-400">
+                          {position.candleHigh ? parseFloat(position.candleHigh).toFixed(4) : "N/A"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 mb-1">Mínima</div>
+                        <div className="text-sm font-medium text-red-400">
+                          {position.candleLow ? parseFloat(position.candleLow).toFixed(4) : "N/A"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 mb-1">Entrada</div>
+                        <div className="text-sm font-medium text-blue-400">
+                          {parseFloat(position.entryPrice).toFixed(4)}
+                        </div>
+                      </div>
+                      
+                      {/* Predição e Gatilho */}
+                      <div>
+                        <div className="text-xs text-slate-500 mb-1">Predição</div>
+                        <div className="text-sm font-medium text-purple-400">
+                          {parseFloat(position.predictedClose).toFixed(4)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 mb-1">Gatilho</div>
+                        <div className="text-sm font-medium text-yellow-400">
+                          {parseFloat(position.trigger).toFixed(4)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 mb-1">Pips</div>
+                        <div className="text-sm font-medium text-cyan-400">
+                          16
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 mb-1">Stake</div>
+                        <div className="text-sm font-medium text-slate-200">
+                          ${(position.stake / 100).toFixed(2)}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))}
