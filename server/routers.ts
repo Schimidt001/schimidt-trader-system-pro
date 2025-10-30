@@ -51,8 +51,7 @@ export const appRouter = router({
           takeDaily: 2000, // $20.00 em centavos
           lookback: 50,
               triggerOffset: 16, // default 16 pips for trigger
-    prof  itThreshold: 90, // default 90% payout
-        };
+    profitThreshold: 90, // default 90% payout
       }
       
       return config;
