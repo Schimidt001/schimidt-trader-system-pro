@@ -496,10 +496,14 @@ export class TradingBot {
       const currentProfit = contractInfo.profit || 0;
       const sellPrice = contractInfo.sell_price || 0;
 
-      // 1. Early close se lucro >= profitThreshold% do payout
+      // 1. Early close se lucro >= profitThreshold% do lucro máximo
       const profitRatio = this.profitThreshold / 100;
-      if (currentProfit >= payout * profitRatio && sellPrice > 0) {
-        await this.closePosition(`Early close - ${this.profitThreshold}% payout atingido`, sellPrice);
+      const stakeInDollars = this.stake / 100; // Converter centavos para dólares
+      const maxProfit = payout - stakeInDollars; // Lucro máximo possível
+      const targetProfit = maxProfit * profitRatio; // X% do lucro máximo
+      
+      if (currentProfit >= targetProfit && sellPrice > 0) {
+        await this.closePosition(`Early close - ${this.profitThreshold}% do lucro máximo atingido`, sellPrice);
         return;
       }
 
