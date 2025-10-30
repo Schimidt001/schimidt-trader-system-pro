@@ -50,8 +50,7 @@ export const appRouter = router({
           stopDaily: 1000, // $10.00 em centavos
           takeDaily: 2000, // $20.00 em centavos
           lookback: 50,
-              triggerOffset: 16, // default 16 pips for trigger
-    profitThreshold: 90, // default 90% payout
+        };
       }
       
       return config;
@@ -68,8 +67,6 @@ export const appRouter = router({
           stopDaily: z.number().int().positive(),
           takeDaily: z.number().int().positive(),
           lookback: z.number().int().positive(),
-              triggerOffset: z.number().int().positive(),
-    profitThreshold: z.number().int().positive(),
         })
       )
       .mutation(async ({ ctx, input }) => {
