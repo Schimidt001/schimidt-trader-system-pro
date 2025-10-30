@@ -49,6 +49,51 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  
+  // Endpoint especial de migração
+  app.get("/api/migrate", async (req, res) => {
+    try {
+      const { db } = await import("../db");
+      console.log("[Migration] Verificando colunas...");
+      
+      // Tentar adicionar as colunas (ignora se já existem)
+      try {
+        await db.execute(`
+          ALTER TABLE config 
+          ADD COLUMN triggerOffset INT NOT NULL DEFAULT 16 
+          COMMENT 'Distância do gatilho em relação à predição (pips)'
+        `);
+        console.log("[Migration] Coluna triggerOffset adicionada");
+      } catch (e: any) {
+        if (e.message?.includes("Duplicate column")) {
+          console.log("[Migration] Coluna triggerOffset já existe");
+        } else {
+          throw e;
+        }
+      }
+      
+      try {
+        await db.execute(`
+          ALTER TABLE config 
+          ADD COLUMN profitThreshold INT NOT NULL DEFAULT 90 
+          COMMENT 'Percentual do payout para early close (1-100%)'
+        `);
+        console.log("[Migration] Coluna profitThreshold adicionada");
+      } catch (e: any) {
+        if (e.message?.includes("Duplicate column")) {
+          console.log("[Migration] Coluna profitThreshold já existe");
+        } else {
+          throw e;
+        }
+      }
+      
+      res.json({ success: true, message: "Migração executada com sucesso!" });
+    } catch (error: any) {
+      console.error("[Migration] Erro:", error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+  
   // tRPC API
   app.use(
     "/api/trpc",
