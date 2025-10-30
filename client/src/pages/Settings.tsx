@@ -38,6 +38,7 @@ export default function Settings() {
   const [lookback, setLookback] = useState("100");
   const [triggerOffset, setTriggerOffset] = useState("16");
   const [profitThreshold, setProfitThreshold] = useState("90");
+  const [waitTime, setWaitTime] = useState("8");
 
   // Query
   const { data: config, isLoading } = trpc.config.get.useQuery(undefined, {
@@ -87,6 +88,7 @@ export default function Settings() {
       setLookback(config.lookback.toString());
       setTriggerOffset((config.triggerOffset || 16).toString());
       setProfitThreshold((config.profitThreshold || 90).toString());
+      setWaitTime((config.waitTime || 8).toString());
     }
   }, [config]);
 
@@ -98,6 +100,7 @@ export default function Settings() {
     const lookbackNum = parseInt(lookback);
     const triggerOffsetNum = parseInt(triggerOffset);
     const profitThresholdNum = parseInt(profitThreshold);
+    const waitTimeNum = parseInt(waitTime);
 
     if (mode === "DEMO" && !tokenDemo) {
       toast.error("Token DEMO é obrigatório");
@@ -124,6 +127,7 @@ export default function Settings() {
         lookback: lookbackNum,
         triggerOffset: triggerOffsetNum,
         profitThreshold: profitThresholdNum,
+        waitTime: waitTimeNum,
       });
       
       // Depois testar conexão
@@ -142,6 +146,7 @@ export default function Settings() {
     const lookbackNum = parseInt(lookback);
     const triggerOffsetNum = parseInt(triggerOffset);
     const profitThresholdNum = parseInt(profitThreshold);
+    const waitTimeNum = parseInt(waitTime);
 
     if (isNaN(stakeNum) || stakeNum <= 0) {
       toast.error("Stake deve ser um número positivo");
@@ -173,6 +178,11 @@ export default function Settings() {
       return;
     }
 
+    if (isNaN(waitTimeNum) || waitTimeNum < 1 || waitTimeNum > 14) {
+      toast.error("Tempo de Espera deve ser um número entre 1 e 14 minutos");
+      return;
+    }
+
     if (mode === "DEMO" && !tokenDemo) {
       toast.error("Token DEMO é obrigatório no modo DEMO");
       return;
@@ -195,6 +205,7 @@ export default function Settings() {
       lookback: lookbackNum,
       triggerOffset: triggerOffsetNum,
       profitThreshold: profitThresholdNum,
+      waitTime: waitTimeNum,
     });
   };
 
@@ -437,6 +448,27 @@ export default function Settings() {
                   />
                   <p className="text-xs text-slate-500">
                     Percentual do payout para early close (padrão: 90%)
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="waitTime" className="text-slate-300">
+                    Tempo de Espera (minutos)
+                  </Label>
+                  <Input
+                    id="waitTime"
+                    type="number"
+                    value={waitTime}
+                    onChange={(e) => setWaitTime(e.target.value)}
+                    className="bg-slate-800 border-slate-700 text-white"
+                    placeholder="8"
+                    min="1"
+                    max="14"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Tempo de espera no candle antes de capturar dados para predição (padrão: 8 minutos)
                   </p>
                 </div>
               </div>

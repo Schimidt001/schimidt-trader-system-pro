@@ -34,6 +34,7 @@ export const config = mysqlTable("config", {
   lookback: int("lookback").notNull().default(100),
   triggerOffset: int("triggerOffset").default(16), // offset do gatilho em pontos
   profitThreshold: int("profitThreshold").default(90), // threshold de lucro para early close (%)
+  waitTime: int("waitTime").default(8), // tempo de espera em minutos antes de capturar dados para predição
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

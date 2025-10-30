@@ -57,6 +57,7 @@ export class TradingBot {
   private lookback: number = 100;
   private triggerOffset: number = 16; // offset do gatilho em pontos
   private profitThreshold: number = 90; // threshold de lucro para early close (%)
+  private waitTime: number = 8; // tempo de espera em minutos antes de capturar dados
   private mode: "DEMO" | "REAL" = "DEMO";
   
   // Controle de risco
@@ -85,6 +86,7 @@ export class TradingBot {
       this.lookback = config.lookback;
       this.triggerOffset = config.triggerOffset || 16;
       this.profitThreshold = config.profitThreshold || 90;
+      this.waitTime = config.waitTime || 8;
       this.mode = config.mode;
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -228,8 +230,9 @@ export class TradingBot {
     // Calcular segundos decorridos
     const elapsedSeconds = Math.floor((tick.epoch - this.currentCandleTimestamp));
 
-    // Momento da predição: 8 minutos (480 segundos)
-    if (elapsedSeconds >= 480 && this.state === "WAITING_MIDPOINT") {
+    // Momento da predição: waitTime configurado (em segundos)
+    const waitTimeSeconds = this.waitTime * 60;
+    if (elapsedSeconds >= waitTimeSeconds && this.state === "WAITING_MIDPOINT") {
       await this.makePrediction(elapsedSeconds);
     }
 

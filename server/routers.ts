@@ -52,6 +52,7 @@ export const appRouter = router({
           lookback: 50,
           triggerOffset: 16, // offset padrão do gatilho
           profitThreshold: 90, // threshold padrão de lucro
+          waitTime: 8, // tempo de espera padrão em minutos
         };
       }
       
@@ -71,6 +72,7 @@ export const appRouter = router({
           lookback: z.number().int().positive(),
           triggerOffset: z.number().int().positive(),
           profitThreshold: z.number().int().min(1).max(100),
+          waitTime: z.number().int().min(1).max(14), // 1-14 minutos (candle M15)
         })
       )
       .mutation(async ({ ctx, input }) => {

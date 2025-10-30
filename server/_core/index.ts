@@ -93,6 +93,21 @@ async function startServer() {
         }
       }
       
+      try {
+        await db.execute(`
+          ALTER TABLE config 
+          ADD COLUMN waitTime INT NOT NULL DEFAULT 8 
+          COMMENT 'Tempo de espera em minutos antes de capturar dados para predição'
+        `);
+        console.log("[Migration] Coluna waitTime adicionada");
+      } catch (e: any) {
+        if (e.message?.includes("Duplicate column")) {
+          console.log("[Migration] Coluna waitTime já existe");
+        } else {
+          throw e;
+        }
+      }
+      
       res.json({ success: true, message: "Migração executada com sucesso!" });
     } catch (error: any) {
       console.error("[Migration] Erro:", error);
