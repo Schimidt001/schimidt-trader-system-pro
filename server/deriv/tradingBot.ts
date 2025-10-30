@@ -37,6 +37,7 @@ export class TradingBot {
   private currentCandleTimestamp: number = 0;
   private currentCandleHigh: number = 0;
   private currentCandleLow: number = 0;
+  private currentCandleClose: number = 0; // Último preço (close)
   private currentCandleStartTime: Date | null = null;
   
   // Dados da predição
@@ -176,24 +177,19 @@ export class TradingBot {
 
     await this.logEvent("CANDLE_COLLECTED", `Histórico de ${history.length} candles coletado`);
 
-    // Inscrever-se em candles OHLC para receber dados precisos
-    this.derivService.subscribeCandles(this.symbol, 900, (candle: DerivCandle) => {
-      this.handleCandle(candle);
-    });
-    
-    // Inscrever-se em ticks para atualização do preço atual
+    // Inscrever-se em ticks para construir candle em tempo real
     this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
       this.handleTick(tick);
     });
   }
 
   /**
-   * Trata candle OHLC recebido da DERIV
+   * Trata cada tick recebido e constrói candle em tempo real
    */
-  private async handleCandle(candle: DerivCandle): Promise<void> {
+  private async handleTick(tick: DerivTick): Promise<void> {
     if (!this.isRunning) return;
 
-    const candleTimestamp = candle.epoch;
+    const candleTimestamp = Math.floor(tick.epoch / 900) * 900; // Arredondar para M15
 
     // Novo candle?
     if (candleTimestamp !== this.currentCandleTimestamp) {
@@ -202,41 +198,29 @@ export class TradingBot {
         await this.closeCurrentCandle();
       }
 
-      // Iniciar novo candle com valores REAIS da DERIV
+      // Iniciar novo candle
+      // A abertura do novo candle é o fechamento do candle anterior
+      // Ou o primeiro tick se for o primeiro candle
+      const candleOpen = this.currentCandleTimestamp > 0 ? this.currentCandleClose : tick.quote;
+      
       this.currentCandleTimestamp = candleTimestamp;
-      this.currentCandleOpen = candle.open;  // Valor REAL de abertura
-      this.currentCandleHigh = candle.high;
-      this.currentCandleLow = candle.low;
+      this.currentCandleOpen = candleOpen;
+      this.currentCandleHigh = tick.quote;
+      this.currentCandleLow = tick.quote;
+      this.currentCandleClose = tick.quote; // Inicializar close
       this.currentCandleStartTime = new Date(candleTimestamp * 1000);
       this.tradesThisCandle.clear();
 
       this.state = "WAITING_MIDPOINT";
       await this.updateBotState();
-      await this.logEvent("CANDLE_INITIALIZED", `Novo candle: timestamp=${candleTimestamp}, open=${candle.open} (DERIV)`);
-      
-      // Salvar candle no banco
-      await insertCandle({
-        symbol: this.symbol,
-        timeframe: "M15",
-        timestampUtc: candleTimestamp,
-        open: candle.open.toString(),
-        high: candle.high.toString(),
-        low: candle.low.toString(),
-        close: candle.close.toString(),
-      });
+      await this.logEvent("CANDLE_INITIALIZED", 
+        `Novo candle: timestamp=${candleTimestamp}, open=${candleOpen}, firstTick=${tick.quote}`);
     } else {
-      // Atualizar candle atual com valores da DERIV
-      this.currentCandleHigh = candle.high;
-      this.currentCandleLow = candle.low;
+      // Atualizar candle atual
+      this.currentCandleHigh = Math.max(this.currentCandleHigh, tick.quote);
+      this.currentCandleLow = Math.min(this.currentCandleLow, tick.quote);
+      this.currentCandleClose = tick.quote; // Atualizar close com último tick
     }
-  }
-
-  /**
-   * Trata cada tick recebido (apenas para preço atual)
-   */
-  private async handleTick(tick: DerivTick): Promise<void> {
-    if (!this.isRunning) return;
-    if (this.currentCandleTimestamp === 0) return; // Aguardar candle OHLC primeiro
 
     // Calcular segundos decorridos desde o início do candle
     const elapsedSeconds = Math.floor((tick.epoch - this.currentCandleTimestamp));
@@ -271,7 +255,7 @@ export class TradingBot {
       open: this.currentCandleOpen.toString(),
       high: this.currentCandleHigh.toString(),
       low: this.currentCandleLow.toString(),
-      close: this.currentCandleHigh.toString(), // Último preço como close
+      close: this.currentCandleClose.toString(), // Último tick como close
     });
 
     // Se tinha posição aberta, fechar
