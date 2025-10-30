@@ -473,20 +473,6 @@ export class TradingBot {
   private async managePosition(currentPrice: number, elapsedSeconds: number): Promise<void> {
     if (!this.currentPositionId || !this.contractId || !this.derivService) return;
 
-    // Fechar 20 segundos antes do fim do candle (900 - 20 = 880)
-    // Verificar isso PRIMEIRO, antes de consultar API
-    if (elapsedSeconds >= 880) {
-      try {
-        const contractInfo = await this.derivService.getContractInfo(this.contractId);
-        const sellPrice = contractInfo.sell_price || 0;
-        await this.closePosition("Fechamento automático 20s antes do fim", sellPrice);
-      } catch (error) {
-        // Se falhar, fecha mesmo assim
-        await this.closePosition("Fechamento automático 20s antes do fim (sem sell)", 0);
-      }
-      return;
-    }
-
     // Debounce: só consultar contrato a cada 5 segundos
     const now = Date.now();
     if (now - this.lastContractCheckTime < 5000) {
@@ -495,19 +481,28 @@ export class TradingBot {
     this.lastContractCheckTime = now;
 
     try {
-      // Obter informações do contrato para verificar early close
+      // Obter informações do contrato
       const contractInfo = await this.derivService.getContractInfo(this.contractId);
       
       const payout = contractInfo.payout || 0;
       const currentProfit = contractInfo.profit || 0;
       const sellPrice = contractInfo.sell_price || 0;
 
-      // Verificar early close se lucro >= profitThreshold% do payout
+      // 1. Early close se lucro >= profitThreshold% do payout
       const profitRatio = this.profitThreshold / 100;
       if (currentProfit >= payout * profitRatio && sellPrice > 0) {
         await this.closePosition(`Early close - ${this.profitThreshold}% payout atingido`, sellPrice);
         return;
       }
+
+      // 2. Fechar 20 segundos antes do fim do candle (880s) APENAS SE EM LUCRO
+      if (elapsedSeconds >= 880 && currentProfit > 0 && sellPrice > 0) {
+        await this.closePosition("Fechamento 20s antes do fim (em lucro)", sellPrice);
+        return;
+      }
+
+      // 3. Se em perda, aguardar até o fim do candle (900s)
+      // A posição será fechada automaticamente pela DERIV ou pelo closeCurrentCandle()
     } catch (error) {
       // Não logar erro a cada tick, apenas em caso de timeout crítico
       // A posição continuará sendo gerenciada e fechará no tempo correto
