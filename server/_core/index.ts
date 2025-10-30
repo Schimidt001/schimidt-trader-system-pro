@@ -62,47 +62,67 @@ async function startServer() {
       
       console.log("[Migration] Verificando colunas...");
       
-      // Tentar adicionar as colunas (ignora se já existem)
-      try {
-        await db.execute(`
-          ALTER TABLE config 
-          ADD COLUMN triggerOffset INT NOT NULL DEFAULT 16
-        `);
-        console.log("[Migration] Coluna triggerOffset adicionada");
-      } catch (e: any) {
-        if (e.message?.includes("Duplicate column")) {
-          console.log("[Migration] Coluna triggerOffset já existe");
-        } else {
-          throw e;
+      // Função auxiliar para verificar se coluna existe
+      const checkColumn = async (columnName: string): Promise<boolean> => {
+        try {
+          const result: any = await db.execute(`
+            SELECT COUNT(*) as count 
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_SCHEMA = DATABASE() 
+            AND TABLE_NAME = 'config' 
+            AND COLUMN_NAME = '${columnName}'
+          `);
+          return result[0]?.count > 0;
+        } catch (e) {
+          console.error(`[Migration] Erro ao verificar coluna ${columnName}:`, e);
+          return false;
         }
+      };
+      
+      // Tentar adicionar as colunas (verifica se já existem primeiro)
+      const triggerOffsetExists = await checkColumn('triggerOffset');
+      if (!triggerOffsetExists) {
+        try {
+          await db.execute(`
+            ALTER TABLE config 
+            ADD COLUMN triggerOffset INT DEFAULT 16
+          `);
+          console.log("[Migration] Coluna triggerOffset adicionada");
+        } catch (e: any) {
+          console.error("[Migration] Erro ao adicionar triggerOffset:", e.message);
+        }
+      } else {
+        console.log("[Migration] Coluna triggerOffset já existe");
       }
       
-      try {
-        await db.execute(`
-          ALTER TABLE config 
-          ADD COLUMN profitThreshold INT NOT NULL DEFAULT 90
-        `);
-        console.log("[Migration] Coluna profitThreshold adicionada");
-      } catch (e: any) {
-        if (e.message?.includes("Duplicate column")) {
-          console.log("[Migration] Coluna profitThreshold já existe");
-        } else {
-          throw e;
+      const profitThresholdExists = await checkColumn('profitThreshold');
+      if (!profitThresholdExists) {
+        try {
+          await db.execute(`
+            ALTER TABLE config 
+            ADD COLUMN profitThreshold INT DEFAULT 90
+          `);
+          console.log("[Migration] Coluna profitThreshold adicionada");
+        } catch (e: any) {
+          console.error("[Migration] Erro ao adicionar profitThreshold:", e.message);
         }
+      } else {
+        console.log("[Migration] Coluna profitThreshold já existe");
       }
       
-      try {
-        await db.execute(`
-          ALTER TABLE config 
-          ADD COLUMN waitTime INT NOT NULL DEFAULT 8
-        `);
-        console.log("[Migration] Coluna waitTime adicionada");
-      } catch (e: any) {
-        if (e.message?.includes("Duplicate column")) {
-          console.log("[Migration] Coluna waitTime já existe");
-        } else {
-          throw e;
+      const waitTimeExists = await checkColumn('waitTime');
+      if (!waitTimeExists) {
+        try {
+          await db.execute(`
+            ALTER TABLE config 
+            ADD COLUMN waitTime INT DEFAULT 8
+          `);
+          console.log("[Migration] Coluna waitTime adicionada");
+        } catch (e: any) {
+          console.error("[Migration] Erro ao adicionar waitTime:", e.message);
         }
+      } else {
+        console.log("[Migration] Coluna waitTime já existe");
       }
       
       res.json({ success: true, message: "Migração executada com sucesso!" });
