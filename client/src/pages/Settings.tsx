@@ -86,7 +86,7 @@ export default function Settings() {
       setStopDaily((config.stopDaily / 100).toString());
       setTakeDaily((config.takeDaily / 100).toString());
       setLookback(config.lookback.toString());
-      setTriggerOffset((config.triggerOffset || 16).toString());
+      setTriggerOffset((config.triggerOffset ?? 16).toString()); // Usar ?? para aceitar 0
       setProfitThreshold((config.profitThreshold || 90).toString());
       setWaitTime((config.waitTime || 8).toString());
     }
