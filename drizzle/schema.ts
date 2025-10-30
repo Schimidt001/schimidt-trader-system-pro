@@ -34,6 +34,8 @@ export const config = mysqlTable("config", {
   lookback: int("lookback").notNull().default(100),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+    triggerOffset: int("triggerOffset").notNull().default(16),
+  profitThreshold: int("profitThreshold").notNull().default(90),
 });
 
 export type Config = typeof config.$inferSelect;
