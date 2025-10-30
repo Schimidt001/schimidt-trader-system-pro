@@ -70,7 +70,7 @@ export const appRouter = router({
           stopDaily: z.number().int().positive(),
           takeDaily: z.number().int().positive(),
           lookback: z.number().int().positive(),
-          triggerOffset: z.number().int().positive(),
+          triggerOffset: z.number().int().nonnegative(), // Aceita 0 (desativado) ou valores positivos
           profitThreshold: z.number().int().min(1).max(100),
           waitTime: z.number().int().min(1).max(14), // 1-14 minutos (candle M15)
         })
