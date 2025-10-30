@@ -34,8 +34,7 @@ export const config = mysqlTable("config", {
   lookback: int("lookback").notNull().default(100),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-    triggerOffset: int("triggerOffset").notNull().default(16),
-  profitThreshold: int("profitThreshold").notNull().default(90),
+  
 });
 
 export type Config = typeof config.$inferSelect;
@@ -48,8 +47,7 @@ export const candles = mysqlTable("candles", {
   id: int("id").autoincrement().primaryKey(),
   symbol: varchar("symbol", { length: 50 }).notNull(),
   timeframe: varchar("timeframe", { length: 10 }).notNull().default("M15"),
-  timestampUtc: bigint("timestampUtc", { mode: "number" }).notNull(), // Unix timestamp em segundos
-  open: varchar("open", { length: 20 }).notNull(), // string para precisão decimal
+  time}).notNull(), // string para precisão decimal
   high: varchar("high", { length: 20 }).notNull(),
   low: varchar("low", { length: 20 }).notNull(),
   close: varchar("close", { length: 20 }).notNull(),
