@@ -32,6 +32,7 @@ export class DerivService {
   private appId: string = "1089"; // DERIV demo app ID
   private wsUrl: string = "wss://ws.derivws.com/websockets/v3";
   private subscriptions: Map<string, (data: any) => void> = new Map();
+  private activeSubscriptions: Map<string, any> = new Map(); // Guardar subscrições para refazer após reconexão
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private reconnectDelay: number = 5000;
@@ -181,15 +182,19 @@ export class DerivService {
    * Trata desconexão e reconexão
    */
   private handleDisconnect(): void {
-            this.stopPing();
+    this.stopPing();
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       console.log(`[DerivService] Reconnecting... Attempt ${this.reconnectAttempts}`);
       
-      setTimeout(() => {
-        this.connect().catch((error) => {
+      setTimeout(async () => {
+        try {
+          await this.connect();
+          // Refazer subscrições ativas após reconexão
+          this.resubscribe();
+        } catch (error) {
           console.error("[DerivService] Reconnection failed:", error);
-        });
+        }
       }, this.reconnectDelay);
     } else {
       console.error("[DerivService] Max reconnection attempts reached");
@@ -201,6 +206,7 @@ export class DerivService {
    */
   subscribeTicks(symbol: string, callback: (tick: DerivTick) => void): void {
     this.subscriptions.set(`tick_${symbol}`, callback);
+    this.activeSubscriptions.set(`tick_${symbol}`, { type: 'ticks', symbol }); // Guardar para refazer
     this.send({
       ticks: symbol,
       subscribe: 1,
@@ -212,6 +218,7 @@ export class DerivService {
    */
   unsubscribeTicks(symbol: string): void {
     this.subscriptions.delete(`tick_${symbol}`);
+    this.activeSubscriptions.delete(`tick_${symbol}`); // Remover da lista ativa
     this.send({
       forget_all: "ticks",
     });
@@ -456,6 +463,23 @@ export class DerivService {
         }
       }, 10000);
     });
+  }
+
+  /**
+   * Refaz subscrições ativas após reconexão
+   */
+  private resubscribe(): void {
+    console.log(`[DerivService] Resubscribing to ${this.activeSubscriptions.size} active subscriptions`);
+    
+    for (const [key, sub] of this.activeSubscriptions) {
+      if (sub.type === 'ticks') {
+        console.log(`[DerivService] Resubscribing to ticks: ${sub.symbol}`);
+        this.send({
+          ticks: sub.symbol,
+          subscribe: 1,
+        });
+      }
+    }
   }
 
   /**
