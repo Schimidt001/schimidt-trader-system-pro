@@ -229,9 +229,11 @@ export class TradingBot {
       
       this.currentCandleTimestamp = candleTimestamp;
       this.currentCandleOpen = candleOpen;
-      this.currentCandleHigh = tick.quote;
-      this.currentCandleLow = tick.quote;
-      this.currentCandleClose = tick.quote; // Inicializar close
+      // Inicializar high/low com a abertura (não com o tick)
+      // Serão atualizados conforme novos ticks chegarem
+      this.currentCandleHigh = candleOpen;
+      this.currentCandleLow = candleOpen;
+      this.currentCandleClose = tick.quote; // Inicializar close com tick atual
       this.currentCandleStartTime = new Date(candleTimestamp * 1000);
       this.tradesThisCandle.clear();
 
@@ -303,6 +305,34 @@ export class TradingBot {
     try {
       this.state = "PREDICTING";
       await this.updateBotState();
+
+      // IMPORTANTE: Buscar candle atual da DERIV para garantir dados exatos
+      // Não usar valores construídos manualmente com ticks
+      try {
+        const currentCandles = await this.derivService.getCandleHistory(this.symbol, 900, 1);
+        if (currentCandles.length > 0 && currentCandles[0].epoch === this.currentCandleTimestamp) {
+          // Atualizar com dados oficiais da DERIV
+          this.currentCandleOpen = currentCandles[0].open;
+          this.currentCandleHigh = currentCandles[0].high;
+          this.currentCandleLow = currentCandles[0].low;
+          this.currentCandleClose = currentCandles[0].close;
+          
+          await this.logEvent(
+            "DERIV_CANDLE_SYNC",
+            `[SYNC DERIV] Candle atualizado com dados oficiais: Open=${this.currentCandleOpen} | High=${this.currentCandleHigh} | Low=${this.currentCandleLow} | Close=${this.currentCandleClose}`
+          );
+        } else {
+          await this.logEvent(
+            "DERIV_CANDLE_SYNC_WARNING",
+            `[SYNC DERIV] Candle atual não encontrado na DERIV, usando valores construídos com ticks`
+          );
+        }
+      } catch (error) {
+        await this.logEvent(
+          "DERIV_CANDLE_SYNC_ERROR",
+          `[SYNC DERIV] Erro ao buscar candle da DERIV: ${error}. Usando valores construídos com ticks`
+        );
+      }
 
       // Buscar histórico
       const history = await getCandleHistory(this.symbol, this.lookback);
