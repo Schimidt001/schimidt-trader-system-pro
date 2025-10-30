@@ -66,8 +66,7 @@ async function startServer() {
       try {
         await db.execute(`
           ALTER TABLE config 
-          ADD COLUMN triggerOffset INT NOT NULL DEFAULT 16 
-          COMMENT 'Distância do gatilho em relação à predição (pips)'
+          ADD COLUMN triggerOffset INT NOT NULL DEFAULT 16
         `);
         console.log("[Migration] Coluna triggerOffset adicionada");
       } catch (e: any) {
@@ -81,8 +80,7 @@ async function startServer() {
       try {
         await db.execute(`
           ALTER TABLE config 
-          ADD COLUMN profitThreshold INT NOT NULL DEFAULT 90 
-          COMMENT 'Percentual do payout para early close (1-100%)'
+          ADD COLUMN profitThreshold INT NOT NULL DEFAULT 90
         `);
         console.log("[Migration] Coluna profitThreshold adicionada");
       } catch (e: any) {
@@ -96,8 +94,7 @@ async function startServer() {
       try {
         await db.execute(`
           ALTER TABLE config 
-          ADD COLUMN waitTime INT NOT NULL DEFAULT 8 
-          COMMENT 'Tempo de espera em minutos antes de capturar dados para predição'
+          ADD COLUMN waitTime INT NOT NULL DEFAULT 8
         `);
         console.log("[Migration] Coluna waitTime adicionada");
       } catch (e: any) {
