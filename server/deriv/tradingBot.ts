@@ -339,10 +339,15 @@ export class TradingBot {
       this.prediction = await predictionService.predict(request);
 
       // Calcular gatilho usando offset configurável
+      // Se offset = 0, entrar diretamente no preço de predição (sem offset)
       // Offset é valor absoluto, NÃO multiplicar por pipSize!
       // Exemplo: 57914.1208 ±16 = 57898.1208 ou 57930.1208
       const offset = this.triggerOffset;
-      if (this.prediction.direction === "up") {
+      
+      if (offset === 0) {
+        // Offset desativado: entrar diretamente no preço de predição
+        this.trigger = this.prediction.predicted_close;
+      } else if (this.prediction.direction === "up") {
         // Para UP (compra/verde), gatilho ABAIXO do close previsto
         this.trigger = this.prediction.predicted_close - offset;
       } else {
@@ -351,9 +356,12 @@ export class TradingBot {
       }
 
       // Log detalhado da predição e cálculo do gatilho
+      const offsetInfo = offset === 0 ? 'DESATIVADO (entrada direta no preço previsto)' : `${offset} pontos`;
+      const triggerPosition = offset === 0 ? 'EXATAMENTE no close previsto' : (this.prediction.direction === 'up' ? 'ABAIXO do close' : 'ACIMA do close');
+      
       await this.logEvent(
         "PREDICTION_MADE",
-        `[SAÍDA DA PREDIÇÃO] Direção: ${this.prediction.direction.toUpperCase()} | Close Previsto: ${this.prediction.predicted_close} | Gatilho Calculado: ${this.trigger} (${this.prediction.direction === 'up' ? 'ACIMA' : 'ABAIXO'} do close) | Offset: ${offset} | Fase: ${this.prediction.phase} | Estratégia: ${this.prediction.strategy}`
+        `[SAÍDA DA PREDIÇÃO] Direção: ${this.prediction.direction.toUpperCase()} | Close Previsto: ${this.prediction.predicted_close} | Gatilho Calculado: ${this.trigger} (${triggerPosition}) | Offset: ${offsetInfo} | Fase: ${this.prediction.phase} | Estratégia: ${this.prediction.strategy}`
       );
 
       // Verificar se já atingiu limite diário

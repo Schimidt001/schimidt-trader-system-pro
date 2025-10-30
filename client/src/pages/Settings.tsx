@@ -168,8 +168,8 @@ export default function Settings() {
       return;
     }
 
-    if (isNaN(triggerOffsetNum) || triggerOffsetNum <= 0) {
-      toast.error("Trigger Offset (Pips) deve ser um número inteiro positivo");
+    if (isNaN(triggerOffsetNum) || triggerOffsetNum < 0) {
+      toast.error("Trigger Offset (Pips) deve ser um número inteiro positivo ou 0 (desativado)");
       return;
     }
 
@@ -428,7 +428,7 @@ export default function Settings() {
                     placeholder="16"
                   />
                   <p className="text-xs text-slate-500">
-                    Distância do gatilho em relação à predição (padrão: 16)
+                    Distância do gatilho em relação à predição (padrão: 16, use 0 para desativar)
                   </p>
                 </div>
 
