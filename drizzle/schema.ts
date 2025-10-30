@@ -32,6 +32,8 @@ export const config = mysqlTable("config", {
   stopDaily: int("stopDaily").notNull().default(10000), // em centavos
   takeDaily: int("takeDaily").notNull().default(50000), // em centavos
   lookback: int("lookback").notNull().default(100),
+  triggerOffset: int("triggerOffset").notNull().default(16), // offset do gatilho em pontos
+  profitThreshold: int("profitThreshold").notNull().default(90), // threshold de lucro para early close (%)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

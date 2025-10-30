@@ -36,6 +36,8 @@ export default function Settings() {
   const [stopDaily, setStopDaily] = useState("100");
   const [takeDaily, setTakeDaily] = useState("500");
   const [lookback, setLookback] = useState("100");
+  const [triggerOffset, setTriggerOffset] = useState("16");
+  const [profitThreshold, setProfitThreshold] = useState("90");
 
   // Query
   const { data: config, isLoading } = trpc.config.get.useQuery(undefined, {
@@ -83,6 +85,8 @@ export default function Settings() {
       setStopDaily((config.stopDaily / 100).toString());
       setTakeDaily((config.takeDaily / 100).toString());
       setLookback(config.lookback.toString());
+      setTriggerOffset((config.triggerOffset || 16).toString());
+      setProfitThreshold((config.profitThreshold || 90).toString());
     }
   }, [config]);
 
@@ -92,6 +96,8 @@ export default function Settings() {
     const stopDailyNum = parseFloat(stopDaily);
     const takeDailyNum = parseFloat(takeDaily);
     const lookbackNum = parseInt(lookback);
+    const triggerOffsetNum = parseInt(triggerOffset);
+    const profitThresholdNum = parseInt(profitThreshold);
 
     if (mode === "DEMO" && !tokenDemo) {
       toast.error("Token DEMO é obrigatório");
@@ -116,6 +122,8 @@ export default function Settings() {
         stopDaily: Math.round(stopDailyNum * 100),
         takeDaily: Math.round(takeDailyNum * 100),
         lookback: lookbackNum,
+        triggerOffset: triggerOffsetNum,
+        profitThreshold: profitThresholdNum,
       });
       
       // Depois testar conexão
@@ -132,6 +140,8 @@ export default function Settings() {
     const stopDailyNum = parseFloat(stopDaily);
     const takeDailyNum = parseFloat(takeDaily);
     const lookbackNum = parseInt(lookback);
+    const triggerOffsetNum = parseInt(triggerOffset);
+    const profitThresholdNum = parseInt(profitThreshold);
 
     if (isNaN(stakeNum) || stakeNum <= 0) {
       toast.error("Stake deve ser um número positivo");
@@ -150,6 +160,16 @@ export default function Settings() {
 
     if (isNaN(lookbackNum) || lookbackNum <= 0) {
       toast.error("Lookback deve ser um número inteiro positivo");
+      return;
+    }
+
+    if (isNaN(triggerOffsetNum) || triggerOffsetNum <= 0) {
+      toast.error("Trigger Offset (Pips) deve ser um número inteiro positivo");
+      return;
+    }
+
+    if (isNaN(profitThresholdNum) || profitThresholdNum < 1 || profitThresholdNum > 100) {
+      toast.error("Profit Threshold deve ser um número entre 1 e 100");
       return;
     }
 
@@ -173,6 +193,8 @@ export default function Settings() {
       stopDaily: Math.round(stopDailyNum * 100),
       takeDaily: Math.round(takeDailyNum * 100),
       lookback: lookbackNum,
+      triggerOffset: triggerOffsetNum,
+      profitThreshold: profitThresholdNum,
     });
   };
 
@@ -378,6 +400,44 @@ export default function Settings() {
                     onChange={(e) => setTakeDaily(e.target.value)}
                     className="bg-slate-800 border-slate-700 text-white"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="triggerOffset" className="text-slate-300">
+                    Trigger Offset - Pips
+                  </Label>
+                  <Input
+                    id="triggerOffset"
+                    type="number"
+                    value={triggerOffset}
+                    onChange={(e) => setTriggerOffset(e.target.value)}
+                    className="bg-slate-800 border-slate-700 text-white"
+                    placeholder="16"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Distância do gatilho em relação à predição (padrão: 16)
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="profitThreshold" className="text-slate-300">
+                    Profit Threshold (%)
+                  </Label>
+                  <Input
+                    id="profitThreshold"
+                    type="number"
+                    value={profitThreshold}
+                    onChange={(e) => setProfitThreshold(e.target.value)}
+                    className="bg-slate-800 border-slate-700 text-white"
+                    placeholder="90"
+                    min="1"
+                    max="100"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Percentual do payout para early close (padrão: 90%)
+                  </p>
                 </div>
               </div>
             </CardContent>

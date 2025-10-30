@@ -50,6 +50,8 @@ export const appRouter = router({
           stopDaily: 1000, // $10.00 em centavos
           takeDaily: 2000, // $20.00 em centavos
           lookback: 50,
+          triggerOffset: 16, // offset padrão do gatilho
+          profitThreshold: 90, // threshold padrão de lucro
         };
       }
       
@@ -67,6 +69,8 @@ export const appRouter = router({
           stopDaily: z.number().int().positive(),
           takeDaily: z.number().int().positive(),
           lookback: z.number().int().positive(),
+          triggerOffset: z.number().int().positive(),
+          profitThreshold: z.number().int().min(1).max(100),
         })
       )
       .mutation(async ({ ctx, input }) => {

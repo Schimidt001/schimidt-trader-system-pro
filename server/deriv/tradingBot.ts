@@ -55,6 +55,8 @@ export class TradingBot {
   private stopDaily: number = 10000;
   private takeDaily: number = 50000;
   private lookback: number = 100;
+  private triggerOffset: number = 16; // offset do gatilho em pontos
+  private profitThreshold: number = 90; // threshold de lucro para early close (%)
   private mode: "DEMO" | "REAL" = "DEMO";
   
   // Controle de risco
@@ -81,6 +83,8 @@ export class TradingBot {
       this.stopDaily = config.stopDaily;
       this.takeDaily = config.takeDaily;
       this.lookback = config.lookback;
+      this.triggerOffset = config.triggerOffset || 16;
+      this.profitThreshold = config.profitThreshold || 90;
       this.mode = config.mode;
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -312,10 +316,10 @@ export class TradingBot {
       // Chamar engine de predição
       this.prediction = await predictionService.predict(request);
 
-      // Calcular gatilho (offset de 16 pontos ABSOLUTOS)
+      // Calcular gatilho usando offset configurável
       // Offset é valor absoluto, NÃO multiplicar por pipSize!
       // Exemplo: 57914.1208 ±16 = 57898.1208 ou 57930.1208
-      const offset = 16.0;
+      const offset = this.triggerOffset;
       if (this.prediction.direction === "up") {
         // Para UP (compra/verde), gatilho ABAIXO do close previsto
         this.trigger = this.prediction.predicted_close - offset;
@@ -484,9 +488,10 @@ export class TradingBot {
       const currentProfit = contractInfo.profit || 0;
       const sellPrice = contractInfo.sell_price || 0;
 
-      // Verificar early close se lucro >= 90% do payout
-      if (currentProfit >= payout * 0.9 && sellPrice > 0) {
-        await this.closePosition("Early close - 90% payout atingido", sellPrice);
+      // Verificar early close se lucro >= profitThreshold% do payout
+      const profitRatio = this.profitThreshold / 100;
+      if (currentProfit >= payout * profitRatio && sellPrice > 0) {
+        await this.closePosition(`Early close - ${this.profitThreshold}% payout atingido`, sellPrice);
         return;
       }
     } catch (error) {
