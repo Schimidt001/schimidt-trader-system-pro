@@ -122,12 +122,24 @@ export class TradingBot {
       }
 
       this.isRunning = true;
-      this.state = "COLLECTING";
-      await this.updateBotState();
-      await this.logEvent("BOT_STARTED", `Bot iniciado em modo ${this.mode} para ${this.symbol}`);
-
-      // Iniciar coleta de dados
-      await this.startDataCollection();
+      
+      // Subscrever ticks SEMPRE que o bot iniciar (mesmo se reiniciando)
+      this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
+        this.handleTick(tick);
+      });
+      console.log(`[TradingBot] Subscribed to ticks for ${this.symbol}`);
+      
+      // Se estado for COLLECTING, iniciar coleta de dados
+      if (this.state === "IDLE" || this.state === "COLLECTING") {
+        this.state = "COLLECTING";
+        await this.updateBotState();
+        await this.logEvent("BOT_STARTED", `Bot iniciado em modo ${this.mode} para ${this.symbol}`);
+        await this.startDataCollection();
+      } else {
+        // Bot reiniciando em outro estado (ex: ENTERED, ARMED)
+        await this.logEvent("BOT_RESTARTED", `Bot reiniciado em estado ${this.state}`);
+        console.log(`[TradingBot] Bot restarted in state: ${this.state}`);
+      }
     } catch (error) {
       console.error("[TradingBot] Error starting bot:", error);
       this.state = "ERROR_API";
