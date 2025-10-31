@@ -257,29 +257,17 @@ export class TradingBot {
       }
 
       // Iniciar novo candle
-      // Buscar valor real de abertura da DERIV
-      let candleOpen = tick.quote; // Fallback: usar primeiro tick
-      
-      try {
-        // Buscar último candle da DERIV para obter abertura real
-        const candles = await this.derivService.getCandleHistory(this.symbol, 900, 1);
-        if (candles.length > 0 && candles[0].epoch === candleTimestamp) {
-          candleOpen = candles[0].open;
-          console.log(`[CANDLE_OPEN] Usando abertura da DERIV: ${candleOpen}`);
-        } else {
-          console.log(`[CANDLE_OPEN] Candle não encontrado na DERIV, usando primeiro tick: ${tick.quote}`);
-        }
-      } catch (error) {
-        console.error(`[CANDLE_OPEN] Erro ao buscar candle da DERIV:`, error);
-      }
+      // IMPORTANTE: Usar o primeiro tick como abertura
+      // NÃO buscar da DERIV pois retorna o candle ANTERIOR (já fechado)
+      const candleOpen = tick.quote;
+      console.log(`[CANDLE_OPEN] Novo candle iniciado com primeiro tick: ${candleOpen} | timestamp: ${candleTimestamp}`);
       
       this.currentCandleTimestamp = candleTimestamp;
       this.currentCandleOpen = candleOpen;
-      // Inicializar high/low com a abertura (não com o tick)
-      // Serão atualizados conforme novos ticks chegarem
+      // Inicializar high/low/close com o primeiro tick
       this.currentCandleHigh = candleOpen;
       this.currentCandleLow = candleOpen;
-      this.currentCandleClose = tick.quote; // Inicializar close com tick atual
+      this.currentCandleClose = candleOpen;
       this.currentCandleStartTime = new Date(candleTimestamp * 1000);
       this.tradesThisCandle.clear();
 
@@ -623,14 +611,34 @@ export class TradingBot {
 
       // Obter informações finais do contrato
       const contractInfo = await this.derivService.getContractInfo(this.contractId);
-      const finalProfit = contractInfo.profit || 0;
-      const exitPrice = contractInfo.exit_tick || contractInfo.current_spot || 0;
       
       // Log detalhado dos valores da DERIV para debug
       await this.logEvent(
         "CONTRACT_CLOSE_DEBUG",
-        `[DEBUG FECHAMENTO] Contract ID: ${this.contractId} | profit: ${contractInfo.profit} | sell_price: ${contractInfo.sell_price} | buy_price: ${contractInfo.buy_price} | payout: ${contractInfo.payout} | exit_tick: ${contractInfo.exit_tick} | current_spot: ${contractInfo.current_spot}`
+        `[DEBUG FECHAMENTO] Contract ID: ${this.contractId} | status: ${contractInfo.status} | profit: ${contractInfo.profit} | sell_price: ${contractInfo.sell_price} | buy_price: ${contractInfo.buy_price} | payout: ${contractInfo.payout} | exit_tick: ${contractInfo.exit_tick} | current_spot: ${contractInfo.current_spot}`
       );
+      
+      // Calcular PnL baseado no resultado FINAL do contrato
+      let finalProfit = 0;
+      
+      if (contractInfo.status === 'sold' || contractInfo.status === 'won') {
+        // Contrato vendido ou ganho: usar sell_price ou payout
+        const sellPrice = contractInfo.sell_price || contractInfo.payout || 0;
+        finalProfit = sellPrice - contractInfo.buy_price;
+      } else if (contractInfo.status === 'lost') {
+        // Contrato perdido: perda total do stake
+        finalProfit = -contractInfo.buy_price;
+      } else {
+        // Contrato ainda aberto ou status desconhecido: usar profit atual (temporário)
+        // AVISO: Isso pode não refletir o resultado final!
+        finalProfit = contractInfo.profit || 0;
+        await this.logEvent(
+          "WARNING",
+          `[AVISO] Contrato ${this.contractId} fechado com status '${contractInfo.status}' - PnL pode não ser final`
+        );
+      }
+      
+      const exitPrice = contractInfo.exit_tick || contractInfo.current_spot || 0;
 
       // Atualizar posição no banco
       const pnlInCents = Math.round(finalProfit * 100);

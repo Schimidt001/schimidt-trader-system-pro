@@ -405,7 +405,7 @@ export default function Dashboard() {
                       <div>
                         <div className="text-xs text-slate-500 mb-1">Pips</div>
                         <div className="text-sm font-medium text-cyan-400">
-                          16
+                          {Math.abs(parseFloat(position.trigger) - parseFloat(position.predictedClose)).toFixed(2)}
                         </div>
                       </div>
                       <div>
