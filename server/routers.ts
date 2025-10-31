@@ -54,6 +54,12 @@ export const appRouter = router({
           triggerOffset: 16, // offset padrão do gatilho
           profitThreshold: 90, // threshold padrão de lucro
           waitTime: 8, // tempo de espera padrão em minutos
+          // Parâmetros padrão da IA Híbrida
+          aiEnabled: false,
+          stakeHighConfidence: 400, // $4.00 em centavos
+          stakeNormalConfidence: 100, // $1.00 em centavos
+          aiFilterThreshold: 60,
+          aiHedgeEnabled: true,
         };
       }
       
@@ -74,6 +80,12 @@ export const appRouter = router({
           triggerOffset: z.number().int().nonnegative(), // Aceita 0 (desativado) ou valores positivos
           profitThreshold: z.number().int().min(1).max(100),
           waitTime: z.number().int().min(1).max(14), // 1-14 minutos (candle M15)
+          // Parâmetros da IA Híbrida
+          aiEnabled: z.boolean().optional(),
+          stakeHighConfidence: z.number().int().positive().optional(),
+          stakeNormalConfidence: z.number().int().positive().optional(),
+          aiFilterThreshold: z.number().int().min(0).max(100).optional(),
+          aiHedgeEnabled: z.boolean().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {

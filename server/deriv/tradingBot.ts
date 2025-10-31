@@ -1,5 +1,6 @@
-import { DerivService, DerivCandle, DerivTick } from "./derivService";
+import { DerivService, type DerivTick } from "./derivService";
 import { predictionService } from "../prediction/predictionService";
+import { makeAIDecision, calculateHedgedPnL, type AIConfig, type AIDecision } from "../ai/hybridStrategy";
 import type {
   PredictionRequest,
   PredictionResponse,
@@ -62,6 +63,14 @@ export class TradingBot {
   private waitTime: number = 8; // tempo de espera em minutos antes de capturar dados
   private mode: "DEMO" | "REAL" = "DEMO";
   
+  // Configurações da IA Híbrida
+  private aiEnabled: boolean = false;
+  private stakeHighConfidence: number = 400; // em centavos ($4)
+  private stakeNormalConfidence: number = 100; // em centavos ($1)
+  private aiFilterThreshold: number = 60; // 0-100
+  private aiHedgeEnabled: boolean = true;
+  private aiDecision: AIDecision | null = null;
+  
   // Controle de risco
   private dailyPnL: number = 0;
   private tradesThisCandle: Set<number> = new Set();
@@ -99,6 +108,21 @@ export class TradingBot {
       this.profitThreshold = config.profitThreshold ?? 90;
       this.waitTime = config.waitTime ?? 8;
       this.mode = config.mode;
+      
+      // Carregar configurações da IA Híbrida
+      this.aiEnabled = config.aiEnabled ?? false;
+      this.stakeHighConfidence = config.stakeHighConfidence ?? 400;
+      this.stakeNormalConfidence = config.stakeNormalConfidence ?? 100;
+      this.aiFilterThreshold = config.aiFilterThreshold ?? 60;
+      this.aiHedgeEnabled = config.aiHedgeEnabled ?? true;
+      
+      console.log(`[AI_CONFIG] IA Habilitada: ${this.aiEnabled}`);
+      if (this.aiEnabled) {
+        console.log(`[AI_CONFIG] Stake Alta Confiança: $${this.stakeHighConfidence / 100}`);
+        console.log(`[AI_CONFIG] Stake Normal: $${this.stakeNormalConfidence / 100}`);
+        console.log(`[AI_CONFIG] Threshold Filtro: ${this.aiFilterThreshold}%`);
+        console.log(`[AI_CONFIG] Hedge Habilitado: ${this.aiHedgeEnabled}`);
+      }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
       if (!token) {
@@ -350,6 +374,7 @@ export class TradingBot {
       // IMPORTANTE: Buscar candle atual da DERIV para garantir dados exatos
       // Não usar valores construídos manualmente com ticks
       try {
+        if (!this.derivService) return;
         const currentCandles = await this.derivService.getCandleHistory(this.symbol, 900, 1);
         if (currentCandles.length > 0 && currentCandles[0].epoch === this.currentCandleTimestamp) {
           // Atualizar com dados oficiais da DERIV
@@ -435,6 +460,41 @@ export class TradingBot {
         "PREDICTION_MADE",
         `[SAÍDA DA PREDIÇÃO] Direção: ${this.prediction.direction.toUpperCase()} | Close Previsto: ${this.prediction.predicted_close} | Gatilho Calculado: ${this.trigger} (${triggerPosition}) | Offset: ${offsetInfo} | Fase: ${this.prediction.phase} | Estratégia: ${this.prediction.strategy}`
       );
+      
+      // Se IA estiver habilitada, fazer análise de confiança
+      if (this.aiEnabled) {
+        const aiConfig: AIConfig = {
+          stakeHighConfidence: this.stakeHighConfidence,
+          stakeNormalConfidence: this.stakeNormalConfidence,
+          aiFilterThreshold: this.aiFilterThreshold,
+          aiHedgeEnabled: this.aiHedgeEnabled
+        };
+        
+        const candleData = {
+          open: this.currentCandleOpen,
+          high: this.currentCandleHigh,
+          low: this.currentCandleLow,
+          close: this.currentCandleClose
+        };
+        
+        this.aiDecision = makeAIDecision(candleData, this.prediction.direction, aiConfig);
+        
+        await this.logEvent(
+          "AI_DECISION",
+          `[AGENTE IA] Confiança: ${this.aiDecision.confidence} | Deve Entrar: ${this.aiDecision.shouldEnter} | Hedge: ${this.aiDecision.shouldHedge} | Stake: $${this.aiDecision.stake / 100} | ${this.aiDecision.reason}`
+        );
+        
+        // Se IA decidir NÃO entrar, pular para próximo candle
+        if (!this.aiDecision.shouldEnter) {
+          await this.logEvent(
+            "AI_BLOCKED_ENTRY",
+            "IA bloqueou entrada por baixa confiança. Aguardando próximo candle."
+          );
+          this.state = "WAITING_MIDPOINT";
+          await this.updateBotState();
+          return;
+        }
+      }
 
       // Verificar se já atingiu limite diário
       if (this.dailyPnL <= -this.stopDaily) {
@@ -508,11 +568,16 @@ export class TradingBot {
       const durationSeconds = Math.max(900 - elapsedSeconds - 20, 60); // Mínimo 60s
       const durationMinutes = Math.ceil(durationSeconds / 60); // Arredondar para cima em minutos
       
+      // Determinar stake: usar decisão da IA se habilitada, senão usar stake padrão
+      const finalStake = this.aiEnabled && this.aiDecision 
+        ? this.aiDecision.stake 
+        : this.stake;
+      
       // Comprar contrato na DERIV
       const contract = await this.derivService.buyContract(
         this.symbol,
         contractType,
-        this.stake / 100, // Converter centavos para unidade
+        finalStake / 100, // Converter centavos para unidade
         durationMinutes,
         "m"
       );
@@ -525,7 +590,7 @@ export class TradingBot {
         contractId: contract.contract_id,
         symbol: this.symbol,
         direction: this.prediction.direction,
-        stake: this.stake,
+        stake: finalStake,
         entryPrice: entryPrice.toString(),
         predictedClose: this.prediction.predicted_close.toString(),
         trigger: this.trigger.toString(),
@@ -543,9 +608,14 @@ export class TradingBot {
 
       this.state = "ENTERED";
       await this.updateBotState();
+      
+      const aiInfo = this.aiEnabled && this.aiDecision
+        ? ` | IA: ${this.aiDecision.confidence} | Hedge: ${this.aiDecision.shouldHedge ? 'SIM' : 'NÃO'}`
+        : '';
+      
       await this.logEvent(
         "POSITION_ENTERED",
-        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${this.stake / 100} | Duração: ${durationMinutes}min (${durationSeconds}s) | Contract: ${contract.contract_id}`
+        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${durationMinutes}min (${durationSeconds}s) | Contract: ${contract.contract_id}${aiInfo}`
       );
     } catch (error) {
       console.error("[TradingBot] Error entering position:", error);
