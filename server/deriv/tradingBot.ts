@@ -85,7 +85,16 @@ export class TradingBot {
       this.stopDaily = config.stopDaily;
       this.takeDaily = config.takeDaily;
       this.lookback = config.lookback;
+      
+      // Log detalhado do triggerOffset para debug
+      console.log(`[TRIGGER_OFFSET_DEBUG] Valor do banco: ${config.triggerOffset}`);
+      console.log(`[TRIGGER_OFFSET_DEBUG] Tipo: ${typeof config.triggerOffset}`);
+      console.log(`[TRIGGER_OFFSET_DEBUG] É null? ${config.triggerOffset === null}`);
+      console.log(`[TRIGGER_OFFSET_DEBUG] É undefined? ${config.triggerOffset === undefined}`);
+      
       this.triggerOffset = config.triggerOffset ?? 16; // Usar ?? para aceitar 0
+      console.log(`[TRIGGER_OFFSET_DEBUG] Valor final atribuído: ${this.triggerOffset}`);
+      
       this.profitThreshold = config.profitThreshold ?? 90;
       this.waitTime = config.waitTime ?? 8;
       this.mode = config.mode;
@@ -373,6 +382,7 @@ export class TradingBot {
       // Offset é valor absoluto, NÃO multiplicar por pipSize!
       // Exemplo: 57914.1208 ±16 = 57898.1208 ou 57930.1208
       const offset = this.triggerOffset;
+      console.log(`[TRIGGER_OFFSET_DEBUG] Offset usado no cálculo: ${offset}`);
       
       if (offset === 0) {
         // Offset desativado: entrar diretamente no preço de predição
