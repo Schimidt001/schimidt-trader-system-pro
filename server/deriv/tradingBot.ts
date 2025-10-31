@@ -49,6 +49,7 @@ export class TradingBot {
   private currentPositionId: number | null = null;
   private contractId: string | null = null;
   private lastContractCheckTime: number = 0;
+  private candleEndTimer: NodeJS.Timeout | null = null; // Timer para forçar fim de candle
   
   // Configurações
   private symbol: string = "R_100";
@@ -164,6 +165,12 @@ export class TradingBot {
   async stop(): Promise<void> {
     this.isRunning = false;
     
+    // Limpar timer de fim de candle
+    if (this.candleEndTimer) {
+      clearTimeout(this.candleEndTimer);
+      this.candleEndTimer = null;
+    }
+    
     if (this.derivService) {
       this.derivService.disconnect();
       this.derivService = null;
@@ -273,6 +280,10 @@ export class TradingBot {
       await this.updateBotState();
       await this.logEvent("CANDLE_INITIALIZED", 
         `Novo candle: timestamp=${candleTimestamp}, open=${candleOpen}, firstTick=${tick.quote}`);
+      
+      // Criar timer para forçar fim do candle após 900 segundos (15 minutos)
+      // Isso garante que o candle seja fechado mesmo se não chegar tick na virada
+      this.scheduleCandleEnd(candleTimestamp);
     } else {
       // Atualizar candle atual
       this.currentCandleHigh = Math.max(this.currentCandleHigh, tick.quote);
@@ -747,6 +758,54 @@ export class TradingBot {
       currentCandleTimestamp: this.currentCandleTimestamp || null,
       currentPositionId: this.currentPositionId || null,
     });
+  }
+
+  /**
+   * Agenda o fim do candle após 900 segundos (15 minutos)
+   * Garante que o candle seja fechado mesmo se não chegar tick na virada
+   */
+  private scheduleCandleEnd(candleTimestamp: number): void {
+    // Limpar timer anterior se existir
+    if (this.candleEndTimer) {
+      clearTimeout(this.candleEndTimer);
+    }
+    
+    // Calcular quando o candle deve terminar
+    const candleEndTimestamp = candleTimestamp + 900; // 900 segundos = 15 minutos
+    const now = Math.floor(Date.now() / 1000);
+    const timeUntilEnd = (candleEndTimestamp - now) * 1000; // Converter para milissegundos
+    
+    // Se o tempo já passou (caso raro), fechar imediatamente
+    if (timeUntilEnd <= 0) {
+      console.log(`[CANDLE_END_TIMER] Candle já deveria ter terminado, fechando imediatamente`);
+      this.closeCurrentCandle().catch(err => 
+        console.error(`[CANDLE_END_TIMER_ERROR] Erro ao fechar candle:`, err)
+      );
+      return;
+    }
+    
+    console.log(`[CANDLE_END_TIMER] Timer criado: candle termina em ${timeUntilEnd / 1000}s (${new Date(candleEndTimestamp * 1000).toISOString()})`);
+    
+    // Criar timer para forçar fechamento
+    this.candleEndTimer = setTimeout(async () => {
+      console.log(`[CANDLE_END_TIMER] Timer disparado! Forçando fechamento do candle ${candleTimestamp}`);
+      
+      // Verificar se ainda estamos no mesmo candle
+      if (this.currentCandleTimestamp === candleTimestamp) {
+        await this.logEvent("CANDLE_FORCED_CLOSE", 
+          `Candle fechado por timer após 900s sem receber tick de virada`);
+        await this.closeCurrentCandle();
+        
+        // Forçar início do próximo candle
+        const nextCandleTimestamp = candleTimestamp + 900;
+        console.log(`[CANDLE_END_TIMER] Iniciando próximo candle: ${nextCandleTimestamp}`);
+        
+        // Resetar para aguardar primeiro tick do novo candle
+        this.currentCandleTimestamp = 0;
+      } else {
+        console.log(`[CANDLE_END_TIMER] Candle já mudou, timer ignorado`);
+      }
+    }, timeUntilEnd);
   }
 
   /**
