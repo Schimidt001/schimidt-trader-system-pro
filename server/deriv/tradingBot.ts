@@ -235,10 +235,8 @@ export class TradingBot {
       );
     }
 
-    // Inscrever-se em ticks para construir candle em tempo real
-    this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
-      this.handleTick(tick);
-    });
+    // Inscrição de ticks já foi feita no start() - não duplicar aqui
+    // A subscrição única garante que cada tick seja processado apenas 1 vez
   }
 
   /**
@@ -323,11 +321,9 @@ export class TradingBot {
       await this.closePosition("Candle fechado");
     }
 
-    // Reset estado
+    // Reset estado (IDs já foram limpos em closePosition)
     this.prediction = null;
     this.trigger = 0;
-    this.currentPositionId = null;
-    this.contractId = null;
     this.state = "WAITING_MIDPOINT";
     await this.updateBotState();
   }
@@ -603,19 +599,27 @@ export class TradingBot {
   private async closePosition(reason: string, sellPrice?: number): Promise<void> {
     if (!this.currentPositionId || !this.contractId || !this.derivService) return;
 
+    // Proteção contra múltiplas chamadas simultâneas
+    const positionId = this.currentPositionId;
+    const contractId = this.contractId;
+    
+    // Limpar IDs imediatamente para evitar duplicação
+    this.currentPositionId = null;
+    this.contractId = null;
+
     try {
       // Tentar vender contrato se preço fornecido
       if (sellPrice && sellPrice > 0) {
-        await this.derivService.sellContract(this.contractId, sellPrice);
+        await this.derivService.sellContract(contractId, sellPrice);
       }
 
       // Obter informações finais do contrato
-      const contractInfo = await this.derivService.getContractInfo(this.contractId);
+      const contractInfo = await this.derivService.getContractInfo(contractId);
       
       // Log detalhado dos valores da DERIV para debug
       await this.logEvent(
         "CONTRACT_CLOSE_DEBUG",
-        `[DEBUG FECHAMENTO] Contract ID: ${this.contractId} | status: ${contractInfo.status} | profit: ${contractInfo.profit} | sell_price: ${contractInfo.sell_price} | buy_price: ${contractInfo.buy_price} | payout: ${contractInfo.payout} | exit_tick: ${contractInfo.exit_tick} | current_spot: ${contractInfo.current_spot}`
+        `[DEBUG FECHAMENTO] Contract ID: ${contractId} | status: ${contractInfo.status} | profit: ${contractInfo.profit} | sell_price: ${contractInfo.sell_price} | buy_price: ${contractInfo.buy_price} | payout: ${contractInfo.payout} | exit_tick: ${contractInfo.exit_tick} | current_spot: ${contractInfo.current_spot}`
       );
       
       // Calcular PnL baseado no resultado FINAL do contrato
@@ -634,7 +638,7 @@ export class TradingBot {
         finalProfit = contractInfo.profit || 0;
         await this.logEvent(
           "WARNING",
-          `[AVISO] Contrato ${this.contractId} fechado com status '${contractInfo.status}' - PnL pode não ser final`
+          `[AVISO] Contrato ${contractId} fechado com status '${contractInfo.status}' - PnL pode não ser final`
         );
       }
       
@@ -642,7 +646,7 @@ export class TradingBot {
 
       // Atualizar posição no banco
       const pnlInCents = Math.round(finalProfit * 100);
-      await updatePosition(this.currentPositionId, {
+      await updatePosition(positionId, {
         exitPrice: exitPrice.toString(),
         pnl: pnlInCents,
         status: "CLOSED",
@@ -676,9 +680,7 @@ export class TradingBot {
         return;
       }
 
-      // Reset para próximo candle
-      this.currentPositionId = null;
-      this.contractId = null;
+      // Reset para próximo candle (IDs já foram limpos no início da função)
       this.prediction = null;
       this.trigger = 0;
       this.state = "WAITING_MIDPOINT";
