@@ -31,7 +31,7 @@ export const config = mysqlTable("config", {
   stake: int("stake").notNull().default(10), // em centavos
   stopDaily: int("stopDaily").notNull().default(10000), // em centavos
   takeDaily: int("takeDaily").notNull().default(50000), // em centavos
-  lookback: int("lookback").notNull().default(100),
+  lookback: int("lookback").notNull().default(500), // Aumentado para 500 candles
   triggerOffset: int("triggerOffset").default(16), // offset do gatilho em pontos
   profitThreshold: int("profitThreshold").default(90), // threshold de lucro para early close (%)
   waitTime: int("waitTime").default(8), // tempo de espera em minutos antes de capturar dados para predição

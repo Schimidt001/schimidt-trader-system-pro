@@ -55,7 +55,7 @@ export class TradingBot {
   private stake: number = 1000; // em centavos
   private stopDaily: number = 10000;
   private takeDaily: number = 50000;
-  private lookback: number = 100;
+  private lookback: number = 500; // Aumentado para 500 candles
   private triggerOffset: number = 16; // offset do gatilho em pontos
   private profitThreshold: number = 90; // threshold de lucro para early close (%)
   private waitTime: number = 8; // tempo de espera em minutos antes de capturar dados
@@ -197,6 +197,43 @@ export class TradingBot {
     }
 
     await this.logEvent("CANDLE_COLLECTED", `Histórico de ${history.length} candles coletado`);
+
+    // Fazer análise inicial para descobrir fase e estratégia
+    try {
+      const historyData: CandleData[] = history.reverse().map((c) => ({
+        abertura: c.open,
+        minima: c.low,
+        maxima: c.high,
+        fechamento: c.close,
+        timestamp: c.epoch,
+      }));
+
+      // Usar último candle como "parcial" para análise inicial
+      const lastCandle = history[0];
+      const initialPrediction = await predictionService.predict({
+        symbol: this.symbol,
+        tf: "M15",
+        history: historyData.slice(0, -1), // Todos exceto o último
+        partial_current: {
+          timestamp_open: lastCandle.epoch,
+          elapsed_seconds: 900, // Candle completo
+          abertura: lastCandle.open,
+          minima_parcial: lastCandle.low,
+          maxima_parcial: lastCandle.high,
+        },
+      });
+
+      await this.logEvent(
+        "PHASE_STRATEGY_DISCOVERED",
+        `[FASE E ESTRATÉGIA DESCOBERTA] Fase: ${initialPrediction.phase} | Estratégia: ${initialPrediction.strategy} | Confiança: ${(initialPrediction.confidence * 100).toFixed(2)}%`
+      );
+    } catch (error) {
+      console.error("[PHASE_DISCOVERY_ERROR] Erro ao descobrir fase/estratégia:", error);
+      await this.logEvent(
+        "PHASE_STRATEGY_DISCOVERED",
+        `[FASE E ESTRATÉGIA] Será descoberta na primeira predição`
+      );
+    }
 
     // Inscrever-se em ticks para construir candle em tempo real
     this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
