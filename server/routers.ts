@@ -331,17 +331,19 @@ export const appRouter = router({
       try {
         await resetDailyData(ctx.user.id);
         
-        // Resetar PnL diário do bot em memória
+        // Apenas resetar PnL diário do bot em memória (sem reiniciar)
         const bot = getBotForUser(ctx.user.id);
         if (bot) {
-          // Forçar reload das configurações e PnL
-          await bot.stop();
-          await bot.start();
+          // Resetar apenas o PnL acumulado, sem parar/iniciar o bot
+          // @ts-ignore - acessar propriedade privada para resetar PnL
+          if (bot.dailyPnL !== undefined) {
+            bot.dailyPnL = 0;
+          }
         }
         
         return { 
           success: true,
-          message: "Dados diários resetados com sucesso!"
+          message: "Dados di\u00e1rios resetados com sucesso!"
         };
       } catch (error: any) {
         console.error("[Reset] Erro ao resetar dados:", error);

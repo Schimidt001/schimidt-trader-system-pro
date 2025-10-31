@@ -1,4 +1,4 @@
-import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql, not } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -259,7 +259,8 @@ export async function getTodayPositions(userId: number): Promise<any[]> {
     .where(
       and(
         eq(positions.userId, userId),
-        gte(positions.createdAt, today)
+        gte(positions.createdAt, today),
+        not(eq(positions.status, "CANCELLED"))
       )
     )
     .orderBy(desc(positions.createdAt));
