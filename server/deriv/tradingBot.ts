@@ -85,9 +85,9 @@ export class TradingBot {
       this.stopDaily = config.stopDaily;
       this.takeDaily = config.takeDaily;
       this.lookback = config.lookback;
-      this.triggerOffset = config.triggerOffset || 16;
-      this.profitThreshold = config.profitThreshold || 90;
-      this.waitTime = config.waitTime || 8;
+      this.triggerOffset = config.triggerOffset ?? 16; // Usar ?? para aceitar 0
+      this.profitThreshold = config.profitThreshold ?? 90;
+      this.waitTime = config.waitTime ?? 8;
       this.mode = config.mode;
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
