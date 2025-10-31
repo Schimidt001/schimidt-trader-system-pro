@@ -40,6 +40,15 @@ export const appRouter = router({
     get: protectedProcedure.query(async ({ ctx }) => {
       const config = await getConfigByUserId(ctx.user.id);
       
+      // Valores padrão para campos da IA (para compatibilidade com configs antigas)
+      const defaultAIConfig = {
+        aiEnabled: false,
+        stakeHighConfidence: 400, // $4.00 em centavos
+        stakeNormalConfidence: 100, // $1.00 em centavos
+        aiFilterThreshold: 60,
+        aiHedgeEnabled: true,
+      };
+      
       // Retornar configuração padrão se não existir
       if (!config) {
         return {
@@ -54,16 +63,19 @@ export const appRouter = router({
           triggerOffset: 16, // offset padrão do gatilho
           profitThreshold: 90, // threshold padrão de lucro
           waitTime: 8, // tempo de espera padrão em minutos
-          // Parâmetros padrão da IA Híbrida
-          aiEnabled: false,
-          stakeHighConfidence: 400, // $4.00 em centavos
-          stakeNormalConfidence: 100, // $1.00 em centavos
-          aiFilterThreshold: 60,
-          aiHedgeEnabled: true,
+          ...defaultAIConfig,
         };
       }
       
-      return config;
+      // Garantir que configs antigas tenham os campos da IA
+      return {
+        ...config,
+        aiEnabled: config.aiEnabled ?? defaultAIConfig.aiEnabled,
+        stakeHighConfidence: config.stakeHighConfidence ?? defaultAIConfig.stakeHighConfidence,
+        stakeNormalConfidence: config.stakeNormalConfidence ?? defaultAIConfig.stakeNormalConfidence,
+        aiFilterThreshold: config.aiFilterThreshold ?? defaultAIConfig.aiFilterThreshold,
+        aiHedgeEnabled: config.aiHedgeEnabled ?? defaultAIConfig.aiHedgeEnabled,
+      };
     }),
 
     update: protectedProcedure
