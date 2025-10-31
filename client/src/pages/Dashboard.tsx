@@ -146,7 +146,9 @@ export default function Dashboard() {
         const now = Math.floor(Date.now() / 1000); // Timestamp atual em segundos
         const candleStart = botStatus.candleStartTime || 0;
         const elapsed = now - candleStart; // Tempo decorrido desde início do candle
-        const remaining = Math.max(0, 480 - elapsed); // 480s = 8 minutos
+        // Usar waitTime da configuração (em minutos) convertido para segundos
+        const waitTimeSeconds = (config?.waitTime || 8) * 60; // Default 8 minutos se não configurado
+        const remaining = Math.max(0, waitTimeSeconds - elapsed);
         setTimeRemaining(remaining);
       }, 1000);
       
@@ -154,7 +156,7 @@ export default function Dashboard() {
     } else {
       setTimeRemaining(null);
     }
-  }, [currentState, botStatus?.candleStartTime]);
+  }, [currentState, botStatus?.candleStartTime, config?.waitTime]);
   
   // Label dinâmico baseado no tempo restante
   let stateLabel: string = BOT_STATES[currentState as keyof typeof BOT_STATES] || currentState;
