@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { CandleChart } from "@/components/CandleChart";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square } from "lucide-react";
+import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, RotateCcw } from "lucide-react";
 import { BOT_STATES } from "@/const";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -82,6 +82,17 @@ export default function Dashboard() {
     },
   });
 
+  const resetDailyData = trpc.dashboard.resetDailyData.useMutation({
+    onSuccess: () => {
+      toast.success("Dados di\u00e1rios resetados com sucesso!");
+      refetchMetrics();
+      refetchStatus();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao resetar dados: ${error.message}`);
+    },
+  });
+
   const handleStart = () => {
     setIsStarting(true);
     startBot.mutate();
@@ -94,6 +105,12 @@ export default function Dashboard() {
 
   const handleReset = () => {
     resetBot.mutate();
+  };
+
+  const handleResetDailyData = () => {
+    if (confirm("Tem certeza que deseja resetar todos os dados di\u00e1rios? Esta a\u00e7\u00e3o n\u00e3o pode ser desfeita.")) {
+      resetDailyData.mutate();
+    }
   };
 
   if (authLoading) {
@@ -182,6 +199,20 @@ export default function Dashboard() {
                 Limpar Erro
               </Button>
             )}
+            <Button
+              onClick={handleResetDailyData}
+              disabled={resetDailyData.isPending || currentState === "ENTERED"}
+              variant="outline"
+              className="gap-2"
+              title={currentState === "ENTERED" ? "N\u00e3o \u00e9 poss\u00edvel resetar com posi\u00e7\u00e3o aberta" : "Resetar dados di\u00e1rios"}
+            >
+              {resetDailyData.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RotateCcw className="w-4 h-4" />
+              )}
+              Resetar Dados
+            </Button>
             {isRunning ? (
               <Button
                 onClick={handleStop}

@@ -15,6 +15,7 @@ import {
   getMetric,
   getCandleHistory,
 } from "./db";
+import { resetDailyData } from "./db_reset";
 import { getBotForUser, removeBotForUser } from "./deriv/tradingBot";
 import { DerivService } from "./deriv/derivService";
 import { predictionService } from "./prediction/predictionService";
@@ -315,6 +316,41 @@ export const appRouter = router({
           });
         }
       }),
+
+    resetDailyData: protectedProcedure.mutation(async ({ ctx }) => {
+      // Verificar se há posição aberta
+      const botState = await getBotState(ctx.user.id);
+      
+      if (botState && botState.state === "ENTERED") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Não é possível resetar dados com posição aberta. Aguarde o fechamento da posição atual.",
+        });
+      }
+
+      try {
+        await resetDailyData(ctx.user.id);
+        
+        // Resetar PnL diário do bot em memória
+        const bot = getBotForUser(ctx.user.id);
+        if (bot) {
+          // Forçar reload das configurações e PnL
+          await bot.stop();
+          await bot.start();
+        }
+        
+        return { 
+          success: true,
+          message: "Dados diários resetados com sucesso!"
+        };
+      } catch (error: any) {
+        console.error("[Reset] Erro ao resetar dados:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erro ao resetar dados: ${error.message}`,
+        });
+      }
+    }),
   }),
 
   // Posições
