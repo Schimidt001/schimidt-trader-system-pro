@@ -51,6 +51,8 @@ export class TradingBot {
   private contractId: string | null = null;
   private lastContractCheckTime: number = 0;
   private candleEndTimer: NodeJS.Timeout | null = null; // Timer para forçar fim de candle
+  private currentPositionStake: number = 0; // Stake real da posição atual (em centavos)
+  private contractInfoErrors: number = 0; // Contador de erros consecutivos ao obter contractInfo
   
   // Configurações
   private symbol: string = "R_100";
@@ -573,6 +575,9 @@ export class TradingBot {
         ? this.aiDecision.stake 
         : this.stake;
       
+      // Armazenar stake real da posição para cálculos corretos de early close
+      this.currentPositionStake = finalStake;
+      
       // Comprar contrato na DERIV
       const contract = await this.derivService.buyContract(
         this.symbol,
@@ -645,10 +650,21 @@ export class TradingBot {
       const payout = contractInfo.payout || 0;
       const currentProfit = contractInfo.profit || 0;
       const sellPrice = contractInfo.sell_price || 0;
+      
+      // Log se sell_price não estiver disponível
+      if (sellPrice <= 0 && elapsedSeconds % 30 === 0) {
+        await this.logEvent(
+          "SELL_PRICE_UNAVAILABLE",
+          `sell_price não disponível para contrato ${this.contractId} | payout: ${payout} | profit: ${currentProfit}`
+        );
+      }
+      
+      // Reset contador de erros após sucesso
+      this.contractInfoErrors = 0;
 
       // 1. Early close se lucro >= profitThreshold% do lucro máximo
       const profitRatio = this.profitThreshold / 100;
-      const stakeInDollars = this.stake / 100; // Converter centavos para dólares
+      const stakeInDollars = this.currentPositionStake / 100; // Usar stake REAL da posição (FIX BUG)
       const maxProfit = payout - stakeInDollars; // Lucro máximo possível
       const targetProfit = maxProfit * profitRatio; // X% do lucro máximo
       
@@ -666,10 +682,21 @@ export class TradingBot {
       // 3. Se em perda, aguardar até o fim do candle (900s)
       // A posição será fechada automaticamente pela DERIV ou pelo closeCurrentCandle()
     } catch (error) {
+      // Incrementar contador de erros
+      this.contractInfoErrors++;
+      
       // Não logar erro a cada tick, apenas em caso de timeout crítico
       // A posição continuará sendo gerenciada e fechará no tempo correto
       if (elapsedSeconds % 30 === 0) {
         console.error("[TradingBot] Error checking contract info:", error);
+      }
+      
+      // Alerta se muitos erros consecutivos
+      if (this.contractInfoErrors >= 5) {
+        await this.logEvent(
+          "CONTRACT_INFO_ERROR_CRITICAL",
+          `Falha ao obter contractInfo ${this.contractInfoErrors} vezes consecutivas | Contrato: ${this.contractId}`
+        );
       }
     }
   }
@@ -687,6 +714,7 @@ export class TradingBot {
     // Limpar IDs imediatamente para evitar duplicação
     this.currentPositionId = null;
     this.contractId = null;
+    this.currentPositionStake = 0; // Limpar stake da posição
 
     try {
       // Tentar vender contrato se preço fornecido
