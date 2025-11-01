@@ -4,7 +4,7 @@
  */
 
 import { Router } from 'express';
-import { db } from './db';
+import { getDb } from './db';
 import { positions, eventLogs } from '../drizzle/schema';
 import { and, gte, lte, desc } from 'drizzle-orm';
 
@@ -13,6 +13,11 @@ export const exportRouter = Router();
 // Endpoint para exportar trades DEMO
 exportRouter.get('/export/demo-trades', async (req, res) => {
   try {
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
     // Período DEMO: 01/11/2025 04:14 - 13:00 GMT
     const demoStart = Math.floor(new Date('2025-11-01T04:14:00Z').getTime() / 1000);
     const demoEnd = Math.floor(new Date('2025-11-01T13:00:00Z').getTime() / 1000);
@@ -43,6 +48,11 @@ exportRouter.get('/export/demo-trades', async (req, res) => {
 // Endpoint para exportar trades REAL
 exportRouter.get('/export/real-trades', async (req, res) => {
   try {
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
     // Período REAL: 31/10/2025 20:00 - 01/11/2025 11:15 GMT
     const realStart = Math.floor(new Date('2025-10-31T20:00:00Z').getTime() / 1000);
     const realEnd = Math.floor(new Date('2025-11-01T11:15:00Z').getTime() / 1000);
@@ -73,6 +83,11 @@ exportRouter.get('/export/real-trades', async (req, res) => {
 // Endpoint para exportar logs DEMO
 exportRouter.get('/export/demo-logs', async (req, res) => {
   try {
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
     const demoStart = Math.floor(new Date('2025-11-01T04:14:00Z').getTime() / 1000);
     const demoEnd = Math.floor(new Date('2025-11-01T13:00:00Z').getTime() / 1000);
 
@@ -102,6 +117,11 @@ exportRouter.get('/export/demo-logs', async (req, res) => {
 // Endpoint para exportar logs REAL
 exportRouter.get('/export/real-logs', async (req, res) => {
   try {
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
     const realStart = Math.floor(new Date('2025-10-31T20:00:00Z').getTime() / 1000);
     const realEnd = Math.floor(new Date('2025-11-01T11:15:00Z').getTime() / 1000);
 
