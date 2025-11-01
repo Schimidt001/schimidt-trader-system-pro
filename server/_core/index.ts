@@ -9,6 +9,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { engineManager } from "../prediction/engineManager";
 import { applyMigrations } from "../applyMigrations";
+import { exportRouter } from "../export_trades";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -49,6 +50,9 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  
+  // Export endpoints (temporário para análise)
+  app.use("/api", exportRouter);
   
   // Endpoint especial de migração
   app.get("/api/migrate", async (req, res) => {
