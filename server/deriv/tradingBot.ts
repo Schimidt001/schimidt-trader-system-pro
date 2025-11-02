@@ -594,8 +594,9 @@ export class TradingBot {
       
       // Calcular duração até 20 segundos antes do fim do candle M15 (900s)
       // Duração = (900 - elapsedSeconds - 20) segundos
+      // CORREÇÃO CRÍTICA: Usar segundos diretamente para garantir que a operação
+      // termine DENTRO do candle atual, evitando exposição ao próximo candle
       const durationSeconds = Math.max(900 - elapsedSeconds - 20, 60); // Mínimo 60s
-      const durationMinutes = Math.ceil(durationSeconds / 60); // Arredondar para cima em minutos
       
       // Determinar stake: usar decisão da IA se habilitada, senão usar stake padrão
       const finalStake = this.aiEnabled && this.aiDecision 
@@ -606,12 +607,15 @@ export class TradingBot {
       this.currentPositionStake = finalStake;
       
       // Comprar contrato na DERIV
+      // CORREÇÃO CRÍTICA: Usar duração em SEGUNDOS ("s") em vez de minutos ("m")
+      // para garantir que o contrato termine exatamente quando planejado,
+      // evitando que ultrapasse o candle atual
       const contract = await this.derivService.buyContract(
         this.symbol,
         contractType,
         finalStake / 100, // Converter centavos para unidade
-        durationMinutes,
-        "m"
+        durationSeconds,  // ✅ Usar segundos exatos
+        "s"               // ✅ duration_unit = seconds
       );
 
       this.contractId = contract.contract_id;
@@ -647,7 +651,7 @@ export class TradingBot {
       
       await this.logEvent(
         "POSITION_ENTERED",
-        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${durationMinutes}min (${durationSeconds}s) | Contract: ${contract.contract_id}${aiInfo}`
+        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${durationSeconds}s | Contract: ${contract.contract_id}${aiInfo}`
       );
     } catch (error) {
       console.error("[TradingBot] Error entering position:", error);
