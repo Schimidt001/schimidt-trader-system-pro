@@ -1,4 +1,8 @@
 import type { PredictionRequest, PredictionResponse } from "../../shared/types/prediction";
+import { spawn } from "child_process";
+import * as path from "path";
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
 /**
  * Serviço de predição que se conecta à engine proprietária do cliente
@@ -76,3 +80,143 @@ export class PredictionService {
 // Singleton instance
 export const predictionService = new PredictionService();
 
+
+/**
+ * Interface para request de predição de amplitude
+ */
+export interface AmplitudePredictionRequest {
+  historical_candles: Array<{
+    abertura: number;
+    maxima: number;
+    minima: number;
+    fechamento: number;
+  }>;
+  current_high: number;
+  current_low: number;
+  current_price: number;
+  elapsed_minutes: number;
+  predicted_close: number;
+  predicted_direction: string;
+}
+
+/**
+ * Interface para response de predição de amplitude
+ */
+export interface AmplitudePredictionResponse {
+  predicted_amplitude: number;
+  current_amplitude: number;
+  confidence: number;
+  expansion_probability: number;
+  will_expand: boolean;
+  growth_potential: number;
+  price_position: number;
+  price_position_label: string;
+  predicted_price_position: number;
+  percentile_position: number;
+  recommendation: {
+    movement_expectation: string;
+    movement_confidence: number;
+    will_pullback: boolean;
+    will_gain_strength: boolean;
+    will_consolidate: boolean;
+    will_reverse_color: boolean;
+    entry_strategy: string;
+    entry_reason: string;
+    confidence_modifier: number;
+    suggested_stake_type: string;
+    risk_level: string;
+  };
+  error?: string;
+}
+
+/**
+ * Chama o preditor de amplitude Python
+ * @param request Dados do candle atual e histórico
+ * @returns Predição de amplitude e recomendação estratégica
+ */
+export async function predictAmplitude(
+  request: AmplitudePredictionRequest
+): Promise<AmplitudePredictionResponse> {
+  return new Promise((resolve, reject) => {
+    // Determinar caminho do script Python
+    // Se estamos em ESM, usar import.meta.url, senão usar __dirname
+    let scriptPath: string;
+    try {
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      scriptPath = path.join(__dirname, "amplitude_predictor.py");
+    } catch {
+      // Fallback para CommonJS
+      scriptPath = path.join(__dirname, "amplitude_predictor.py");
+    }
+    
+    // Spawn processo Python
+    const pythonProcess = spawn("python3", [scriptPath]);
+    
+    let result = "";
+    let errorOutput = "";
+    
+    // Capturar stdout
+    pythonProcess.stdout.on("data", (data: Buffer) => {
+      result += data.toString();
+    });
+    
+    // Capturar stderr
+    pythonProcess.stderr.on("data", (data: Buffer) => {
+      errorOutput += data.toString();
+    });
+    
+    // Enviar dados via stdin
+    pythonProcess.stdin.write(JSON.stringify(request));
+    pythonProcess.stdin.end();
+    
+    // Processar resultado
+    pythonProcess.on("close", (code: number) => {
+      if (code !== 0) {
+        console.error(`[AmplitudePredictor] Error: ${errorOutput}`);
+        // Retornar resposta neutra em caso de erro
+        resolve({
+          predicted_amplitude: request.current_high - request.current_low,
+          current_amplitude: request.current_high - request.current_low,
+          confidence: 50,
+          expansion_probability: 0.5,
+          will_expand: false,
+          growth_potential: 0,
+          price_position: 0.5,
+          price_position_label: "MIDDLE",
+          predicted_price_position: 0.5,
+          percentile_position: 50,
+          recommendation: {
+            movement_expectation: "NEUTRAL",
+            movement_confidence: 0.5,
+            will_pullback: false,
+            will_gain_strength: false,
+            will_consolidate: false,
+            will_reverse_color: false,
+            entry_strategy: "NEUTRAL",
+            entry_reason: "Erro na predição de amplitude",
+            confidence_modifier: 0,
+            suggested_stake_type: "NORMAL",
+            risk_level: "MEDIUM"
+          },
+          error: errorOutput || "Unknown error"
+        });
+        return;
+      }
+      
+      try {
+        const prediction: AmplitudePredictionResponse = JSON.parse(result);
+        resolve(prediction);
+      } catch (e) {
+        console.error(`[AmplitudePredictor] Parse error: ${e}`);
+        reject(new Error(`Failed to parse amplitude prediction: ${e}`));
+      }
+    });
+    
+    // Timeout de 10 segundos
+    setTimeout(() => {
+      pythonProcess.kill();
+      reject(new Error("Amplitude prediction timeout"));
+    }, 10000);
+  });
+}

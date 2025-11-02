@@ -5,7 +5,10 @@
  * 1. Se um trade tem alta confiança (Filtro)
  * 2. Se deve aplicar hedge em trades de baixa confiança
  * 3. Qual stake usar baseado na confiança
+ * 4. Análise de amplitude do candle para prever movimento futuro
  */
+
+import type { AmplitudePredictionResponse } from '../prediction/predictionService';
 
 export interface CandleData {
   open: number;
@@ -20,6 +23,8 @@ export interface AIDecision {
   shouldHedge: boolean;
   stake: number;
   reason: string;
+  amplitudeAnalysis?: AmplitudePredictionResponse;
+  finalConfidenceScore?: number;
 }
 
 export interface AIConfig {
@@ -108,17 +113,46 @@ export function evaluateConfidence(
 /**
  * Decisão principal da IA Híbrida
  * Determina se deve entrar, com qual stake, e se deve fazer hedge
+ * NOVA: Integra análise de amplitude para decisões mais inteligentes
  */
 export function makeAIDecision(
   candle: CandleData,
   predictedDirection: 'up' | 'down',
-  config: AIConfig
+  config: AIConfig,
+  amplitudeAnalysis?: AmplitudePredictionResponse
 ): AIDecision {
   // Calcular features nos últimos 1.5 minutos
   const features = calculateAIFeatures(candle, 13.5);
   
   // Avaliar confiança (0-100)
-  const confidenceScore = evaluateConfidence(features, predictedDirection);
+  let confidenceScore = evaluateConfidence(features, predictedDirection);
+  
+  // === NOVA LÓGICA: AJUSTAR CONFIANÇA COM ANÁLISE DE AMPLITUDE ===
+  if (amplitudeAnalysis && amplitudeAnalysis.recommendation) {
+    const modifier = amplitudeAnalysis.recommendation.confidence_modifier;
+    confidenceScore += modifier;
+    
+    // Aplicar lógica estratégica baseada na análise de amplitude
+    const strategy = amplitudeAnalysis.recommendation.entry_strategy;
+    
+    // Se a estratégia é WAIT (consolidação), reduzir muito a confiança
+    if (strategy === 'WAIT') {
+      confidenceScore = Math.min(confidenceScore, 30); // Forçar baixa confiança
+    }
+    
+    // Se a estratégia é DEFENSE (recuo esperado), reduzir confiança
+    if (strategy === 'DEFENSE') {
+      confidenceScore = Math.min(confidenceScore, 50);
+    }
+    
+    // Se a estratégia é HIGH_CONFIDENCE (movimento forte), aumentar
+    if (strategy === 'HIGH_CONFIDENCE') {
+      confidenceScore = Math.max(confidenceScore, 75);
+    }
+    
+    // Limitar entre 0-100
+    confidenceScore = Math.max(0, Math.min(100, confidenceScore));
+  }
   
   // Determinar se é alta confiança baseado no threshold
   const isHighConfidence = confidenceScore >= config.aiFilterThreshold;
@@ -140,12 +174,21 @@ export function makeAIDecision(
   reason += `BodyRatio: ${(features.bodyRatio * 100).toFixed(1)}% | `;
   reason += `Vol: ${(features.volatility * 100).toFixed(3)}%`;
   
+  // Adicionar informações da análise de amplitude
+  if (amplitudeAnalysis && amplitudeAnalysis.recommendation) {
+    reason += ` | Amplitude: ${amplitudeAnalysis.recommendation.entry_strategy}`;
+    reason += ` | Movimento: ${amplitudeAnalysis.recommendation.movement_expectation}`;
+    reason += ` | Expansão: ${(amplitudeAnalysis.expansion_probability * 100).toFixed(1)}%`;
+  }
+  
   return {
     confidence: isHighConfidence ? 'HIGH' : 'NORMAL',
     shouldEnter,
     shouldHedge,
     stake,
-    reason
+    reason,
+    amplitudeAnalysis,
+    finalConfidenceScore: confidenceScore
   };
 }
 

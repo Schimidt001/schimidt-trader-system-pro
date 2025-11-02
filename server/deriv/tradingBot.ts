@@ -1,5 +1,5 @@
 import { DerivService, type DerivTick } from "./derivService";
-import { predictionService } from "../prediction/predictionService";
+import { predictionService, predictAmplitude, type AmplitudePredictionRequest } from "../prediction/predictionService";
 import { makeAIDecision, calculateHedgedPnL, type AIConfig, type AIDecision } from "../ai/hybridStrategy";
 import type {
   PredictionRequest,
@@ -479,7 +479,34 @@ export class TradingBot {
           close: this.currentCandleClose
         };
         
-        this.aiDecision = makeAIDecision(candleData, this.prediction.direction, aiConfig);
+        // === NOVA LÓGICA: PREDIÇÃO DE AMPLITUDE ===
+        let amplitudeAnalysis = undefined;
+        try {
+          const amplitudeRequest: AmplitudePredictionRequest = {
+            historical_candles: historyData,
+            current_high: this.currentCandleHigh,
+            current_low: this.currentCandleLow,
+            current_price: this.currentCandleClose,
+            elapsed_minutes: elapsedSeconds / 60,
+            predicted_close: this.prediction.predicted_close,
+            predicted_direction: this.prediction.direction === 'up' ? 'compra' : 'venda'
+          };
+          
+          amplitudeAnalysis = await predictAmplitude(amplitudeRequest);
+          
+          await this.logEvent(
+            "AMPLITUDE_ANALYSIS",
+            `[AMPLITUDE AI] Amplitude atual: ${amplitudeAnalysis.current_amplitude.toFixed(2)} | Prevista: ${amplitudeAnalysis.predicted_amplitude.toFixed(2)} | Expansão: ${(amplitudeAnalysis.expansion_probability * 100).toFixed(1)}% | Movimento: ${amplitudeAnalysis.recommendation.movement_expectation} | Estratégia: ${amplitudeAnalysis.recommendation.entry_strategy}`
+          );
+        } catch (error) {
+          await this.logEvent(
+            "AMPLITUDE_ANALYSIS_ERROR",
+            `Erro na análise de amplitude: ${error}. Continuando sem análise de amplitude.`
+          );
+        }
+        
+        // Fazer decisão da IA com análise de amplitude
+        this.aiDecision = makeAIDecision(candleData, this.prediction.direction, aiConfig, amplitudeAnalysis);
         
         await this.logEvent(
           "AI_DECISION",
