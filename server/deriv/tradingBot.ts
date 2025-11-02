@@ -592,11 +592,12 @@ export class TradingBot {
     try {
       const contractType = this.prediction.direction === "up" ? "CALL" : "PUT";
       
-      // Calcular duração até 20 segundos antes do fim do candle M15 (900s)
-      // Duração = (900 - elapsedSeconds - 20) segundos
+      // Calcular duração até 3 segundos antes do fim do candle M15 (900s)
+      // Duração = (900 - elapsedSeconds - 3) segundos
       // CORREÇÃO CRÍTICA: Usar segundos diretamente para garantir que a operação
       // termine DENTRO do candle atual, evitando exposição ao próximo candle
-      const durationSeconds = Math.max(900 - elapsedSeconds - 20, 60); // Mínimo 60s
+      // Margem de 3s é suficiente para processamento da API sem desperdiçar tempo
+      const durationSeconds = Math.max(900 - elapsedSeconds - 3, 60); // Mínimo 60s
       
       // Determinar stake: usar decisão da IA se habilitada, senão usar stake padrão
       const finalStake = this.aiEnabled && this.aiDecision 
