@@ -182,11 +182,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       <div className="container mx-auto p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white">Schimidt Trader System PRO</h1>
-            <p className="text-slate-400 mt-1">Sistema de Trading Automatizado 24/7</p>
-          </div>
+        <div className="flex items-center justify-center">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <div

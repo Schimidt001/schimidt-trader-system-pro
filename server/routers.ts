@@ -98,6 +98,12 @@ export const appRouter = router({
           stakeNormalConfidence: z.number().int().positive().optional(),
           aiFilterThreshold: z.number().int().min(0).max(100).optional(),
           aiHedgeEnabled: z.boolean().optional(),
+          // Parâmetros do Filtro de Horário
+          hourlyFilterEnabled: z.boolean().optional(),
+          hourlyFilterMode: z.enum(["IDEAL", "COMPATIBLE", "GOLDEN", "COMBINED", "CUSTOM"]).optional(),
+          customHours: z.string().optional(),
+          goldModeHours: z.string().optional(),
+          goldModeStakeMultiplier: z.number().int().positive().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
