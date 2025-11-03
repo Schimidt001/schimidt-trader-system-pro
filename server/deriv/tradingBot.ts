@@ -32,6 +32,7 @@ export class TradingBot {
   private derivService: DerivService | null = null;
   private state: BotStateType = "IDLE";
   private isRunning: boolean = false;
+  private dataCollected: boolean = false; // Flag para controlar se histórico já foi coletado
   
   // Dados do candle atual
   private currentCandleOpen: number = 0;
@@ -237,6 +238,7 @@ export class TradingBot {
    */
   async stop(): Promise<void> {
     this.isRunning = false;
+    this.dataCollected = false; // Resetar flag para próxima inicialização
     
     // Limpar timer de fim de candle
     if (this.candleEndTimer) {
@@ -317,6 +319,9 @@ export class TradingBot {
 
     // Inscrição de ticks já foi feita no start() - não duplicar aqui
     // A subscrição única garante que cada tick seja processado apenas 1 vez
+    
+    // Marcar que dados foram coletados
+    this.dataCollected = true;
   }
 
   /**
@@ -330,6 +335,11 @@ export class TradingBot {
     if (!hourlyInfo.isAllowed) {
       // Horário não permitido, entrar em WAITING_NEXT_HOUR
       if (this.state !== "WAITING_NEXT_HOUR") {
+        // Se estava em posição, fechar antes de entrar em WAITING_NEXT_HOUR
+        if (this.state === "ENTERED" && this.currentPositionId) {
+          await this.closePosition("Horário não permitido");
+        }
+        
         await this.changeState("WAITING_NEXT_HOUR");
         const nextHourMsg = hourlyInfo.nextAllowedHour !== null 
           ? `Próximo horário permitido: ${hourlyInfo.nextAllowedHour}h UTC`
@@ -345,8 +355,10 @@ export class TradingBot {
       await this.changeState("COLLECTING");
       await this.logEvent("HOURLY_FILTER_RESUMED", 
         `Horário ${hourlyInfo.currentHour}h UTC permitido. Retomando operação.${hourlyInfo.isGold ? ' [HORÁRIO GOLD]' : ''}`);
-      // Iniciar coleta de dados agora que o horário está permitido
-      await this.startDataCollection();
+      // Iniciar coleta de dados apenas se ainda não foi coletado
+      if (!this.dataCollected) {
+        await this.startDataCollection();
+      }
     }
 
     const candleTimestamp = Math.floor(tick.epoch / 900) * 900; // Arredondar para M15
