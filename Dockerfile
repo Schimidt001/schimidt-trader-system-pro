@@ -1,6 +1,5 @@
 # Multi-stage Dockerfile para Schimidt Trader System PRO
-
-# Garante que Node.js 22 + Python 3.11 estejam disponíveis
+# Otimizado para Railway - Node.js 22 + Python 3
 
 # ============================================
 # Stage 1: Build do frontend e backend
@@ -28,20 +27,20 @@ RUN pnpm build
 # ============================================
 # Stage 2: Runtime com Node.js + Python
 # ============================================
-FROM node:22-slim
+FROM node:22-bookworm-slim
 
 WORKDIR /app
 
-# Instalar Python 3.11 e dependências do sistema
+# Instalar Python 3 (versão disponível no Debian Bookworm) e pip
 RUN apt-get update && apt-get install -y \
-    python3.11 \
-    python3.11-dev \
+    python3 \
     python3-pip \
+    python3-venv \
+    --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Criar symlink para python3 apontar para python3.11
-RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
-    ln -sf /usr/bin/python3.11 /usr/bin/python
+# Criar symlink para python
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Instalar pnpm
 RUN npm install -g pnpm
@@ -50,8 +49,8 @@ RUN npm install -g pnpm
 COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
 
-# Instalar dependências (incluindo dev e prod)
-RUN pnpm install --frozen-lockfile
+# Instalar dependências de produção
+RUN pnpm install --frozen-lockfile --prod
 
 # Copiar arquivos buildados do stage anterior
 COPY --from=builder /app/dist ./dist
