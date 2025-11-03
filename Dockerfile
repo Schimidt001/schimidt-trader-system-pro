@@ -56,11 +56,10 @@ RUN pnpm install --frozen-lockfile
 # Copiar arquivos buildados do stage anterior
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/server/prediction ./server/prediction
+COPY --from=builder /app/server ./server
 
 # Instalar dependências Python
-COPY server/prediction/requirements.txt ./requirements.txt
-RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
+RUN pip3 install --no-cache-dir -r server/prediction/requirements.txt --break-system-packages
 
 # Copiar arquivos Python para dist
 RUN cp -r server/prediction/* dist/prediction/ 2>/dev/null || true
