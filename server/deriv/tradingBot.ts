@@ -345,6 +345,8 @@ export class TradingBot {
       await this.changeState("COLLECTING");
       await this.logEvent("HOURLY_FILTER_RESUMED", 
         `Horário ${hourlyInfo.currentHour}h UTC permitido. Retomando operação.${hourlyInfo.isGold ? ' [HORÁRIO GOLD]' : ''}`);
+      // Iniciar coleta de dados agora que o horário está permitido
+      await this.startDataCollection();
     }
 
     const candleTimestamp = Math.floor(tick.epoch / 900) * 900; // Arredondar para M15
