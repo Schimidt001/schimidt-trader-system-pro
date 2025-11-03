@@ -5,7 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { client } from "@/lib/client";
+import { trpc } from "@/lib/trpc";
 
 interface TimeFilterSettingsProps {
   config: any;
@@ -82,7 +82,7 @@ export default function TimeFilterSettings({ config, onUpdate }: TimeFilterSetti
     setIsSaving(true);
     
     try {
-      await client.config.updateTimeFilter.mutate({
+      await trpc.config.updateTimeFilter.mutate({
         timeFilterEnabled: enabled,
         allowedHours: allowedHours.length > 0 ? allowedHours : undefined,
         goldHours: goldHours.length > 0 ? goldHours : undefined,

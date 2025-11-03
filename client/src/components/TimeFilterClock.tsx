@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Clock, CheckCircle, XCircle, Star } from "lucide-react";
-import { client } from "@/lib/client";
+import { trpc } from "@/lib/trpc";
 
 export default function TimeFilterClock() {
   const [status, setStatus] = useState<any>(null);
@@ -11,7 +11,7 @@ export default function TimeFilterClock() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const result = await client.config.getTimeFilterStatus.query();
+        const result = await trpc.config.getTimeFilterStatus.query();
         setStatus(result);
       } catch (error) {
         console.error("Erro ao buscar status do filtro:", error);
