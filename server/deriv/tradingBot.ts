@@ -1211,9 +1211,18 @@ export class TradingBot {
     try {
       console.log("[Bot] Saindo de STANDBY (entrando em horário permitido)");
       
+      // CRÍTICO: Restaurar subscrição de ticks com callback correto
+      // O enterStandby() substituiu o callback por um vazio, precisamos restaurar
+      if (this.derivService) {
+        this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
+          this.handleTick(tick);
+        });
+        console.log("[Bot] Subscrição de ticks restaurada");
+      }
+      
       // Atualizar estado para WAITING_MIDPOINT
-      // O bot já tem dados históricos e subscrição de ticks ativa
-      // Apenas retoma o fluxo normal de aguardar ponto de entrada
+      // O bot já tem dados históricos e agora tem subscrição de ticks ativa
+      // Retoma o fluxo normal de aguardar ponto de entrada
       this.state = "WAITING_MIDPOINT";
       
       // Carregar PnL diário (pode ter mudado)
@@ -1226,9 +1235,10 @@ export class TradingBot {
       const goldStatus = this.timeFilter?.isGoldHour() ? " (GOLD)" : "";
       await this.logEvent(
         "EXIT_STANDBY",
-        `Bot ativado em horário permitido${goldStatus}`
+        `Bot ativado em horário permitido${goldStatus} - Aguardando próximo candle`
       );
       console.log(`[Bot] Bot ativado${goldStatus} - Retomando fluxo normal`);
+      console.log(`[Bot] Estado atual: ${this.state}, isRunning: ${this.isRunning}`);
       
       // Reagendar verificação de horário
       this.scheduleTimeCheck();
