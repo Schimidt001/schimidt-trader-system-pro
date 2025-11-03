@@ -1,75 +1,46 @@
 /**
  * TimeFilterService
  * 
- * Serviço responsável por gerenciar o filtro de horário do bot de trading.
- * Determina quando o bot pode operar baseado em horários configurados pelo usuário.
+ * Serviço responsável por gerenciar o filtro de horário do bot.
+ * Trabalha 100% em UTC para evitar problemas de timezone.
  * 
- * Princípios:
- * - Fail-safe: Em caso de erro, sempre permite operação
- * - Non-invasive: Não modifica lógica de trading
- * - Observable: Todas as decisões são logadas
+ * Funcionalidades:
+ * - Verificar se horário atual é permitido
+ * - Detectar horários GOLD
+ * - Calcular stake apropriado
+ * - Calcular próximo horário permitido/GOLD
+ * - Agendar verificações automáticas
  */
 
 export interface TimeFilterConfig {
   enabled: boolean;
-  allowedHours: number[];
-  goldHours: number[];
+  allowedHours: number[]; // Horas em UTC (0-23)
+  goldHours: number[];    // Horas em UTC (0-23)
   goldStake: number;
-  timezone: string;
-}
-
-export interface TimeFilterStatus {
-  isAllowed: boolean;
-  isGoldHour: boolean;
-  currentHour: number;
-  currentTime: string;
-  nextAllowedTime: Date | null;
-  nextGoldTime: Date | null;
 }
 
 export class TimeFilterService {
   private config: TimeFilterConfig;
-  private timer: NodeJS.Timeout | null = null;
+  private checkCallback?: () => void;
+  private checkTimer?: NodeJS.Timeout;
 
   constructor(config: TimeFilterConfig) {
     this.config = config;
   }
 
   /**
-   * Obtém a hora atual no timezone configurado
+   * Atualiza a configuração do filtro
    */
-  private getCurrentHourInTimezone(): number {
-    const now = new Date();
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: this.config.timezone,
-      hour: 'numeric',
-      hour12: false
-    });
-    const parts = formatter.formatToParts(now);
-    const hourPart = parts.find(part => part.type === 'hour');
-    return hourPart ? parseInt(hourPart.value, 10) : now.getHours();
+  updateConfig(config: Partial<TimeFilterConfig>): void {
+    this.config = { ...this.config, ...config };
+    console.log('[TimeFilter] Configuração atualizada:', this.config);
   }
 
   /**
-   * Obtém o timestamp atual no timezone configurado
+   * Obtém a hora atual em UTC (0-23)
    */
-  private getCurrentTimeInTimezone(): Date {
-    return new Date();
-  }
-
-  /**
-   * Formata hora atual no timezone configurado
-   */
-  private formatCurrentTime(): string {
-    const now = new Date();
-    const formatter = new Intl.DateTimeFormat('pt-BR', {
-      timeZone: this.config.timezone,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    });
-    return formatter.format(now);
+  private getCurrentHourUTC(): number {
+    return new Date().getUTCHours();
   }
 
   /**
@@ -86,7 +57,7 @@ export class TimeFilterService {
       return true;
     }
 
-    const currentHour = this.getCurrentHourInTimezone();
+    const currentHour = this.getCurrentHourUTC();
     return this.config.allowedHours.includes(currentHour);
   }
 
@@ -104,7 +75,7 @@ export class TimeFilterService {
       return false;
     }
 
-    const currentHour = this.getCurrentHourInTimezone();
+    const currentHour = this.getCurrentHourUTC();
     return this.config.goldHours.includes(currentHour);
   }
 
@@ -129,7 +100,7 @@ export class TimeFilterService {
   }
 
   /**
-   * Retorna o próximo horário permitido
+   * Retorna o próximo horário permitido em UTC
    * Retorna null se já está em horário permitido
    */
   getNextAllowedTime(): Date | null {
@@ -138,8 +109,7 @@ export class TimeFilterService {
       return null;
     }
 
-    const now = this.getCurrentTimeInTimezone();
-    const currentHour = this.getCurrentHourInTimezone();
+    const currentHour = this.getCurrentHourUTC();
 
     // Se já está em horário permitido, retornar null
     if (this.config.allowedHours.includes(currentHour)) {
@@ -151,13 +121,21 @@ export class TimeFilterService {
       const nextHour = (currentHour + i) % 24;
 
       if (this.config.allowedHours.includes(nextHour)) {
-        // Calcular o timestamp exato
-        const nextTime = new Date(now);
-        nextTime.setHours(nextHour, 0, 0, 0);
+        // Criar timestamp do próximo horário em UTC
+        const now = new Date();
+        const nextTime = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          nextHour,
+          0,
+          0,
+          0
+        ));
 
-        // Se o horário é menor que o atual, é no dia seguinte
+        // Se o horário é menor ou igual ao atual, é no dia seguinte
         if (nextHour <= currentHour) {
-          nextTime.setDate(nextTime.getDate() + 1);
+          nextTime.setUTCDate(nextTime.getUTCDate() + 1);
         }
 
         return nextTime;
@@ -168,7 +146,7 @@ export class TimeFilterService {
   }
 
   /**
-   * Retorna o próximo horário GOLD
+   * Retorna o próximo horário GOLD em UTC
    * Retorna null se já está em horário GOLD ou não há horários GOLD
    */
   getNextGoldTime(): Date | null {
@@ -177,8 +155,7 @@ export class TimeFilterService {
       return null;
     }
 
-    const now = this.getCurrentTimeInTimezone();
-    const currentHour = this.getCurrentHourInTimezone();
+    const currentHour = this.getCurrentHourUTC();
 
     // Se já está em horário GOLD, retornar null
     if (this.config.goldHours.includes(currentHour)) {
@@ -186,15 +163,26 @@ export class TimeFilterService {
     }
 
     // Procurar próximo horário GOLD nas próximas 24 horas
+    // Só considerar horários GOLD que também sejam permitidos
     for (let i = 1; i <= 24; i++) {
       const nextHour = (currentHour + i) % 24;
 
-      if (this.config.goldHours.includes(nextHour)) {
-        const nextTime = new Date(now);
-        nextTime.setHours(nextHour, 0, 0, 0);
+      if (this.config.goldHours.includes(nextHour) && this.config.allowedHours.includes(nextHour)) {
+        // Criar timestamp do próximo horário GOLD em UTC
+        const now = new Date();
+        const nextTime = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          nextHour,
+          0,
+          0,
+          0
+        ));
 
+        // Se o horário é menor ou igual ao atual, é no dia seguinte
         if (nextHour <= currentHour) {
-          nextTime.setDate(nextTime.getDate() + 1);
+          nextTime.setUTCDate(nextTime.getUTCDate() + 1);
         }
 
         return nextTime;
@@ -205,83 +193,55 @@ export class TimeFilterService {
   }
 
   /**
-   * Retorna o status completo do filtro
+   * Retorna status completo do filtro
    */
-  getStatus(): TimeFilterStatus {
+  getStatus() {
+    const currentHour = this.getCurrentHourUTC();
+    const isAllowed = this.isWithinAllowedTime();
+    const isGold = this.isGoldHour();
+    const nextAllowedTime = this.getNextAllowedTime();
+    const nextGoldTime = this.getNextGoldTime();
+
     return {
-      isAllowed: this.isWithinAllowedTime(),
-      isGoldHour: this.isGoldHour(),
-      currentHour: this.getCurrentHourInTimezone(),
-      currentTime: this.formatCurrentTime(),
-      nextAllowedTime: this.getNextAllowedTime(),
-      nextGoldTime: this.getNextGoldTime(),
+      enabled: this.config.enabled,
+      currentHour,
+      isAllowed,
+      isGoldHour: isGold,
+      nextAllowedTime: nextAllowedTime ? nextAllowedTime.toISOString() : null,
+      nextGoldTime: nextGoldTime ? nextGoldTime.toISOString() : null,
     };
   }
 
   /**
-   * Agenda verificação automática no próximo horário
+   * Agenda verificação periódica de horário
+   * Verifica a cada minuto se mudou de horário
    */
-  scheduleNextCheck(callback: () => void): void {
-    // Cancelar timer anterior se existir
-    this.cancelScheduledCheck();
+  scheduleCheck(callback: () => void): void {
+    this.checkCallback = callback;
 
-    // Se filtro desabilitado, não agendar
-    if (!this.config.enabled) {
-      console.log("[TimeFilter] Filtro desabilitado, não agendando verificação");
-      return;
+    // Limpar timer anterior se existir
+    if (this.checkTimer) {
+      clearInterval(this.checkTimer);
     }
 
-    // Calcular próximo horário de verificação (início da próxima hora)
-    const now = new Date();
-    const nextHour = new Date(now);
-    nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
-    const msUntilNextHour = nextHour.getTime() - now.getTime();
+    // Verificar a cada minuto
+    this.checkTimer = setInterval(() => {
+      if (this.checkCallback) {
+        this.checkCallback();
+      }
+    }, 60000); // 60 segundos
 
-    console.log(`[TimeFilter] Próxima verificação agendada para ${nextHour.toLocaleTimeString('pt-BR')} (em ${Math.round(msUntilNextHour / 1000)}s)`);
-
-    // Agendar callback
-    this.timer = setTimeout(() => {
-      console.log(`[TimeFilter] Executando verificação agendada às ${this.formatCurrentTime()}`);
-      callback();
-      // Re-agendar para próximo horário
-      this.scheduleNextCheck(callback);
-    }, msUntilNextHour);
+    console.log('[TimeFilter] Verificação periódica agendada (a cada 1 minuto)');
   }
 
   /**
-   * Cancela verificação agendada
+   * Cancela verificação periódica
    */
   cancelScheduledCheck(): void {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-      console.log("[TimeFilter] Verificação agendada cancelada");
+    if (this.checkTimer) {
+      clearInterval(this.checkTimer);
+      this.checkTimer = undefined;
+      console.log('[TimeFilter] Verificação periódica cancelada');
     }
-  }
-
-  /**
-   * Atualiza a configuração do filtro
-   */
-  updateConfig(config: TimeFilterConfig): void {
-    const wasEnabled = this.config.enabled;
-    this.config = config;
-
-    // Se mudou de desabilitado para habilitado, pode precisar re-agendar
-    if (!wasEnabled && config.enabled) {
-      console.log("[TimeFilter] Filtro habilitado, configuração atualizada");
-    }
-
-    // Se mudou de habilitado para desabilitado, cancelar timer
-    if (wasEnabled && !config.enabled) {
-      console.log("[TimeFilter] Filtro desabilitado");
-      this.cancelScheduledCheck();
-    }
-  }
-
-  /**
-   * Retorna a configuração atual
-   */
-  getConfig(): TimeFilterConfig {
-    return { ...this.config };
   }
 }

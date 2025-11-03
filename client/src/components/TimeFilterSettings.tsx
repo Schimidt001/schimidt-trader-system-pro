@@ -162,9 +162,9 @@ export default function TimeFilterSettings({ config, onUpdate }: TimeFilterSetti
             {/* Horários permitidos */}
             <div className="space-y-3">
               <div>
-                <Label>Horários Permitidos</Label>
+                <Label>Horários Permitidos (UTC)</Label>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Clique nos horários em que o bot pode operar (fuso horário: {config?.timezone || 'America/Sao_Paulo'})
+                  Clique nos horários em que o bot pode operar. Todos os horários são em <strong>UTC</strong>.
                 </p>
               </div>
               {renderHourGrid('allowed')}
@@ -178,9 +178,9 @@ export default function TimeFilterSettings({ config, onUpdate }: TimeFilterSetti
             {/* Horários GOLD */}
             <div className="space-y-3">
               <div>
-                <Label>Horários GOLD ⭐</Label>
+                <Label>Horários GOLD ⭐ (UTC)</Label>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Horários especiais com stake maior. Só podem ser selecionados dentro dos horários permitidos.
+                  Horários especiais com stake maior (em UTC). Só podem ser selecionados dentro dos horários permitidos.
                 </p>
               </div>
               {renderHourGrid('gold')}

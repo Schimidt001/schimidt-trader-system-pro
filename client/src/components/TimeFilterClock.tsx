@@ -24,21 +24,19 @@ export default function TimeFilterClock() {
     return null; // Não mostrar se filtro desabilitado
   }
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
+  const formatTimeUTC = (date: Date) => {
+    const hours = date.getUTCHours().toString().padStart(2, '0');
+    const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+    const seconds = date.getUTCSeconds().toString().padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
   };
 
-  const formatNextTime = (isoString: string | null) => {
+  const formatNextTimeUTC = (isoString: string | null) => {
     if (!isoString) return null;
     const date = new Date(isoString);
-    return date.toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const hours = date.getUTCHours().toString().padStart(2, '0');
+    const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
   };
 
   const isAllowed = status.isAllowed;
@@ -60,10 +58,10 @@ export default function TimeFilterClock() {
             <Clock className={`w-12 h-12 ${isGold ? 'text-yellow-400' : isAllowed ? 'text-green-400' : 'text-red-400'}`} />
             <div>
               <div className={`text-4xl font-bold font-mono ${isGold ? 'text-yellow-400' : isAllowed ? 'text-green-400' : 'text-red-400'}`}>
-                {formatTime(currentTime)}
+                {formatTimeUTC(currentTime)}
               </div>
               <div className="text-sm text-muted-foreground mt-1">
-                Horário: {status.currentHour}h
+                Horário UTC: {status.currentHour}h
               </div>
             </div>
           </div>
@@ -92,13 +90,13 @@ export default function TimeFilterClock() {
             {/* Próximo horário */}
             {!isAllowed && status.nextAllowedTime && (
               <div className="text-sm text-muted-foreground">
-                Próximo horário: <span className="font-semibold">{formatNextTime(status.nextAllowedTime)}</span>
+                Próximo horário (UTC): <span className="font-semibold">{formatNextTimeUTC(status.nextAllowedTime)}</span>
               </div>
             )}
 
             {isAllowed && !isGold && status.nextGoldTime && (
               <div className="text-sm text-muted-foreground">
-                Próximo GOLD: <span className="font-semibold text-yellow-400">{formatNextTime(status.nextGoldTime)}</span>
+                Próximo GOLD (UTC): <span className="font-semibold text-yellow-400">{formatNextTimeUTC(status.nextGoldTime)}</span>
               </div>
             )}
           </div>
