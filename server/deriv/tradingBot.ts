@@ -1244,7 +1244,7 @@ export class TradingBot {
       return;
     }
     
-    this.timeFilter.scheduleNextCheck(async () => {
+    this.timeFilter.scheduleCheck(async () => {
       await this.checkTimeFilter();
     });
   }
