@@ -135,6 +135,19 @@ export default function Settings() {
     }
   }, [config]);
 
+  // Atualizar customHours quando hourlyFilterMode muda (para modos predefinidos)
+  useEffect(() => {
+    if (hourlyFilterMode !== "CUSTOM") {
+      const presets = {
+        IDEAL: [16, 18],
+        COMPATIBLE: [3, 6, 9, 10, 13, 16, 17, 18],
+        GOLDEN: [5, 12, 16, 18, 20, 21, 22, 23],
+        COMBINED: [5, 6, 12, 16, 17, 18, 20, 21, 22, 23],
+      };
+      setCustomHours(presets[hourlyFilterMode as keyof typeof presets] || []);
+    }
+  }, [hourlyFilterMode]);
+
   const handleTestConnection = async () => {
     // Primeiro salvar a configuração
     const stakeNum = parseFloat(stake);
