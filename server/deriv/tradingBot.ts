@@ -89,6 +89,7 @@ export class TradingBot {
   private timeCheckTimer: NodeJS.Timeout | null = null;
   private isTransitioning: boolean = false;
   private pendingStandby: boolean = false;
+  private wasGoldHour: boolean = false; // Rastrear estado anterior de GOLD
   private config: any = null; // Armazenar config para referência
 
   constructor(userId: number) {
@@ -1210,8 +1211,8 @@ export class TradingBot {
     try {
       console.log("[Bot] Saindo de STANDBY (entrando em horário permitido)");
       
-      // Atualizar estado para WAITING_MIDPOINT
-      this.state = "WAITING_MIDPOINT";
+      // Atualizar estado para COLLECTING
+      this.state = "COLLECTING";
       
       // Carregar PnL diário (pode ter mudado)
       await this.loadDailyPnL();
@@ -1226,6 +1227,9 @@ export class TradingBot {
         `Bot ativado em horário permitido${goldStatus}`
       );
       console.log(`[Bot] Bot ativado${goldStatus}`);
+      
+      // Iniciar coleta de dados
+      await this.startDataCollection();
     } catch (error: any) {
       console.error("[Bot] Erro ao sair de standby:", error);
       await this.logEvent("ERROR", `Erro ao sair de standby: ${error.message}`);
@@ -1299,16 +1303,18 @@ export class TradingBot {
     if (currentState !== "STANDBY_TIME_FILTER" && isAllowed) {
       const isGold = this.timeFilter.isGoldHour();
       
-      // Logar mudança
-      if (isGold) {
+      // Logar mudança APENAS se realmente mudou
+      if (isGold && !this.wasGoldHour) {
         await this.logEvent(
           "ENTERED_GOLD_HOUR",
           `Entrando em horário GOLD - Stake: $${(this.config!.goldStake / 100).toFixed(2)}`
         );
         console.log(`[Bot] Entrando em horário GOLD`);
-      } else {
+        this.wasGoldHour = true;
+      } else if (!isGold && this.wasGoldHour) {
         await this.logEvent("EXITED_GOLD_HOUR", "Saindo de horário GOLD");
         console.log("[Bot] Saindo de horário GOLD");
+        this.wasGoldHour = false;
       }
     }
   }
