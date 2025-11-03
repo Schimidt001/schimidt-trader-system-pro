@@ -359,3 +359,96 @@ export async function upsertBotState(data: InsertBotState): Promise<void> {
   }
 }
 
+
+// ============= TIME FILTER QUERIES =============
+
+/**
+ * Atualiza configuração do filtro de horário
+ */
+export async function updateTimeFilterConfig(
+  userId: number,
+  data: {
+    timeFilterEnabled?: boolean;
+    allowedHours?: number[];
+    goldHours?: number[];
+    goldStake?: number;
+    timezone?: string;
+  }
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const updateData: Record<string, any> = {};
+
+  if (data.timeFilterEnabled !== undefined) {
+    updateData.timeFilterEnabled = data.timeFilterEnabled;
+  }
+
+  if (data.allowedHours !== undefined) {
+    updateData.allowedHours = JSON.stringify(data.allowedHours);
+  }
+
+  if (data.goldHours !== undefined) {
+    updateData.goldHours = JSON.stringify(data.goldHours);
+  }
+
+  if (data.goldStake !== undefined) {
+    updateData.goldStake = data.goldStake;
+  }
+
+  if (data.timezone !== undefined) {
+    updateData.timezone = data.timezone;
+  }
+
+  await db.update(config).set(updateData).where(eq(config.userId, userId));
+}
+
+/**
+ * Atualiza informações do filtro de horário no botState
+ */
+export async function updateBotTimeFilterInfo(
+  userId: number,
+  data: {
+    nextAllowedTime?: number | null;
+    nextGoldTime?: number | null;
+    isGoldHour?: boolean;
+  }
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.update(botState).set(data).where(eq(botState.userId, userId));
+}
+
+/**
+ * Atualiza cache de fase/estratégia
+ */
+export async function updatePhaseStrategyCache(
+  userId: number,
+  cache: {
+    phase: string;
+    strategy: string;
+    timestamp: number;
+    symbol: string;
+    validityHours: number;
+  }
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.update(config)
+    .set({ phaseStrategyCache: JSON.stringify(cache) })
+    .where(eq(config.userId, userId));
+}
+
+/**
+ * Invalida cache de fase/estratégia
+ */
+export async function invalidatePhaseStrategyCache(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.update(config)
+    .set({ phaseStrategyCache: null })
+    .where(eq(config.userId, userId));
+}

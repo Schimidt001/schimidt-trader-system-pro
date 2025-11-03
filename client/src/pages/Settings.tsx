@@ -16,6 +16,7 @@ import { DERIV_SYMBOLS } from "@/const";
 import { Loader2, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import TimeFilterSettings from "@/components/TimeFilterSettings";
 
 export default function Settings() {
   const { user, loading: authLoading } = useAuth();
@@ -625,6 +626,9 @@ export default function Settings() {
               </CardContent>
             )}
           </Card>
+
+          {/* Filtro de Horário */}
+          <TimeFilterSettings config={data} onUpdate={refetch} />
 
           {/* Botão Salvar */}
           <div className="flex justify-end">

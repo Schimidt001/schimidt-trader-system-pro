@@ -1,5 +1,6 @@
 import { DerivService, type DerivTick } from "./derivService";
 import { predictionService, predictAmplitude, type AmplitudePredictionRequest } from "../prediction/predictionService";
+import { TimeFilterService, type TimeFilterConfig } from "../timeFilter/TimeFilterService";
 import { makeAIDecision, calculateHedgedPnL, type AIConfig, type AIDecision } from "../ai/hybridStrategy";
 import type {
   PredictionRequest,
@@ -82,6 +83,13 @@ export class TradingBot {
   // Controle de risco
   private dailyPnL: number = 0;
   private tradesThisCandle: Set<number> = new Set();
+  
+  // Filtro de Horário
+  private timeFilter: TimeFilterService | null = null;
+  private timeCheckTimer: NodeJS.Timeout | null = null;
+  private isTransitioning: boolean = false;
+  private pendingStandby: boolean = false;
+  private config: any = null; // Armazenar config para referência
 
   constructor(userId: number) {
     this.userId = userId;
@@ -97,6 +105,7 @@ export class TradingBot {
       if (!config) {
         throw new Error("Configuração não encontrada");
       }
+      this.config = config; // Armazenar config para referência
 
       this.symbol = config.symbol;
       this.stake = config.stake;
@@ -135,6 +144,28 @@ export class TradingBot {
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
       if (!token) {
         throw new Error(`Token ${this.mode} não configurado`);
+      }
+
+      // Inicializar TimeFilterService
+      this.timeFilter = new TimeFilterService({
+        enabled: config.timeFilterEnabled ?? false,
+        allowedHours: this.parseAllowedHours(config.allowedHours) ?? [],
+        goldHours: this.parseGoldHours(config.goldHours) ?? [],
+        goldStake: config.goldStake ?? config.stake,
+        timezone: config.timezone ?? "America/Sao_Paulo",
+      });
+      
+      console.log(`[TimeFilter] Filtro de horário: ${config.timeFilterEnabled ? 'HABILITADO' : 'DESABILITADO'}`);
+      
+      // Verificar se está em horário permitido
+      if (!this.timeFilter.isWithinAllowedTime()) {
+        console.log("[TimeFilter] Fora do horário permitido, entrando em STANDBY");
+        await this.enterStandby();
+        return; // Não continua inicialização
+      }
+      
+      if (this.timeFilter.isGoldHour()) {
+        console.log("[TimeFilter] Horário GOLD detectado!");
       }
 
       // Conectar ao DERIV
@@ -182,6 +213,9 @@ export class TradingBot {
         await this.logEvent("BOT_RESTARTED", `Bot reiniciado em estado ${this.state}`);
         console.log(`[TradingBot] Bot restarted in state: ${this.state}`);
       }
+      
+      // Agendar verificação de horário
+      this.scheduleTimeCheck();
     } catch (error) {
       console.error("[TradingBot] Error starting bot:", error);
       this.state = "ERROR_API";
@@ -201,6 +235,11 @@ export class TradingBot {
     if (this.candleEndTimer) {
       clearTimeout(this.candleEndTimer);
       this.candleEndTimer = null;
+    }
+    
+    // Cancelar timer de verificação de horário
+    if (this.timeFilter) {
+      this.timeFilter.cancelScheduledCheck();
     }
     
     if (this.derivService) {
@@ -675,10 +714,25 @@ export class TradingBot {
       // Margem de 3s é suficiente para processamento da API sem desperdiçar tempo
       const durationSeconds = Math.max(900 - elapsedSeconds - 3, 60); // Mínimo 60s
       
-      // Determinar stake: usar decisão da IA se habilitada, senão usar stake padrão
-      const finalStake = this.aiEnabled && this.aiDecision 
-        ? this.aiDecision.stake 
-        : this.stake;
+      // Determinar stake considerando horário GOLD
+      let finalStake: number;
+      let stakeSource: string = "base";
+      
+      if (this.timeFilter?.isGoldHour()) {
+        // Horário GOLD tem prioridade máxima
+        finalStake = this.timeFilter.getStakeForCurrentHour(this.stake);
+        stakeSource = "GOLD";
+      } else if (this.aiEnabled && this.aiDecision) {
+        // Se IA está habilitada e decidiu stake
+        finalStake = this.aiDecision.stake;
+        stakeSource = "IA";
+      } else {
+        // Stake base
+        finalStake = this.stake;
+        stakeSource = "base";
+      }
+      
+      console.log(`[Bot] Stake determinado: $${(finalStake / 100).toFixed(2)} (fonte: ${stakeSource})`);
       
       // Armazenar stake real da posição para cálculos corretos de early close
       this.currentPositionStake = finalStake;
@@ -698,6 +752,8 @@ export class TradingBot {
       this.contractId = contract.contract_id;
 
       // Salvar posição no banco
+      const isGoldTrade = this.timeFilter?.isGoldHour() ?? false;
+      
       const positionId = await insertPosition({
         userId: this.userId,
         contractId: contract.contract_id,
@@ -713,6 +769,7 @@ export class TradingBot {
         status: "ENTERED",
         candleTimestamp: this.currentCandleTimestamp,
         entryTime: new Date(),
+        isGoldTrade, // NOVO: Flag de trade GOLD
       });
 
       this.currentPositionId = positionId;
@@ -730,6 +787,14 @@ export class TradingBot {
         "POSITION_ENTERED",
         `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${durationSeconds}s | Contract: ${contract.contract_id}${aiInfo}`
       );
+      
+      // Logar se foi trade GOLD
+      if (isGoldTrade) {
+        await this.logEvent(
+          "GOLD_HOUR_TRADE",
+          `Trade em horário GOLD com stake $${(finalStake / 100).toFixed(2)}`
+        );
+      }
     } catch (error) {
       console.error("[TradingBot] Error entering position:", error);
       await this.logEvent("ERROR", `Erro ao abrir posição: ${error}`);
@@ -897,6 +962,14 @@ export class TradingBot {
         return;
       }
 
+      // Verificar se standby está pendente
+      if (this.pendingStandby) {
+        console.log("[Bot] Posição fechada, standby pendente. Entrando em STANDBY agora.");
+        this.pendingStandby = false;
+        await this.enterStandby();
+        return; // Não continuar fluxo normal
+      }
+      
       // Reset para próximo candle (IDs já foram limpos no início da função)
       this.prediction = null;
       this.trigger = 0;
@@ -1032,10 +1105,212 @@ export class TradingBot {
   }
 
   /**
-   * Obtém timestamp do início do candle atual (UTC)
+   * Retorna o timestamp de início do candle atual
    */
   getCandleStartTime(): number {
     return this.currentCandleTimestamp;
+  }
+  
+  /**
+   * Helpers de parsing para campos JSON do filtro de horário
+   */
+  private parseAllowedHours(json: string | null | undefined): number[] | null {
+    if (!json) return null;
+    try {
+      const parsed = JSON.parse(json);
+      if (!Array.isArray(parsed)) return null;
+      return parsed.filter(h => typeof h === 'number' && h >= 0 && h <= 23);
+    } catch {
+      return null;
+    }
+  }
+  
+  private parseGoldHours(json: string | null | undefined): number[] | null {
+    if (!json) return null;
+    try {
+      const parsed = JSON.parse(json);
+      if (!Array.isArray(parsed)) return null;
+      return parsed.filter(h => typeof h === 'number' && h >= 0 && h <= 23);
+    } catch {
+      return null;
+    }
+  }
+  
+  /**
+   * Entra em modo STANDBY (fora do horário permitido)
+   */
+  private async enterStandby(): Promise<void> {
+    console.log("[Bot] Entrando em modo STANDBY (fora do horário permitido)");
+    
+    try {
+      // Atualizar estado
+      this.state = "STANDBY_TIME_FILTER";
+      this.isRunning = true; // Bot está "rodando" mas em standby
+      
+      // Conectar à DERIV API (para manter conexão ativa)
+      if (!this.derivService) {
+        const token = this.mode === "DEMO" ? this.config.tokenDemo : this.config.tokenReal;
+        this.derivService = new DerivService(token, this.mode === "DEMO");
+        await this.derivService.connect();
+      }
+      
+      // Subscrever ticks (para manter conexão, mas não processar)
+      this.derivService.subscribeTicks(this.symbol, () => {
+        // Callback vazio - apenas mantém conexão
+      });
+      
+      // Atualizar estado no banco
+      await this.updateBotState();
+      
+      // Agendar verificação de horário
+      this.scheduleTimeCheck();
+      
+      // Logar próximo horário permitido
+      const nextAllowedTime = this.timeFilter?.getNextAllowedTime();
+      if (nextAllowedTime) {
+        const formatter = new Intl.DateTimeFormat('pt-BR', {
+          timeZone: this.config?.timezone ?? 'America/Sao_Paulo',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        });
+        const nextTimeStr = formatter.format(nextAllowedTime);
+        
+        await this.logEvent(
+          "STANDBY_TIME_FILTER",
+          `Aguardando próximo horário permitido: ${nextTimeStr}`
+        );
+        console.log(`[Bot] Próximo horário permitido: ${nextTimeStr}`);
+      } else {
+        await this.logEvent(
+          "STANDBY_TIME_FILTER",
+          "Nenhum horário permitido configurado, aguardando indefinidamente"
+        );
+      }
+    } catch (error: any) {
+      console.error("[Bot] Erro ao entrar em standby:", error);
+      await this.logEvent("ERROR", `Erro ao entrar em standby: ${error.message}`);
+      this.state = "ERROR_API";
+      await this.updateBotState();
+    }
+  }
+  
+  /**
+   * Sai do modo STANDBY (entrando em horário permitido)
+   */
+  private async exitStandby(): Promise<void> {
+    // Prevenir múltiplas transições simultâneas
+    if (this.isTransitioning) {
+      console.log("[Bot] Transição já em andamento, ignorando");
+      return;
+    }
+    
+    this.isTransitioning = true;
+    
+    try {
+      console.log("[Bot] Saindo de STANDBY (entrando em horário permitido)");
+      
+      // Atualizar estado para WAITING_MIDPOINT
+      this.state = "WAITING_MIDPOINT";
+      
+      // Carregar PnL diário (pode ter mudado)
+      await this.loadDailyPnL();
+      
+      // Atualizar estado no banco
+      await this.updateBotState();
+      
+      // Logar saída de standby
+      const goldStatus = this.timeFilter?.isGoldHour() ? " (GOLD)" : "";
+      await this.logEvent(
+        "EXIT_STANDBY",
+        `Bot ativado em horário permitido${goldStatus}`
+      );
+      console.log(`[Bot] Bot ativado${goldStatus}`);
+    } catch (error: any) {
+      console.error("[Bot] Erro ao sair de standby:", error);
+      await this.logEvent("ERROR", `Erro ao sair de standby: ${error.message}`);
+      this.state = "ERROR_API";
+      await this.updateBotState();
+    } finally {
+      this.isTransitioning = false;
+    }
+  }
+  
+  /**
+   * Agenda verificação de horário
+   */
+  private scheduleTimeCheck(): void {
+    if (!this.timeFilter) {
+      return;
+    }
+    
+    this.timeFilter.scheduleNextCheck(async () => {
+      await this.checkTimeFilter();
+    });
+  }
+  
+  /**
+   * Verifica filtro de horário e faz transições de estado
+   */
+  private async checkTimeFilter(): Promise<void> {
+    // Se filtro não existe ou desabilitado, não fazer nada
+    if (!this.timeFilter || !this.config?.timeFilterEnabled) {
+      return;
+    }
+    
+    const isAllowed = this.timeFilter.isWithinAllowedTime();
+    const currentState = this.state;
+    const status = this.timeFilter.getStatus();
+    
+    console.log(`[Bot] Verificação de horário: ${status.currentTime} - Permitido: ${isAllowed} - Estado: ${currentState}`);
+    
+    // Caso 1: Estava em STANDBY e agora é permitido
+    if (currentState === "STANDBY_TIME_FILTER" && isAllowed) {
+      console.log("[Bot] Horário agora permitido, saindo de STANDBY");
+      await this.exitStandby();
+      return;
+    }
+    
+    // Caso 2: Estava operando e agora NÃO é permitido
+    if (currentState !== "STANDBY_TIME_FILTER" && !isAllowed) {
+      // CRÍTICO: Verificar se há posição aberta
+      if (this.currentPositionId !== null) {
+        console.log("[Bot] Horário não permitido, mas há posição aberta. Aguardando fechamento.");
+        await this.logEvent(
+          "TIME_FILTER_WAITING_POSITION",
+          "Aguardando fechamento de posição antes de entrar em standby"
+        );
+        
+        // Marcar que standby está pendente
+        this.pendingStandby = true;
+        
+        // Re-agendar verificação em 1 minuto
+        setTimeout(() => this.checkTimeFilter(), 60000);
+        return;
+      }
+      
+      // Entrar em standby
+      console.log("[Bot] Horário não permitido, entrando em STANDBY");
+      await this.enterStandby();
+      return;
+    }
+    
+    // Caso 3: Mudou de horário normal para GOLD (ou vice-versa)
+    if (currentState !== "STANDBY_TIME_FILTER" && isAllowed) {
+      const isGold = this.timeFilter.isGoldHour();
+      
+      // Logar mudança
+      if (isGold) {
+        await this.logEvent(
+          "ENTERED_GOLD_HOUR",
+          `Entrando em horário GOLD - Stake: $${(this.config!.goldStake / 100).toFixed(2)}`
+        );
+        console.log(`[Bot] Entrando em horário GOLD`);
+      } else {
+        await this.logEvent("EXITED_GOLD_HOUR", "Saindo de horário GOLD");
+        console.log("[Bot] Saindo de horário GOLD");
+      }
+    }
   }
 }
 

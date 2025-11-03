@@ -7,6 +7,7 @@ import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, 
 import { BOT_STATES } from "@/const";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import TimeFilterClock from "@/components/TimeFilterClock";
 
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
@@ -245,6 +246,9 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* Relógio do Filtro de Horário */}
+        <TimeFilterClock />
 
         {/* Métricas principais */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

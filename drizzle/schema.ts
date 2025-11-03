@@ -41,6 +41,13 @@ export const config = mysqlTable("config", {
   stakeNormalConfidence: int("stakeNormalConfidence").default(100), // Stake para trades normais (em centavos) - padrão $1
   aiFilterThreshold: int("aiFilterThreshold").default(60), // Threshold de confiança do filtro (0-100)
   aiHedgeEnabled: boolean("aiHedgeEnabled").default(true).notNull(), // Habilitar hedge em trades de baixa confiança
+  // Configurações do Filtro de Horário
+  timeFilterEnabled: boolean("timeFilterEnabled").default(false).notNull(), // Toggle para ativar/desativar filtro de horário
+  allowedHours: text("allowedHours"), // Array de horários permitidos (0-23) armazenado como JSON
+  goldHours: text("goldHours"), // Array de horários GOLD (0-23) armazenado como JSON
+  goldStake: int("goldStake").default(1000), // Stake especial para horários GOLD (em centavos)
+  timezone: varchar("timezone", { length: 50 }).default("America/Sao_Paulo"), // Timezone do usuário
+  phaseStrategyCache: text("phaseStrategyCache"), // Cache de fase/estratégia para evitar re-detecção
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -86,6 +93,7 @@ export const positions = mysqlTable("positions", {
   pnl: int("pnl"), // em centavos
   status: mysqlEnum("status", ["ARMED", "ENTERED", "CLOSED", "CANCELLED"]).notNull(),
   candleTimestamp: bigint("candleTimestamp", { mode: "number" }).notNull(),
+  isGoldTrade: boolean("isGoldTrade").default(false), // Flag indicando se foi trade em horário GOLD,
   entryTime: timestamp("entryTime"),
   exitTime: timestamp("exitTime"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -147,12 +155,17 @@ export const botState = mysqlTable("botState", {
     "CLOSED",
     "LOCK_RISK",
     "ERROR_API",
-    "DISCONNECTED"
+    "DISCONNECTED",
+    "STANDBY_TIME_FILTER"
   ]).notNull().default("IDLE"),
   isRunning: boolean("isRunning").notNull().default(false),
   currentCandleTimestamp: bigint("currentCandleTimestamp", { mode: "number" }),
   currentPositionId: int("currentPositionId"),
   lastError: text("lastError"),
+  // Informações do Filtro de Horário
+  nextAllowedTime: bigint("nextAllowedTime", { mode: "number" }), // Próximo horário permitido (timestamp Unix em segundos)
+  nextGoldTime: bigint("nextGoldTime", { mode: "number" }), // Próximo horário GOLD (timestamp Unix em segundos)
+  isGoldHour: boolean("isGoldHour").default(false), // Flag indicando se horário atual é GOLD
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

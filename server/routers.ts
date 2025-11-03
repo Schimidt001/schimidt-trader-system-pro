@@ -14,7 +14,11 @@ import {
   getTodayPositions,
   getMetric,
   getCandleHistory,
+  updateTimeFilterConfig,
+  invalidatePhaseStrategyCache,
+  insertEventLog,
 } from "./db";
+import { TimeFilterService } from "./timeFilter/TimeFilterService";
 import { resetDailyData } from "./db_reset";
 import { getBotForUser, removeBotForUser } from "./deriv/tradingBot";
 import { DerivService } from "./deriv/derivService";
@@ -49,6 +53,16 @@ export const appRouter = router({
         aiHedgeEnabled: true,
       };
       
+      // Valores padrão para campos do Filtro de Horário
+      const defaultTimeFilterConfig = {
+        timeFilterEnabled: false,
+        allowedHours: null,
+        goldHours: null,
+        goldStake: 1000, // $10.00 em centavos
+        timezone: "America/Sao_Paulo",
+        phaseStrategyCache: null,
+      };
+      
       // Retornar configuração padrão se não existir
       if (!config) {
         return {
@@ -64,10 +78,11 @@ export const appRouter = router({
           profitThreshold: 90, // threshold padrão de lucro
           waitTime: 8, // tempo de espera padrão em minutos
           ...defaultAIConfig,
+          ...defaultTimeFilterConfig,
         };
       }
       
-      // Garantir que configs antigas tenham os campos da IA
+      // Garantir que configs antigas tenham os campos da IA e Filtro de Horário
       return {
         ...config,
         aiEnabled: config.aiEnabled ?? defaultAIConfig.aiEnabled,
@@ -75,6 +90,12 @@ export const appRouter = router({
         stakeNormalConfidence: config.stakeNormalConfidence ?? defaultAIConfig.stakeNormalConfidence,
         aiFilterThreshold: config.aiFilterThreshold ?? defaultAIConfig.aiFilterThreshold,
         aiHedgeEnabled: config.aiHedgeEnabled ?? defaultAIConfig.aiHedgeEnabled,
+        timeFilterEnabled: config.timeFilterEnabled ?? defaultTimeFilterConfig.timeFilterEnabled,
+        allowedHours: config.allowedHours ?? defaultTimeFilterConfig.allowedHours,
+        goldHours: config.goldHours ?? defaultTimeFilterConfig.goldHours,
+        goldStake: config.goldStake ?? defaultTimeFilterConfig.goldStake,
+        timezone: config.timezone ?? defaultTimeFilterConfig.timezone,
+        phaseStrategyCache: config.phaseStrategyCache ?? defaultTimeFilterConfig.phaseStrategyCache,
       };
     }),
 
@@ -147,6 +168,96 @@ export const appRouter = router({
           message: `Erro ao conectar: ${error.message}`,
         });
       }
+    }),
+    
+    // Novos endpoints do Filtro de Horário
+    updateTimeFilter: protectedProcedure
+      .input(
+        z.object({
+          timeFilterEnabled: z.boolean(),
+          allowedHours: z.array(z.number().int().min(0).max(23)).optional(),
+          goldHours: z.array(z.number().int().min(0).max(23)).optional(),
+          goldStake: z.number().int().positive().optional(),
+          timezone: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await updateTimeFilterConfig(ctx.user.id, input);
+        
+        // Logar alteração
+        await insertEventLog({
+          userId: ctx.user.id,
+          eventType: "TIME_FILTER_CONFIG_UPDATED",
+          message: `Filtro de horário ${input.timeFilterEnabled ? 'HABILITADO' : 'DESABILITADO'}`,
+          timestampUtc: Math.floor(Date.now() / 1000),
+        });
+        
+        return { success: true };
+      }),
+    
+    getTimeFilterStatus: protectedProcedure.query(async ({ ctx }) => {
+      const config = await getConfigByUserId(ctx.user.id);
+      
+      if (!config || !config.timeFilterEnabled) {
+        return {
+          enabled: false,
+          isAllowed: true,
+          isGoldHour: false,
+          currentHour: new Date().getHours(),
+          currentTime: new Date().toLocaleTimeString('pt-BR'),
+          nextAllowedTime: null,
+          nextGoldTime: null,
+        };
+      }
+      
+      // Parse allowed hours
+      let allowedHours: number[] = [];
+      let goldHours: number[] = [];
+      
+      try {
+        if (config.allowedHours) {
+          allowedHours = JSON.parse(config.allowedHours);
+        }
+        if (config.goldHours) {
+          goldHours = JSON.parse(config.goldHours);
+        }
+      } catch (error) {
+        console.error("[TimeFilter] Erro ao parsear horários:", error);
+      }
+      
+      // Criar instância do TimeFilterService
+      const timeFilter = new TimeFilterService({
+        enabled: config.timeFilterEnabled,
+        allowedHours,
+        goldHours,
+        goldStake: config.goldStake ?? 1000,
+        timezone: config.timezone ?? "America/Sao_Paulo",
+      });
+      
+      const status = timeFilter.getStatus();
+      
+      return {
+        enabled: true,
+        isAllowed: status.isAllowed,
+        isGoldHour: status.isGoldHour,
+        currentHour: status.currentHour,
+        currentTime: status.currentTime,
+        nextAllowedTime: status.nextAllowedTime?.toISOString() ?? null,
+        nextGoldTime: status.nextGoldTime?.toISOString() ?? null,
+      };
+    }),
+    
+    invalidatePhaseCache: protectedProcedure.mutation(async ({ ctx }) => {
+      await invalidatePhaseStrategyCache(ctx.user.id);
+      
+      await insertEventLog({
+        userId: ctx.user.id,
+        eventType: "PHASE_CACHE_INVALIDATED",
+        message: "Cache de fase/estratégia invalidado manualmente",
+        timestampUtc: Math.floor(Date.now() / 1000),
+      });
+      
+      return { success: true };
     }),
   }),
 
