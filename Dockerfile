@@ -1,12 +1,9 @@
 # Dockerfile otimizado para Railway
-# Usa imagem com Node.js 22 + Python 3.11 pré-instalados
+# Usa imagem com Node.js 22 + Python 3.11 + pnpm pré-instalados
 
 FROM nikolaik/python-nodejs:python3.11-nodejs22-slim
 
 WORKDIR /app
-
-# Instalar pnpm
-RUN npm install -g pnpm
 
 # Copiar package files e patches
 COPY package.json pnpm-lock.yaml ./
