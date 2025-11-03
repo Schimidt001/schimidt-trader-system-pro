@@ -1211,8 +1211,10 @@ export class TradingBot {
     try {
       console.log("[Bot] Saindo de STANDBY (entrando em horário permitido)");
       
-      // Atualizar estado para COLLECTING
-      this.state = "COLLECTING";
+      // Atualizar estado para WAITING_MIDPOINT
+      // O bot já tem dados históricos e subscrição de ticks ativa
+      // Apenas retoma o fluxo normal de aguardar ponto de entrada
+      this.state = "WAITING_MIDPOINT";
       
       // Carregar PnL diário (pode ter mudado)
       await this.loadDailyPnL();
@@ -1226,13 +1228,10 @@ export class TradingBot {
         "EXIT_STANDBY",
         `Bot ativado em horário permitido${goldStatus}`
       );
-      console.log(`[Bot] Bot ativado${goldStatus}`);
+      console.log(`[Bot] Bot ativado${goldStatus} - Retomando fluxo normal`);
       
       // Reagendar verificação de horário
       this.scheduleTimeCheck();
-      
-      // Iniciar coleta de dados
-      await this.startDataCollection();
     } catch (error: any) {
       console.error("[Bot] Erro ao sair de standby:", error);
       await this.logEvent("ERROR", `Erro ao sair de standby: ${error.message}`);
