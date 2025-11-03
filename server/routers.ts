@@ -203,8 +203,7 @@ export const appRouter = router({
           enabled: false,
           isAllowed: true,
           isGoldHour: false,
-          currentHour: new Date().getHours(),
-          currentTime: new Date().toLocaleTimeString('pt-BR'),
+          currentHour: new Date().getUTCHours(),
           nextAllowedTime: null,
           nextGoldTime: null,
         };
@@ -231,7 +230,6 @@ export const appRouter = router({
         allowedHours,
         goldHours,
         goldStake: config.goldStake ?? 1000,
-        timezone: config.timezone ?? "America/Sao_Paulo",
       });
       
       const status = timeFilter.getStatus();
@@ -241,9 +239,8 @@ export const appRouter = router({
         isAllowed: status.isAllowed,
         isGoldHour: status.isGoldHour,
         currentHour: status.currentHour,
-        currentTime: status.currentTime,
-        nextAllowedTime: status.nextAllowedTime?.toISOString() ?? null,
-        nextGoldTime: status.nextGoldTime?.toISOString() ?? null,
+        nextAllowedTime: status.nextAllowedTime ?? null,
+        nextGoldTime: status.nextGoldTime ?? null,
       };
     }),
     
