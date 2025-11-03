@@ -382,7 +382,7 @@ export default function Dashboard() {
                         <div>
                           <div className="text-base font-semibold text-white">{position.symbol}</div>
                           <div className="text-xs text-slate-400">
-                            {new Date(position.createdAt).toLocaleTimeString('pt-BR')}
+                            {new Date(position.createdAt).toLocaleTimeString('pt-BR', { timeZone: 'UTC' })} UTC
                           </div>
                         </div>
                       </div>

@@ -61,7 +61,7 @@ export default function Logs() {
 
   const formatTimestamp = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
-    return date.toLocaleString("pt-BR", {
+    const formatted = date.toLocaleString("pt-BR", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -70,6 +70,7 @@ export default function Logs() {
       second: "2-digit",
       timeZone: "UTC",
     });
+    return `${formatted} UTC`;
   };
 
   return (
