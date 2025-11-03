@@ -33,7 +33,7 @@ export const getLoginUrl = () => {
 export const BOT_STATES = {
   IDLE: "Parado",
   COLLECTING: "Coletando dados",
-  WAITING_MIDPOINT: "Aguardando 8 minutos",
+  WAITING_MIDPOINT: "Aguardando",
   PREDICTING: "Fazendo predição",
   ARMED: "Entrada armada",
   ENTERED: "Em posição",
