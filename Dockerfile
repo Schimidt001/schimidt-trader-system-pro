@@ -1,10 +1,7 @@
-# Multi-stage Dockerfile para Schimidt Trader System PRO
-# Otimizado para Railway - Node.js 22 + Python 3
+# Dockerfile otimizado para Railway
+# Usa imagem com Node.js 22 + Python 3.11 pré-instalados
 
-# ============================================
-# Stage 1: Build do frontend e backend
-# ============================================
-FROM node:22-slim AS builder
+FROM nikolaik/python-nodejs:python3.11-nodejs22-slim
 
 WORKDIR /app
 
@@ -15,50 +12,17 @@ RUN npm install -g pnpm
 COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
 
-# Instalar dependências
+# Instalar dependências Node.js
 RUN pnpm install --frozen-lockfile
 
 # Copiar código fonte
 COPY . .
 
-# Build do projeto (frontend + backend)
+# Build do projeto
 RUN pnpm build
 
-# ============================================
-# Stage 2: Runtime com Node.js + Python
-# ============================================
-FROM node:22-bookworm-slim
-
-WORKDIR /app
-
-# Instalar Python 3 (versão disponível no Debian Bookworm) e pip
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    python3-venv \
-    --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
-
-# Criar symlink para python
-RUN ln -sf /usr/bin/python3 /usr/bin/python
-
-# Instalar pnpm
-RUN npm install -g pnpm
-
-# Copiar package files e patches
-COPY package.json pnpm-lock.yaml ./
-COPY patches ./patches
-
-# Instalar dependências de produção
-RUN pnpm install --frozen-lockfile --prod
-
-# Copiar arquivos buildados do stage anterior
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/server ./server
-
 # Instalar dependências Python
-RUN pip3 install --no-cache-dir -r server/prediction/requirements.txt --break-system-packages
+RUN pip3 install --no-cache-dir -r server/prediction/requirements.txt
 
 # Copiar arquivos Python para dist
 RUN cp -r server/prediction/* dist/prediction/ 2>/dev/null || true
@@ -66,7 +30,7 @@ RUN cp -r server/prediction/* dist/prediction/ 2>/dev/null || true
 # Expor porta
 EXPOSE 3000
 
-# Variáveis de ambiente padrão
+# Variáveis de ambiente
 ENV NODE_ENV=production
 ENV PORT=3000
 
