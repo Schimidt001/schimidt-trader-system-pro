@@ -1026,7 +1026,7 @@ export class TradingBot {
       userId: this.userId,
       state: this.state,
       isRunning: this.isRunning,
-      currentCandleTimestamp: this.currentCandleTimestamp || null,
+      currentCandleTimestamp: this.currentCandleTimestamp > 0 ? this.currentCandleTimestamp : null,
       currentPositionId: this.currentPositionId || null,
     });
   }
