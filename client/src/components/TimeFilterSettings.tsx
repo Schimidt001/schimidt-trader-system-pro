@@ -19,7 +19,17 @@ export default function TimeFilterSettings({ config, onUpdate }: TimeFilterSetti
   const [allowedHours, setAllowedHours] = useState<number[]>([]);
   const [goldHours, setGoldHours] = useState<number[]>([]);
   const [goldStake, setGoldStake] = useState(1000);
-  const [isSaving, setIsSaving] = useState(false);
+
+  // Mutation
+  const updateTimeFilter = trpc.config.updateTimeFilter.useMutation({
+    onSuccess: () => {
+      toast.success("Filtro de horário atualizado com sucesso");
+      onUpdate();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao salvar: ${error.message}`);
+    },
+  });
 
   // Carregar configuração inicial
   useEffect(() => {
@@ -77,25 +87,13 @@ export default function TimeFilterSettings({ config, onUpdate }: TimeFilterSetti
   };
 
   // Salvar configuração
-  const handleSave = async () => {
-    setIsSaving(true);
-    
-    try {
-      await trpc.config.updateTimeFilter.mutate({
-        timeFilterEnabled: enabled,
-        allowedHours: allowedHours.length > 0 ? allowedHours : undefined,
-        goldHours: goldHours.length > 0 ? goldHours : undefined,
-        goldStake,
-      });
-      
-      toast.success("Filtro de horário atualizado com sucesso");
-      
-      onUpdate();
-    } catch (error: any) {
-      toast.error(`Erro ao salvar: ${error.message}`);
-    } finally {
-      setIsSaving(false);
-    }
+  const handleSave = () => {
+    updateTimeFilter.mutate({
+      timeFilterEnabled: enabled,
+      allowedHours: allowedHours.length > 0 ? allowedHours : undefined,
+      goldHours: goldHours.length > 0 ? goldHours : undefined,
+      goldStake,
+    });
   };
 
   // Renderizar grade de horários
@@ -224,8 +222,8 @@ export default function TimeFilterSettings({ config, onUpdate }: TimeFilterSetti
 
         {/* Botão salvar */}
         <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving ? "Salvando..." : "Salvar Configuração"}
+          <Button onClick={handleSave} disabled={updateTimeFilter.isPending}>
+            {updateTimeFilter.isPending ? "Salvando..." : "Salvar Configuração"}
           </Button>
         </div>
       </CardContent>
