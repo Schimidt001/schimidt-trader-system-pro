@@ -88,18 +88,11 @@ export default function TimeFilterSettings({ config, onUpdate }: TimeFilterSetti
         goldStake,
       });
       
-      toast({
-        title: "Configuração salva",
-        description: "Filtro de horário atualizado com sucesso",
-      });
+      toast.success("Filtro de horário atualizado com sucesso");
       
       onUpdate();
     } catch (error: any) {
-      toast({
-        title: "Erro ao salvar",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(`Erro ao salvar: ${error.message}`);
     } finally {
       setIsSaving(false);
     }
