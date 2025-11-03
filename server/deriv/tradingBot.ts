@@ -1228,6 +1228,9 @@ export class TradingBot {
       );
       console.log(`[Bot] Bot ativado${goldStatus}`);
       
+      // Reagendar verificação de horário
+      this.scheduleTimeCheck();
+      
       // Iniciar coleta de dados
       await this.startDataCollection();
     } catch (error: any) {
@@ -1257,6 +1260,33 @@ export class TradingBot {
    * Verifica filtro de horário e faz transições de estado
    */
   private async checkTimeFilter(): Promise<void> {
+    // Recarregar config do banco para pegar mudanças
+    try {
+      const config = await getConfigByUserId(this.userId);
+      if (config) {
+        this.config = config;
+        
+        // Atualizar TimeFilter com nova config
+        let allowedHours: number[] = [];
+        let goldHours: number[] = [];
+        try {
+          if (config.allowedHours) allowedHours = JSON.parse(config.allowedHours);
+          if (config.goldHours) goldHours = JSON.parse(config.goldHours);
+        } catch (error) {
+          console.error("[TimeFilter] Erro ao parsear horários:", error);
+        }
+        
+        this.timeFilter = new TimeFilterService({
+          enabled: config.timeFilterEnabled ?? false,
+          allowedHours,
+          goldHours,
+          goldStake: config.goldStake ?? 1000,
+        });
+      }
+    } catch (error) {
+      console.error("[Bot] Erro ao recarregar config:", error);
+    }
+    
     // Se filtro não existe ou desabilitado, não fazer nada
     if (!this.timeFilter || !this.config?.timeFilterEnabled) {
       return;
