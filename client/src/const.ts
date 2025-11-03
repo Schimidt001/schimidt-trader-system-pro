@@ -42,6 +42,7 @@ export const BOT_STATES = {
   LOCK_RISK: "Bloqueado por risco",
   ERROR_API: "Erro de API",
   DISCONNECTED: "Desconectado",
+  WAITING_NEXT_HOUR: "Aguardando próximo horário",
 } as const;
 
 // Símbolos DERIV disponíveis

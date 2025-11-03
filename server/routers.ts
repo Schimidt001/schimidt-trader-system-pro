@@ -156,6 +156,7 @@ export const appRouter = router({
       const state = await getBotState(ctx.user.id);
       const bot = getBotForUser(ctx.user.id);
       const candleStartTime = bot.getCandleStartTime();
+      const hourlyStatus = bot.getHourlyStatus();
       
       // Debug log
       console.log(`[bot.status] userId: ${ctx.user.id}, state: ${state?.state}, candleStartTime: ${candleStartTime}, isRunning: ${state?.isRunning}`);
@@ -172,12 +173,14 @@ export const appRouter = router({
           currentPositionId: null,
           lastError: null,
           updatedAt: new Date(),
+          hourlyStatus,
         };
       }
       
       return {
         ...state,
         candleStartTime: candleStartTime || null,
+        hourlyStatus,
       };
     }),
 

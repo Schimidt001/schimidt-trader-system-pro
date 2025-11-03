@@ -164,6 +164,14 @@ export default function Dashboard() {
     const minutesRemaining = Math.ceil(timeRemaining / 60);
     stateLabel = `Aguardando ${minutesRemaining} minuto${minutesRemaining !== 1 ? 's' : ''}`;
   }
+  
+  // Label para WAITING_NEXT_HOUR com próximo horário
+  if (currentState === "WAITING_NEXT_HOUR" && botStatus?.hourlyStatus) {
+    const { nextAllowedHour, isGold } = botStatus.hourlyStatus;
+    if (nextAllowedHour !== null) {
+      stateLabel = `Aguardando próximo horário: ${nextAllowedHour}h UTC${isGold ? ' ⭐' : ''}`;
+    }
+  }
 
   const dailyPnL = metrics?.daily.pnl || 0;
   const monthlyPnL = metrics?.monthly.pnl || 0;
@@ -183,7 +191,13 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <div
                 className={`w-3 h-3 rounded-full ${
-                  isRunning ? "bg-green-500 animate-pulse" : currentState === "ERROR_API" ? "bg-yellow-500" : "bg-red-500"
+                  isRunning && currentState !== "WAITING_NEXT_HOUR" 
+                    ? "bg-green-500 animate-pulse" 
+                    : currentState === "ERROR_API" 
+                      ? "bg-yellow-500" 
+                      : currentState === "WAITING_NEXT_HOUR"
+                        ? "bg-yellow-400 animate-pulse"
+                        : "bg-red-500"
                 }`}
               />
               <span className="text-sm text-slate-300">{stateLabel}</span>

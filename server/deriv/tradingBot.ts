@@ -313,9 +313,9 @@ export class TradingBot {
     // Verificar se horário está permitido
     const hourlyInfo = this.getHourlyInfo();
     if (!hourlyInfo.isAllowed) {
-      // Horário não permitido, entrar em IDLE
-      if (this.state !== "IDLE") {
-        await this.changeState("IDLE");
+      // Horário não permitido, entrar em WAITING_NEXT_HOUR
+      if (this.state !== "WAITING_NEXT_HOUR") {
+        await this.changeState("WAITING_NEXT_HOUR");
         const nextHourMsg = hourlyInfo.nextAllowedHour !== null 
           ? `Próximo horário permitido: ${hourlyInfo.nextAllowedHour}h UTC`
           : "Nenhum horário permitido configurado";
@@ -325,8 +325,8 @@ export class TradingBot {
       return; // Não processar tick
     }
     
-    // Se estava em IDLE por causa do horário, voltar para COLLECTING
-    if (this.state === "IDLE" && hourlyInfo.isAllowed) {
+    // Se estava em WAITING_NEXT_HOUR por causa do horário, voltar para COLLECTING
+    if (this.state === "WAITING_NEXT_HOUR" && hourlyInfo.isAllowed) {
       await this.changeState("COLLECTING");
       await this.logEvent("HOURLY_FILTER_RESUMED", 
         `Horário ${hourlyInfo.currentHour}h UTC permitido. Retomando operação.${hourlyInfo.isGold ? ' [HORÁRIO GOLD]' : ''}`);
@@ -1170,6 +1170,22 @@ export class TradingBot {
    */
   getCandleStartTime(): number {
     return this.currentCandleTimestamp;
+  }
+
+  /**
+   * Obtém informações de horário para exibição no frontend
+   */
+  getHourlyStatus(): { enabled: boolean; currentHour: number; isAllowed: boolean; isGold: boolean; nextAllowedHour: number | null; allowedHours: number[]; goldModeHours: number[] } {
+    const hourlyInfo = this.getHourlyInfo();
+    return {
+      enabled: this.hourlyFilterEnabled,
+      currentHour: hourlyInfo.currentHour,
+      isAllowed: hourlyInfo.isAllowed,
+      isGold: hourlyInfo.isGold,
+      nextAllowedHour: hourlyInfo.nextAllowedHour,
+      allowedHours: this.allowedHours,
+      goldModeHours: this.goldModeHours,
+    };
   }
 }
 

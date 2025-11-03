@@ -753,10 +753,10 @@ export default function Settings() {
                   </Select>
                 </div>
                 
-                {(hourlyFilterMode === "CUSTOM" || customHours.length > 0) && (
+                {customHours.length > 0 && (
                   <div className="space-y-3">
                     <Label className="text-slate-300">
-                      {hourlyFilterMode === "CUSTOM" ? "Selecione os Horários (UTC)" : "Horários Ativos (UTC)"}
+                      {hourlyFilterMode === "CUSTOM" ? "Selecione os Horários (UTC)" : `Horários Ativos - Modo ${hourlyFilterMode} (UTC)`}
                     </Label>
                     <div className="grid grid-cols-6 gap-2">
                       {Array.from({ length: 24 }, (_, i) => i).map((hour) => {

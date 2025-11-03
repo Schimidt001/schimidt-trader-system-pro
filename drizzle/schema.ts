@@ -153,7 +153,8 @@ export const botState = mysqlTable("botState", {
     "CLOSED",
     "LOCK_RISK",
     "ERROR_API",
-    "DISCONNECTED"
+    "DISCONNECTED",
+    "WAITING_NEXT_HOUR"
   ]).notNull().default("IDLE"),
   isRunning: boolean("isRunning").notNull().default(false),
   currentCandleTimestamp: bigint("currentCandleTimestamp", { mode: "number" }),

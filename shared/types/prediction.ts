@@ -48,7 +48,8 @@ export type BotStateType =
   | "CLOSED"
   | "LOCK_RISK"
   | "ERROR_API"
-  | "DISCONNECTED";
+  | "DISCONNECTED"
+  | "WAITING_NEXT_HOUR";
 
 /**
  * Tipos de eventos do sistema
