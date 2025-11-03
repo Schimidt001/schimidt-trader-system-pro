@@ -332,6 +332,20 @@ export class TradingBot {
     
     // Verificar se horário está permitido
     const hourlyInfo = this.getHourlyInfo();
+    
+    // PRIMEIRO: Se estava em WAITING_NEXT_HOUR e horário se tornou permitido, retomar operação
+    if (this.state === "WAITING_NEXT_HOUR" && hourlyInfo.isAllowed) {
+      await this.changeState("COLLECTING");
+      await this.logEvent("HOURLY_FILTER_RESUMED", 
+        `Horário ${hourlyInfo.currentHour}h UTC permitido. Retomando operação.${hourlyInfo.isGold ? ' [HORÁRIO GOLD]' : ''}`);
+      // Iniciar coleta de dados apenas se ainda não foi coletado
+      if (!this.dataCollected) {
+        await this.startDataCollection();
+      }
+      // Continuar processando o tick normalmente
+    }
+    
+    // SEGUNDO: Se horário não está permitido, entrar/permanecer em WAITING_NEXT_HOUR
     if (!hourlyInfo.isAllowed) {
       // Horário não permitido, entrar em WAITING_NEXT_HOUR
       if (this.state !== "WAITING_NEXT_HOUR") {
@@ -348,17 +362,6 @@ export class TradingBot {
           `Hora atual ${hourlyInfo.currentHour}h UTC não está nos horários permitidos. ${nextHourMsg}`);
       }
       return; // Não processar tick
-    }
-    
-    // Se estava em WAITING_NEXT_HOUR por causa do horário, voltar para COLLECTING
-    if (this.state === "WAITING_NEXT_HOUR" && hourlyInfo.isAllowed) {
-      await this.changeState("COLLECTING");
-      await this.logEvent("HOURLY_FILTER_RESUMED", 
-        `Horário ${hourlyInfo.currentHour}h UTC permitido. Retomando operação.${hourlyInfo.isGold ? ' [HORÁRIO GOLD]' : ''}`);
-      // Iniciar coleta de dados apenas se ainda não foi coletado
-      if (!this.dataCollected) {
-        await this.startDataCollection();
-      }
     }
 
     const candleTimestamp = Math.floor(tick.epoch / 900) * 900; // Arredondar para M15
