@@ -338,6 +338,13 @@ export class TradingBot {
 
     // Calcular segundos decorridos desde o início do candle
     const elapsedSeconds = Math.floor((tick.epoch - this.currentCandleTimestamp));
+    
+    // Proteção: Se elapsedSeconds for maior que 900 (15 min), algo está errado
+    // Provavelmente currentCandleTimestamp estava zerado ou inválido
+    if (elapsedSeconds > 900 || elapsedSeconds < 0) {
+      console.warn(`[ELAPSED_SECONDS_ERROR] Valor incorreto: ${elapsedSeconds}s (tick.epoch=${tick.epoch}, currentCandleTimestamp=${this.currentCandleTimestamp}). Ignorando este tick.`);
+      return;
+    }
 
     // Momento da predição: waitTime configurado (em segundos)
     const waitTimeSeconds = this.waitTime * 60;
@@ -999,8 +1006,11 @@ export class TradingBot {
         const nextCandleTimestamp = candleTimestamp + 900;
         console.log(`[CANDLE_END_TIMER] Iniciando próximo candle: ${nextCandleTimestamp}`);
         
-        // Resetar para aguardar primeiro tick do novo candle
-        this.currentCandleTimestamp = 0;
+        // Inicializar próximo candle com timestamp correto ao invés de zerar
+        // Isso evita que elapsedSeconds seja calculado incorretamente
+        this.currentCandleTimestamp = nextCandleTimestamp;
+        this.state = "WAITING_MIDPOINT";
+        await this.updateBotState();
       } else {
         console.log(`[CANDLE_END_TIMER] Candle já mudou, timer ignorado`);
       }
