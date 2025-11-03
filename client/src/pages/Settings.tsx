@@ -50,7 +50,7 @@ export default function Settings() {
   const [aiHedgeEnabled, setAiHedgeEnabled] = useState(true);
 
   // Query
-  const { data: config, isLoading } = trpc.config.get.useQuery(undefined, {
+  const { data: config, isLoading, refetch } = trpc.config.get.useQuery(undefined, {
     enabled: !!user,
   });
 
@@ -628,7 +628,7 @@ export default function Settings() {
           </Card>
 
           {/* Filtro de Horário */}
-          <TimeFilterSettings config={data} onUpdate={refetch} />
+          <TimeFilterSettings config={config} onUpdate={refetch} />
 
           {/* Botão Salvar */}
           <div className="flex justify-end">
