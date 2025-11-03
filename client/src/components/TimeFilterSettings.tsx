@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
 interface TimeFilterSettingsProps {
@@ -13,7 +13,6 @@ interface TimeFilterSettingsProps {
 }
 
 export default function TimeFilterSettings({ config, onUpdate }: TimeFilterSettingsProps) {
-  const { toast } = useToast();
   
   // Estados
   const [enabled, setEnabled] = useState(false);
