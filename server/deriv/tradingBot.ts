@@ -197,12 +197,27 @@ export class TradingBot {
       });
       console.log(`[TradingBot] Subscribed to ticks for ${this.symbol}`);
       
-      // Se estado for COLLECTING, iniciar coleta de dados
+      // Se estado for COLLECTING, verificar horário antes de iniciar coleta
       if (this.state === "IDLE" || this.state === "COLLECTING") {
-        this.state = "COLLECTING";
-        await this.updateBotState();
-        await this.logEvent("BOT_STARTED", `Bot iniciado em modo ${this.mode} para ${this.symbol}`);
-        await this.startDataCollection();
+        // Verificar se horário está permitido antes de coletar dados
+        const hourlyInfo = this.getHourlyInfo();
+        if (!hourlyInfo.isAllowed) {
+          // Horário não permitido, entrar em WAITING_NEXT_HOUR
+          this.state = "WAITING_NEXT_HOUR";
+          await this.updateBotState();
+          const nextHourMsg = hourlyInfo.nextAllowedHour !== null 
+            ? `Próximo horário permitido: ${hourlyInfo.nextAllowedHour}h UTC`
+            : "Nenhum horário permitido configurado";
+          await this.logEvent("BOT_STARTED", `Bot iniciado em modo ${this.mode} para ${this.symbol}`);
+          await this.logEvent("OUTSIDE_ALLOWED_HOURS", 
+            `Hora atual ${hourlyInfo.currentHour}h UTC não está nos horários permitidos. ${nextHourMsg}`);
+        } else {
+          // Horário permitido, iniciar coleta normalmente
+          this.state = "COLLECTING";
+          await this.updateBotState();
+          await this.logEvent("BOT_STARTED", `Bot iniciado em modo ${this.mode} para ${this.symbol}`);
+          await this.startDataCollection();
+        }
       } else {
         // Bot reiniciando em outro estado (ex: ENTERED, ARMED)
         await this.logEvent("BOT_RESTARTED", `Bot reiniciado em estado ${this.state}`);
