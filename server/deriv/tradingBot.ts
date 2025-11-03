@@ -79,6 +79,13 @@ export class TradingBot {
   private aiHedgeEnabled: boolean = true;
   private aiDecision: AIDecision | null = null;
   
+  // Configurações de Filtro de Horário
+  private hourlyFilterEnabled: boolean = false;
+  private hourlyFilterMode: "IDEAL" | "COMPATIBLE" | "GOLDEN" | "COMBINED" | "CUSTOM" = "COMBINED";
+  private allowedHours: number[] = [];
+  private goldModeHours: number[] = [];
+  private goldModeStakeMultiplier: number = 200; // em porcentagem (200 = 2x)
+  
   // Controle de risco
   private dailyPnL: number = 0;
   private tradesThisCandle: Set<number> = new Set();
@@ -130,6 +137,25 @@ export class TradingBot {
         console.log(`[AI_CONFIG] Stake Normal: $${this.stakeNormalConfidence / 100}`);
         console.log(`[AI_CONFIG] Threshold Filtro: ${this.aiFilterThreshold}%`);
         console.log(`[AI_CONFIG] Hedge Habilitado: ${this.aiHedgeEnabled}`);
+      }
+      
+      // Carregar configurações de Filtro de Horário
+      this.hourlyFilterEnabled = config.hourlyFilterEnabled ?? false;
+      this.hourlyFilterMode = (config.hourlyFilterMode as any) ?? "COMBINED";
+      this.goldModeStakeMultiplier = config.goldModeStakeMultiplier ?? 200;
+      
+      // Carregar horários permitidos baseado no modo
+      if (this.hourlyFilterEnabled) {
+        this.allowedHours = this.getHoursForMode(this.hourlyFilterMode, config.customHours);
+        this.goldModeHours = config.goldModeHours ? JSON.parse(config.goldModeHours) : [];
+        
+        await this.logEvent("HOURLY_FILTER_ENABLED", 
+          `Filtro de horário ativado. Modo: ${this.hourlyFilterMode}. Horários permitidos (UTC): ${this.allowedHours.join(', ')}`);
+        
+        if (this.goldModeHours.length > 0) {
+          await this.logEvent("GOLD_MODE_CONFIGURED", 
+            `Horários GOLD: ${this.goldModeHours.join(', ')}h UTC. Multiplicador de stake: ${this.goldModeStakeMultiplier / 100}x`);
+        }
       }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -283,6 +309,28 @@ export class TradingBot {
    */
   private async handleTick(tick: DerivTick): Promise<void> {
     if (!this.isRunning) return;
+    
+    // Verificar se horário está permitido
+    const hourlyInfo = this.getHourlyInfo();
+    if (!hourlyInfo.isAllowed) {
+      // Horário não permitido, entrar em IDLE
+      if (this.state !== "IDLE") {
+        await this.changeState("IDLE");
+        const nextHourMsg = hourlyInfo.nextAllowedHour !== null 
+          ? `Próximo horário permitido: ${hourlyInfo.nextAllowedHour}h UTC`
+          : "Nenhum horário permitido configurado";
+        await this.logEvent("OUTSIDE_ALLOWED_HOURS", 
+          `Hora atual ${hourlyInfo.currentHour}h UTC não está nos horários permitidos. ${nextHourMsg}`);
+      }
+      return; // Não processar tick
+    }
+    
+    // Se estava em IDLE por causa do horário, voltar para COLLECTING
+    if (this.state === "IDLE" && hourlyInfo.isAllowed) {
+      await this.changeState("COLLECTING");
+      await this.logEvent("HOURLY_FILTER_RESUMED", 
+        `Horário ${hourlyInfo.currentHour}h UTC permitido. Retomando operação.${hourlyInfo.isGold ? ' [HORÁRIO GOLD]' : ''}`);
+    }
 
     const candleTimestamp = Math.floor(tick.epoch / 900) * 900; // Arredondar para M15
 
@@ -669,9 +717,18 @@ export class TradingBot {
       const durationSeconds = Math.max(900 - elapsedSeconds - 3, 60); // Mínimo 60s
       
       // Determinar stake: usar decisão da IA se habilitada, senão usar stake padrão
-      const finalStake = this.aiEnabled && this.aiDecision 
+      let finalStake = this.aiEnabled && this.aiDecision 
         ? this.aiDecision.stake 
         : this.stake;
+      
+      // Aplicar multiplicador de horário GOLD se aplicável
+      finalStake = this.getAdjustedStake(finalStake);
+      
+      // Log se for horário GOLD
+      if (this.isGoldHour()) {
+        await this.logEvent("GOLD_HOUR_STAKE_BOOST", 
+          `Horário GOLD ativo. Stake ajustado: $${finalStake / 100} (multiplicador: ${this.goldModeStakeMultiplier / 100}x)`);
+      }
       
       // Armazenar stake real da posição para cálculos corretos de early close
       this.currentPositionStake = finalStake;
@@ -1005,6 +1062,93 @@ export class TradingBot {
         console.log(`[CANDLE_END_TIMER] Candle já mudou, timer ignorado`);
       }
     }, timeUntilEnd);
+  }
+
+  /**
+   * Obtém horários permitidos baseado no modo
+   */
+  private getHoursForMode(mode: string, customHours?: string | null): number[] {
+    const HOURLY_FILTERS = {
+      IDEAL: [16, 18],
+      COMPATIBLE: [3, 6, 9, 10, 13, 16, 17, 18],
+      GOLDEN: [5, 12, 16, 18, 20, 21, 22, 23],
+      COMBINED: [5, 6, 12, 16, 17, 18, 20, 21, 22, 23],
+    };
+    
+    if (mode === "CUSTOM" && customHours) {
+      try {
+        return JSON.parse(customHours);
+      } catch (e) {
+        console.error(`[HOURLY_FILTER] Erro ao parsear customHours, usando COMBINED:`, e);
+        return HOURLY_FILTERS.COMBINED;
+      }
+    }
+    
+    return HOURLY_FILTERS[mode as keyof typeof HOURLY_FILTERS] || HOURLY_FILTERS.COMBINED;
+  }
+  
+  /**
+   * Verifica se o horário atual está permitido para trading
+   */
+  private isAllowedHour(): boolean {
+    if (!this.hourlyFilterEnabled) {
+      return true; // Filtro desabilitado, todos os horários são permitidos
+    }
+    
+    const now = new Date();
+    const currentHour = now.getUTCHours(); // Usar UTC para consistência
+    
+    return this.allowedHours.includes(currentHour);
+  }
+  
+  /**
+   * Verifica se o horário atual é um horário GOLD
+   */
+  private isGoldHour(): boolean {
+    if (!this.hourlyFilterEnabled || this.goldModeHours.length === 0) {
+      return false;
+    }
+    
+    const now = new Date();
+    const currentHour = now.getUTCHours();
+    
+    return this.goldModeHours.includes(currentHour);
+  }
+  
+  /**
+   * Retorna informações sobre o horário atual
+   */
+  private getHourlyInfo(): { currentHour: number; isAllowed: boolean; isGold: boolean; nextAllowedHour: number | null } {
+    const now = new Date();
+    const currentHour = now.getUTCHours();
+    const isAllowed = this.isAllowedHour();
+    const isGold = this.isGoldHour();
+    
+    let nextAllowedHour: number | null = null;
+    
+    if (!isAllowed && this.hourlyFilterEnabled) {
+      // Encontrar próximo horário permitido
+      for (let i = 1; i <= 24; i++) {
+        const checkHour = (currentHour + i) % 24;
+        if (this.allowedHours.includes(checkHour)) {
+          nextAllowedHour = checkHour;
+          break;
+        }
+      }
+    }
+    
+    return { currentHour, isAllowed, isGold, nextAllowedHour };
+  }
+  
+  /**
+   * Calcula o stake ajustado baseado no horário GOLD
+   */
+  private getAdjustedStake(baseStake: number): number {
+    if (this.isGoldHour()) {
+      const multiplier = this.goldModeStakeMultiplier / 100;
+      return Math.round(baseStake * multiplier);
+    }
+    return baseStake;
   }
 
   /**

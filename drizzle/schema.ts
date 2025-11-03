@@ -41,6 +41,12 @@ export const config = mysqlTable("config", {
   stakeNormalConfidence: int("stakeNormalConfidence").default(100), // Stake para trades normais (em centavos) - padrão $1
   aiFilterThreshold: int("aiFilterThreshold").default(60), // Threshold de confiança do filtro (0-100)
   aiHedgeEnabled: boolean("aiHedgeEnabled").default(true).notNull(), // Habilitar hedge em trades de baixa confiança
+  // Configurações de Filtro de Horário
+  hourlyFilterEnabled: boolean("hourlyFilterEnabled").default(false).notNull(), // Toggle para ativar/desativar filtro de horário
+  hourlyFilterMode: mysqlEnum("hourlyFilterMode", ["IDEAL", "COMPATIBLE", "GOLDEN", "COMBINED", "CUSTOM"]).default("COMBINED").notNull(), // Modo do filtro
+  customHours: text("customHours"), // Horários personalizados em formato JSON (array de números 0-23)
+  goldModeHours: text("goldModeHours"), // Horários do modo GOLD em formato JSON (array de 2 números)
+  goldModeStakeMultiplier: int("goldModeStakeMultiplier").default(200), // Multiplicador de stake para modo GOLD (em porcentagem, 200 = 2x)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
