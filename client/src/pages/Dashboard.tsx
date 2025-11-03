@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { CandleChart } from "@/components/CandleChart";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, RotateCcw } from "lucide-react";
+import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, RotateCcw, Clock } from "lucide-react";
 import { BOT_STATES } from "@/const";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -178,11 +178,53 @@ export default function Dashboard() {
   const dailyTrades = metrics?.daily.totalTrades || 0;
   const dailyLosses = metrics?.daily.losses || 0;
 
+  // Relógio UTC
+  const [currentTime, setCurrentTime] = useState(new Date());
+  
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+  
+  const utcHour = currentTime.getUTCHours();
+  const utcMinute = currentTime.getUTCMinutes();
+  const utcSecond = currentTime.getUTCSeconds();
+  const utcTimeString = `${String(utcHour).padStart(2, '0')}:${String(utcMinute).padStart(2, '0')}:${String(utcSecond).padStart(2, '0')}`;
+  
+  // Verificar se o horário atual está permitido
+  const isAllowedHour = botStatus?.hourlyStatus?.isAllowed || false;
+  const isGoldHour = botStatus?.hourlyStatus?.isGold || false;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       <div className="container mx-auto p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-center">
+        {/* Header com Relógio UTC */}
+        <div className="flex flex-col items-center gap-4">
+          {/* Relógio UTC */}
+          <div className="flex items-center gap-3 px-6 py-3 rounded-lg bg-slate-800/50 border border-slate-700">
+            <Clock className="w-5 h-5 text-slate-400" />
+            <div className="flex flex-col">
+              <span className="text-xs text-slate-400">Horário UTC</span>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-mono font-bold text-white">{utcTimeString}</span>
+                {config?.hourlyFilterEnabled && (
+                  <span className={`text-xs px-2 py-1 rounded ${
+                    isAllowedHour 
+                      ? isGoldHour
+                        ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                        : 'bg-green-500/20 text-green-400 border border-green-500/30'
+                      : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                  }`}>
+                    {isAllowedHour ? (isGoldHour ? '⭐ GOLD' : '✓ Permitido') : '✗ Bloqueado'}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          {/* Bot Status e Botões */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <div
