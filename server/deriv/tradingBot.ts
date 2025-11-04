@@ -313,10 +313,12 @@ export class TradingBot {
       // Isso garante que o candle seja fechado mesmo se não chegar tick na virada
       this.scheduleCandleEnd(candleTimestamp);
     } else {
-      // Atualizar candle atual
-      this.currentCandleHigh = Math.max(this.currentCandleHigh, tick.quote);
-      this.currentCandleLow = Math.min(this.currentCandleLow, tick.quote);
-      this.currentCandleClose = tick.quote; // Atualizar close com último tick
+      // NÃO atualizar high/low manualmente - apenas dados oficiais da DERIV são confiáveis
+      // Atualizar apenas close para monitoramento em tempo real
+      this.currentCandleClose = tick.quote;
+      
+      // IMPORTANTE: High/Low permanecem os valores oficiais da DERIV
+      // Qualquer modificação manual pode causar divergências e operações erradas
     }
 
     // Calcular segundos decorridos desde o início do candle
@@ -345,6 +347,28 @@ export class TradingBot {
   private async closeCurrentCandle(): Promise<void> {
     if (this.currentCandleTimestamp === 0) return;
 
+    // VERIFICAÇÃO FINAL: Buscar dados oficiais da DERIV antes de salvar
+    try {
+      const finalCandles = await this.derivService!.getCandleHistory(this.symbol, 900, 1);
+      if (finalCandles.length > 0 && finalCandles[0].epoch === this.currentCandleTimestamp) {
+        // Usar dados oficiais finais da DERIV
+        this.currentCandleOpen = finalCandles[0].open;
+        this.currentCandleHigh = finalCandles[0].high;
+        this.currentCandleLow = finalCandles[0].low;
+        this.currentCandleClose = finalCandles[0].close;
+        
+        await this.logEvent(
+          "CANDLE_FINAL_SYNC",
+          `[FINAL SYNC] Candle fechado com dados oficiais DERIV: Open=${this.currentCandleOpen} | High=${this.currentCandleHigh} | Low=${this.currentCandleLow} | Close=${this.currentCandleClose}`
+        );
+      }
+    } catch (error) {
+      await this.logEvent(
+        "CANDLE_FINAL_SYNC_ERROR",
+        `[ERRO] Falha ao buscar dados finais da DERIV: ${error}. Salvando com valores em memória.`
+      );
+    }
+
     await insertCandle({
       symbol: this.symbol,
       timeframe: "M15",
@@ -352,7 +376,7 @@ export class TradingBot {
       open: this.currentCandleOpen.toString(),
       high: this.currentCandleHigh.toString(),
       low: this.currentCandleLow.toString(),
-      close: this.currentCandleClose.toString(), // Último tick como close
+      close: this.currentCandleClose.toString(),
     });
 
     // Se tinha posição aberta, fechar
@@ -375,23 +399,43 @@ export class TradingBot {
       this.state = "PREDICTING";
       await this.updateBotState();
 
-      // NOTA: Open/High/Low já foram sincronizados no início do candle
-      // Aqui apenas atualizamos o close com os dados mais recentes da DERIV
+      // RESINCRONIZAÇÃO COMPLETA: Buscar dados oficiais atualizados da DERIV
+      // Isso garante que TODOS os valores (open/high/low/close) sejam exatamente os da DERIV
       try {
-        const currentCandles = await this.derivService.getCandleHistory(this.symbol, 900, 1);
+        const currentCandles = await this.derivService!.getCandleHistory(this.symbol, 900, 1);
         if (currentCandles.length > 0 && currentCandles[0].epoch === this.currentCandleTimestamp) {
-          // Atualizar apenas o close com dados mais recentes
+          // Verificar se houve alguma divergência
+          const openDiff = Math.abs(this.currentCandleOpen - currentCandles[0].open);
+          const highDiff = Math.abs(this.currentCandleHigh - currentCandles[0].high);
+          const lowDiff = Math.abs(this.currentCandleLow - currentCandles[0].low);
+          
+          if (openDiff > 0.001 || highDiff > 0.001 || lowDiff > 0.001) {
+            await this.logEvent(
+              "DERIV_DATA_DIVERGENCE_DETECTED",
+              `[ALERTA] Divergência detectada! Open: ${this.currentCandleOpen} vs ${currentCandles[0].open} | High: ${this.currentCandleHigh} vs ${currentCandles[0].high} | Low: ${this.currentCandleLow} vs ${currentCandles[0].low}`
+            );
+          }
+          
+          // SOBRESCREVER com dados oficiais da DERIV (fonte da verdade)
+          this.currentCandleOpen = currentCandles[0].open;
+          this.currentCandleHigh = currentCandles[0].high;
+          this.currentCandleLow = currentCandles[0].low;
           this.currentCandleClose = currentCandles[0].close;
           
           await this.logEvent(
-            "DERIV_CLOSE_UPDATE",
-            `[UPDATE DERIV] Close atualizado: ${this.currentCandleClose} (Open=${this.currentCandleOpen}, High=${this.currentCandleHigh}, Low=${this.currentCandleLow})`
+            "DERIV_DATA_SYNC",
+            `[SYNC DERIV] Dados sincronizados: Open=${this.currentCandleOpen} | High=${this.currentCandleHigh} | Low=${this.currentCandleLow} | Close=${this.currentCandleClose}`
+          );
+        } else {
+          await this.logEvent(
+            "DERIV_SYNC_WARNING",
+            `[AVISO] Candle atual não encontrado na DERIV. Usando valores em memória.`
           );
         }
       } catch (error) {
         await this.logEvent(
-          "DERIV_CLOSE_UPDATE_ERROR",
-          `[UPDATE DERIV] Erro ao atualizar close: ${error}. Usando valor dos ticks`
+          "DERIV_SYNC_ERROR",
+          `[ERRO] Falha ao sincronizar com DERIV: ${error}. Operação pode estar comprometida!`
         );
       }
 
