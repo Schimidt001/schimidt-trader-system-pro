@@ -78,14 +78,7 @@ export class TradingBot {
   private waitTime: number = 8; // tempo de espera em minutos antes de capturar dados
   private mode: "DEMO" | "REAL" = "DEMO";
   
-  // Configurações da IA Híbrida
-  private aiEnabled: boolean = false;
-  private stakeHighConfidence: number = 400; // em centavos ($4)
-  private stakeNormalConfidence: number = 100; // em centavos ($1)
-  private aiFilterThreshold: number = 60; // 0-100
-  private aiHedgeEnabled: boolean = true;
-  private aiDecision: AIDecision | null = null;
-  
+
   // Controle de risco
   private dailyPnL: number = 0;
   private tradesThisCandle: Set<number> = new Set();
@@ -140,21 +133,7 @@ export class TradingBot {
       this.waitTime = config.waitTime ?? 8;
       this.mode = config.mode;
       
-      // Carregar configurações da IA Híbrida (DESABILITADA)
-      this.aiEnabled = config.aiEnabled ?? false;
-      this.stakeHighConfidence = config.stakeHighConfidence ?? 400;
-      this.stakeNormalConfidence = config.stakeNormalConfidence ?? 100;
-      this.aiFilterThreshold = config.aiFilterThreshold ?? 60;
-      this.aiHedgeEnabled = config.aiHedgeEnabled ?? true;
-      
-      console.log(`[AI_CONFIG] IA Habilitada: ${this.aiEnabled}`);
-      if (this.aiEnabled) {
-        console.log(`[AI_CONFIG] Stake Alta Confiança: $${this.stakeHighConfidence / 100}`);
-        console.log(`[AI_CONFIG] Stake Normal: $${this.stakeNormalConfidence / 100}`);
-        console.log(`[AI_CONFIG] Threshold Filtro: ${this.aiFilterThreshold}%`);
-        console.log(`[AI_CONFIG] Hedge Habilitado: ${this.aiHedgeEnabled}`);
-      }
-      
+
       // Carregar configurações da IA Hedge Inteligente
       this.hedgeEnabled = config.hedgeEnabled ?? true; // Padrão: true
       
@@ -615,76 +594,6 @@ export class TradingBot {
         `[SAÍDA DA PREDIÇÃO] Direção: ${this.prediction.direction.toUpperCase()} | Close Previsto: ${this.prediction.predicted_close} | Gatilho Calculado: ${this.trigger} (${triggerPosition}) | Offset: ${offsetInfo} | Fase: ${this.prediction.phase} | Estratégia: ${this.prediction.strategy}`
       );
       
-      // ====================================================================
-      // IA ANTIGA DESABILITADA - Substituída por IA Hedge Inteligente
-      // ====================================================================
-      // A IA antiga bloqueava 80% das entradas do Fibonacci.
-      // Nova IA monitora posições e abre hedge quando necessário.
-      // Código mantido comentado para referência.
-      // ====================================================================
-      /*
-      // Se IA estiver habilitada, fazer análise de confiança
-      if (this.aiEnabled) {
-        const aiConfig: AIConfig = {
-          stakeHighConfidence: this.stakeHighConfidence,
-          stakeNormalConfidence: this.stakeNormalConfidence,
-          aiFilterThreshold: this.aiFilterThreshold,
-          aiHedgeEnabled: this.aiHedgeEnabled
-        };
-        
-        const candleData = {
-          open: this.currentCandleOpen,
-          high: this.currentCandleHigh,
-          low: this.currentCandleLow,
-          close: this.currentCandleClose
-        };
-        
-        // === NOVA LÓGICA: PREDIÇÃO DE AMPLITUDE ===
-        let amplitudeAnalysis = undefined;
-        try {
-          const amplitudeRequest: AmplitudePredictionRequest = {
-            historical_candles: historyData,
-            current_high: this.currentCandleHigh,
-            current_low: this.currentCandleLow,
-            current_price: this.currentCandleClose,
-            elapsed_minutes: elapsedSeconds / 60,
-            predicted_close: this.prediction.predicted_close,
-            predicted_direction: this.prediction.direction === 'up' ? 'compra' : 'venda'
-          };
-          
-          amplitudeAnalysis = await predictAmplitude(amplitudeRequest);
-          
-          await this.logEvent(
-            "AMPLITUDE_ANALYSIS",
-            `[AMPLITUDE AI] Amplitude atual: ${amplitudeAnalysis.current_amplitude.toFixed(2)} | Prevista: ${amplitudeAnalysis.predicted_amplitude.toFixed(2)} | Expansão: ${(amplitudeAnalysis.expansion_probability * 100).toFixed(1)}% | Movimento: ${amplitudeAnalysis.recommendation.movement_expectation} | Estratégia: ${amplitudeAnalysis.recommendation.entry_strategy}`
-          );
-        } catch (error) {
-          await this.logEvent(
-            "AMPLITUDE_ANALYSIS_ERROR",
-            `Erro na análise de amplitude: ${error}. Continuando sem análise de amplitude.`
-          );
-        }
-        
-        // Fazer decisão da IA com análise de amplitude
-        this.aiDecision = makeAIDecision(candleData, this.prediction.direction, aiConfig, amplitudeAnalysis);
-        
-        await this.logEvent(
-          "AI_DECISION",
-          `[AGENTE IA] Confiança: ${this.aiDecision.confidence} | Deve Entrar: ${this.aiDecision.shouldEnter} | Hedge: ${this.aiDecision.shouldHedge} | Stake: $${this.aiDecision.stake / 100} | ${this.aiDecision.reason}`
-        );
-        
-        // Se IA decidir NÃO entrar, pular para próximo candle
-        if (!this.aiDecision.shouldEnter) {
-          await this.logEvent(
-            "AI_BLOCKED_ENTRY",
-            "IA bloqueou entrada por baixa confiança. Aguardando próximo candle."
-          );
-          this.state = "WAITING_MIDPOINT";
-          await this.updateBotState();
-          return;
-        }
-      }
-      */
 
       // Verificar se já atingiu limite diário
       if (this.dailyPnL <= -this.stopDaily) {
@@ -768,10 +677,6 @@ export class TradingBot {
         // Horário GOLD tem prioridade máxima
         finalStake = this.timeFilter.getStakeForCurrentHour(this.stake);
         stakeSource = "GOLD";
-      } else if (this.aiEnabled && this.aiDecision) {
-        // Se IA está habilitada e decidiu stake
-        finalStake = this.aiDecision.stake;
-        stakeSource = "IA";
       } else {
         // Stake base
         finalStake = this.stake;
@@ -830,13 +735,9 @@ export class TradingBot {
       this.state = "ENTERED";
       await this.updateBotState();
       
-      const aiInfo = this.aiEnabled && this.aiDecision
-        ? ` | IA: ${this.aiDecision.confidence} | Hedge: ${this.aiDecision.shouldHedge ? 'SIM' : 'NÃO'}`
-        : '';
-      
       await this.logEvent(
         "POSITION_ENTERED",
-        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${durationSeconds}s | Contract: ${contract.contract_id}${aiInfo}`
+        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${durationSeconds}s | Contract: ${contract.contract_id}`
       );
       
       // Logar se foi trade GOLD

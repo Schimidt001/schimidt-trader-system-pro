@@ -42,13 +42,7 @@ export default function Settings() {
   const [profitThreshold, setProfitThreshold] = useState("90");
   const [waitTime, setWaitTime] = useState("8");
   
-  // IA Híbrida (DESABILITADA)
-  const [aiEnabled, setAiEnabled] = useState(false);
-  const [stakeHighConfidence, setStakeHighConfidence] = useState("4");
-  const [stakeNormalConfidence, setStakeNormalConfidence] = useState("1");
-  const [aiFilterThreshold, setAiFilterThreshold] = useState("60");
-  const [aiHedgeEnabled, setAiHedgeEnabled] = useState(true);
-  
+
   // IA Hedge Inteligente
   const [hedgeEnabled, setHedgeEnabled] = useState(true);
   const [reinforceThreshold, setReinforceThreshold] = useState("30");
@@ -107,13 +101,7 @@ export default function Settings() {
       setProfitThreshold((config.profitThreshold || 90).toString());
       setWaitTime((config.waitTime || 8).toString());
       
-      // Carregar configurações da IA (DESABILITADA)
-      setAiEnabled(config.aiEnabled ?? false);
-      setStakeHighConfidence(((config.stakeHighConfidence ?? 400) / 100).toString());
-      setStakeNormalConfidence(((config.stakeNormalConfidence ?? 100) / 100).toString());
-      setAiFilterThreshold((config.aiFilterThreshold ?? 60).toString());
-      setAiHedgeEnabled(config.aiHedgeEnabled ?? true);
-      
+
       // Carregar configurações da IA Hedge Inteligente
       setHedgeEnabled(config.hedgeEnabled ?? true);
       
@@ -234,26 +222,7 @@ export default function Settings() {
       return;
     }
 
-    // Validar parâmetros da IA (DESABILITADA)
-    const stakeHighConfidenceNum = parseFloat(stakeHighConfidence);
-    const stakeNormalConfidenceNum = parseFloat(stakeNormalConfidence);
-    const aiFilterThresholdNum = parseInt(aiFilterThreshold);
-    
-    if (aiEnabled) {
-      if (isNaN(stakeHighConfidenceNum) || stakeHighConfidenceNum <= 0) {
-        toast.error("Stake Alta Confiança deve ser um número positivo");
-        return;
-      }
-      if (isNaN(stakeNormalConfidenceNum) || stakeNormalConfidenceNum <= 0) {
-        toast.error("Stake Normal deve ser um número positivo");
-        return;
-      }
-      if (isNaN(aiFilterThresholdNum) || aiFilterThresholdNum < 0 || aiFilterThresholdNum > 100) {
-        toast.error("Threshold do Filtro deve ser um número entre 0 e 100");
-        return;
-      }
-    }
-    
+
     // Validar parâmetros da IA Hedge Inteligente
     const reinforceThresholdNum = parseFloat(reinforceThreshold);
     const reinforceStakeMultiplierNum = parseFloat(reinforceStakeMultiplier);
@@ -301,13 +270,7 @@ export default function Settings() {
       triggerOffset: triggerOffsetNum,
       profitThreshold: profitThresholdNum,
       waitTime: waitTimeNum,
-      // Parâmetros da IA Híbrida (DESABILITADA)
-      aiEnabled,
-      stakeHighConfidence: Math.round(stakeHighConfidenceNum * 100),
-      stakeNormalConfidence: Math.round(stakeNormalConfidenceNum * 100),
-      aiFilterThreshold: aiFilterThresholdNum,
-      aiHedgeEnabled,
-      // Parâmetros da IA Hedge Inteligente
+// Parâmetros da IA Hedge Inteligente
       hedgeEnabled,
       hedgeConfig: JSON.stringify({
         enabled: hedgeEnabled,
@@ -586,115 +549,6 @@ export default function Settings() {
             </CardContent>
           </Card>
           
-          {/* Agente IA (Estratégia Híbrida) */}
-          <Card className="bg-slate-900/50 border-slate-800">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-white">Agente IA (Estratégia Híbrida)</CardTitle>
-                  <CardDescription className="text-slate-400">
-                    Ative a IA para otimizar entradas e gestão de risco
-                  </CardDescription>
-                </div>
-                <Switch
-                  checked={aiEnabled}
-                  onCheckedChange={setAiEnabled}
-                  className="data-[state=checked]:bg-green-600"
-                />
-              </div>
-            </CardHeader>
-            
-            {aiEnabled && (
-              <CardContent className="space-y-4">
-                <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                  <p className="text-sm text-blue-300">
-                    <strong>⚡ Estratégia Híbrida Ativada:</strong> A IA analisará cada setup e decidirá:
-                  </p>
-                  <ul className="text-xs text-blue-200 mt-2 space-y-1 ml-4">
-                    <li>• <strong>Alta Confiança:</strong> Entra com stake maior (Filtro)</li>
-                    <li>• <strong>Confiança Normal:</strong> Entra com stake menor + hedge (proteção)</li>
-                    <li>• <strong>Baixa Confiança:</strong> Bloqueia entrada (evita trades ruins)</li>
-                  </ul>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="stakeHighConfidence" className="text-slate-300">
-                      Stake Alta Confiança ($)
-                    </Label>
-                    <Input
-                      id="stakeHighConfidence"
-                      type="number"
-                      value={stakeHighConfidence}
-                      onChange={(e) => setStakeHighConfidence(e.target.value)}
-                      className="bg-slate-800 border-slate-700 text-white"
-                      placeholder="4"
-                      min="0.01"
-                      step="0.01"
-                    />
-                    <p className="text-xs text-slate-500">
-                      Valor apostado quando a IA tem alta confiança no setup (padrão: $4)
-                    </p>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="stakeNormalConfidence" className="text-slate-300">
-                      Stake Confiança Normal ($)
-                    </Label>
-                    <Input
-                      id="stakeNormalConfidence"
-                      type="number"
-                      value={stakeNormalConfidence}
-                      onChange={(e) => setStakeNormalConfidence(e.target.value)}
-                      className="bg-slate-800 border-slate-700 text-white"
-                      placeholder="1"
-                      min="0.01"
-                      step="0.01"
-                    />
-                    <p className="text-xs text-slate-500">
-                      Valor apostado em setups normais com hedge ativo (padrão: $1)
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="aiFilterThreshold" className="text-slate-300">
-                    Threshold do Filtro (%)
-                  </Label>
-                  <Input
-                    id="aiFilterThreshold"
-                    type="number"
-                    value={aiFilterThreshold}
-                    onChange={(e) => setAiFilterThreshold(e.target.value)}
-                    className="bg-slate-800 border-slate-700 text-white"
-                    placeholder="60"
-                    min="0"
-                    max="100"
-                  />
-                  <p className="text-xs text-slate-500">
-                    Nível mínimo de confiança para considerar um trade de "Alta Confiança" (padrão: 60%)
-                  </p>
-                </div>
-                
-                <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg">
-                  <div>
-                    <Label htmlFor="aiHedgeEnabled" className="text-slate-300">
-                      Habilitar Hedge em Trades Normais
-                    </Label>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Aplica hedge automático em trades de confiança normal para redução de risco
-                    </p>
-                  </div>
-                  <Switch
-                    id="aiHedgeEnabled"
-                    checked={aiHedgeEnabled}
-                    onCheckedChange={setAiHedgeEnabled}
-                    className="data-[state=checked]:bg-green-600"
-                  />
-                </div>
-              </CardContent>
-            )}
-          </Card>
 
           {/* IA Hedge Inteligente */}
           <Card className="bg-slate-900/50 border-slate-800">

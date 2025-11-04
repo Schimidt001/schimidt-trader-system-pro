@@ -44,15 +44,7 @@ export const appRouter = router({
     get: protectedProcedure.query(async ({ ctx }) => {
       const config = await getConfigByUserId(ctx.user.id);
       
-      // Valores padrão para campos da IA (para compatibilidade com configs antigas)
-      const defaultAIConfig = {
-        aiEnabled: false,
-        stakeHighConfidence: 400, // $4.00 em centavos
-        stakeNormalConfidence: 100, // $1.00 em centavos
-        aiFilterThreshold: 60,
-        aiHedgeEnabled: true,
-      };
-      
+
       // Valores padrão para campos do Filtro de Horário
       const defaultTimeFilterConfig = {
         timeFilterEnabled: false,
@@ -77,7 +69,6 @@ export const appRouter = router({
           triggerOffset: 16, // offset padrão do gatilho
           profitThreshold: 90, // threshold padrão de lucro
           waitTime: 8, // tempo de espera padrão em minutos
-          ...defaultAIConfig,
           ...defaultTimeFilterConfig,
         };
       }
@@ -85,11 +76,6 @@ export const appRouter = router({
       // Garantir que configs antigas tenham os campos da IA e Filtro de Horário
       return {
         ...config,
-        aiEnabled: config.aiEnabled ?? defaultAIConfig.aiEnabled,
-        stakeHighConfidence: config.stakeHighConfidence ?? defaultAIConfig.stakeHighConfidence,
-        stakeNormalConfidence: config.stakeNormalConfidence ?? defaultAIConfig.stakeNormalConfidence,
-        aiFilterThreshold: config.aiFilterThreshold ?? defaultAIConfig.aiFilterThreshold,
-        aiHedgeEnabled: config.aiHedgeEnabled ?? defaultAIConfig.aiHedgeEnabled,
         timeFilterEnabled: config.timeFilterEnabled ?? defaultTimeFilterConfig.timeFilterEnabled,
         allowedHours: config.allowedHours ?? defaultTimeFilterConfig.allowedHours,
         goldHours: config.goldHours ?? defaultTimeFilterConfig.goldHours,
@@ -113,12 +99,6 @@ export const appRouter = router({
           triggerOffset: z.number().int().nonnegative(), // Aceita 0 (desativado) ou valores positivos
           profitThreshold: z.number().int().min(1).max(100),
           waitTime: z.number().int().min(1).max(14), // 1-14 minutos (candle M15)
-          // Parâmetros da IA Híbrida
-          aiEnabled: z.boolean().optional(),
-          stakeHighConfidence: z.number().int().positive().optional(),
-          stakeNormalConfidence: z.number().int().positive().optional(),
-          aiFilterThreshold: z.number().int().min(0).max(100).optional(),
-          aiHedgeEnabled: z.boolean().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
