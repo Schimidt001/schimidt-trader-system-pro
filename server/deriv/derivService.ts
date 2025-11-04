@@ -32,11 +32,11 @@ export class DerivService {
   private appId: string = "1089"; // DERIV demo app ID
   private wsUrl: string = "wss://ws.derivws.com/websockets/v3";
   private subscriptions: Map<string, (data: any) => void> = new Map();
-  private activeSubscriptions: Map<string, any> = new Map(); // Guardar subscrições para refazer após reconexão
+  private activeSubscriptions: Map<string, any> = new Map(); // Guardar subscrições para refazer após reconeexão
   private reconnectAttempts: number = 0;
-  private maxReconnectAttempts: number = 5;
+  private maxReconnectAttempts: number = Infinity; // Tentar reconectar infinitamente para 24/7
   private reconnectDelay: number = 5000;
-
+  private lastPongTime: number = Date.now(); // Último pong recebido
       private pingInterval: NodeJS.Timeout | null = null;
   
   constructor(token: string, isDemo: boolean = true) {
@@ -146,6 +146,14 @@ export class DerivService {
   private handleMessage(message: any): void {
     const msgType = message.msg_type;
     
+    // Tratar pong (resposta ao ping keep-alive)
+    if (msgType === "ping" && message.ping === "pong") {
+      // Ping/pong bem-sucedido, conexão está viva
+      this.lastPongTime = Date.now();
+      console.log("[DerivService] Pong received - connection alive");
+      return;
+    }
+    
     if (msgType && this.subscriptions.has(msgType)) {
       const handler = this.subscriptions.get(msgType);
       if (handler) {
@@ -179,26 +187,34 @@ export class DerivService {
   }
 
   /**
-   * Trata desconexão e reconexão
+   * Trata desconexão e reconeexão
    */
   private handleDisconnect(): void {
     this.stopPing();
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      console.log(`[DerivService] Reconnecting... Attempt ${this.reconnectAttempts}`);
-      
-      setTimeout(async () => {
-        try {
-          await this.connect();
-          // Refazer subscrições ativas após reconexão
-          this.resubscribe();
-        } catch (error) {
-          console.error("[DerivService] Reconnection failed:", error);
-        }
-      }, this.reconnectDelay);
-    } else {
-      console.error("[DerivService] Max reconnection attempts reached");
-    }
+    
+    this.reconnectAttempts++;
+    
+    // Delay exponencial: 5s, 10s, 20s, 40s, max 60s
+    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 60000);
+    
+    console.log(`[DerivService] Connection lost. Reconnecting in ${delay/1000}s... (Attempt ${this.reconnectAttempts})`);
+    
+    setTimeout(async () => {
+      try {
+        console.log(`[DerivService] Attempting reconnection #${this.reconnectAttempts}...`);
+        await this.connect();
+        console.log("[DerivService] Reconnected successfully!");
+        
+        // Refazer subscrições ativas após reconeexão
+        this.resubscribe();
+        
+        // Resetar contador após sucesso
+        this.reconnectAttempts = 0;
+      } catch (error) {
+        console.error(`[DerivService] Reconnection attempt #${this.reconnectAttempts} failed:`, error);
+        // handleDisconnect será chamado novamente pelo evento 'close'
+      }
+    }, delay);
   }
 
   /**
@@ -496,11 +512,24 @@ export class DerivService {
      */
     private startPing(): void {
         if (this.pingInterval) return;
+        
+        this.lastPongTime = Date.now(); // Inicializar
+        
         this.pingInterval = setInterval(() => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                // Verificar se o último pong foi recebido recentemente (90 segundos)
+                const timeSinceLastPong = Date.now() - this.lastPongTime;
+                if (timeSinceLastPong > 90000) {
+                    console.warn("[DerivService] No pong received for 90s - connection may be dead");
+                    // Forçar reconeexão
+                    this.ws.close();
+                    return;
+                }
+                
+                console.log("[DerivService] Sending ping...");
                 this.send({ ping: 1 });
             }
-        }, 30000);
+        }, 30000); // Ping a cada 30 segundos
     }
 
     /**
