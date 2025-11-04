@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -39,6 +40,7 @@ export default function Settings() {
   const [triggerOffset, setTriggerOffset] = useState("16");
   const [profitThreshold, setProfitThreshold] = useState("90");
   const [waitTime, setWaitTime] = useState("8");
+  const [hedgeEnabled, setHedgeEnabled] = useState(true);
 
   // Query
   const { data: config, isLoading } = trpc.config.get.useQuery(undefined, {
@@ -89,6 +91,7 @@ export default function Settings() {
       setTriggerOffset((config.triggerOffset ?? 16).toString()); // Usar ?? para aceitar 0
       setProfitThreshold((config.profitThreshold || 90).toString());
       setWaitTime((config.waitTime || 8).toString());
+      setHedgeEnabled(config.hedgeEnabled ?? true);
     }
   }, [config]);
 
@@ -206,6 +209,7 @@ export default function Settings() {
       triggerOffset: triggerOffsetNum,
       profitThreshold: profitThresholdNum,
       waitTime: waitTimeNum,
+      hedgeEnabled,
     });
   };
 
@@ -471,6 +475,31 @@ export default function Settings() {
                     Tempo de espera no candle antes de capturar dados para predição (padrão: 8 minutos)
                   </p>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* IA Hedge */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white">IA Hedge</CardTitle>
+              <CardDescription>Configurações da estratégia de hedge inteligente</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="hedgeEnabled" className="text-slate-300">
+                    Ativar IA Hedge
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Ativa estratégia de hedge nos últimos 3 minutos do candle (12-14 min)
+                  </p>
+                </div>
+                <Switch
+                  id="hedgeEnabled"
+                  checked={hedgeEnabled}
+                  onCheckedChange={setHedgeEnabled}
+                />
               </div>
             </CardContent>
           </Card>

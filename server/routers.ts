@@ -54,6 +54,8 @@ export const appRouter = router({
           triggerOffset: 16, // offset padrão do gatilho
           profitThreshold: 90, // threshold padrão de lucro
           waitTime: 8, // tempo de espera padrão em minutos
+          hedgeEnabled: true, // IA Hedge ativada por padrão
+          hedgeConfig: null,
         };
       }
       
@@ -74,6 +76,8 @@ export const appRouter = router({
           triggerOffset: z.number().int().nonnegative(), // Aceita 0 (desativado) ou valores positivos
           profitThreshold: z.number().int().min(1).max(100),
           waitTime: z.number().int().min(1).max(14), // 1-14 minutos (candle M15)
+          hedgeEnabled: z.boolean().optional(),
+          hedgeConfig: z.string().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
