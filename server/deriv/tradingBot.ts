@@ -299,23 +299,27 @@ export class TradingBot {
       this.currentCandleClose = typeof candle.close === 'string' ? parseFloat(candle.close) : candle.close;
     }
 
-    // Calcular segundos decorridos desde o início do candle
-    const now = Math.floor(Date.now() / 1000);
-    const elapsedSeconds = now - this.currentCandleTimestamp;
-
-    // Momento da predição: waitTime configurado (em segundos)
-    const waitTimeSeconds = this.waitTime * 60;
-    if (elapsedSeconds >= waitTimeSeconds && this.state === "WAITING_MIDPOINT") {
-      await this.makePrediction(elapsedSeconds);
-    }
+    // Timing da predição é verificado no handleTickForMonitoring (mais preciso)
   }
 
   /**
    * Trata ticks para monitoramento de preço em tempo real
-   * (usado apenas para verificar gatilhos e gerenciar posições)
+   * (usado para verificar timing, gatilhos e gerenciar posições)
    */
   private async handleTickForMonitoring(tick: DerivTick): Promise<void> {
     if (!this.isRunning) return;
+
+    // Verificar timing para predição (ticks chegam frequentemente, garantindo timing preciso)
+    if (this.state === "WAITING_MIDPOINT" && this.currentCandleTimestamp > 0) {
+      const now = Math.floor(Date.now() / 1000);
+      const elapsedSeconds = now - this.currentCandleTimestamp;
+      const waitTimeSeconds = this.waitTime * 60;
+      
+      if (elapsedSeconds >= waitTimeSeconds) {
+        await this.makePrediction(elapsedSeconds);
+        return; // Retornar após fazer predição
+      }
+    }
 
     // Se armado, verificar gatilho
     if (this.state === "ARMED" && this.prediction) {
