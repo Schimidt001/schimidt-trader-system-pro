@@ -2,6 +2,12 @@ import { DerivService, type DerivTick } from "./derivService";
 import { predictionService, predictAmplitude, type AmplitudePredictionRequest } from "../prediction/predictionService";
 import { TimeFilterService, type TimeFilterConfig } from "../timeFilter/TimeFilterService";
 import { makeAIDecision, calculateHedgedPnL, type AIConfig, type AIDecision } from "../ai/hybridStrategy";
+import { 
+  analyzePositionForHedge, 
+  type HedgeDecision, 
+  type HedgeConfig,
+  DEFAULT_HEDGE_CONFIG 
+} from "../ai/hedgeStrategy";
 import type {
   PredictionRequest,
   PredictionResponse,
@@ -91,6 +97,13 @@ export class TradingBot {
   private pendingStandby: boolean = false;
   private wasGoldHour: boolean = false; // Rastrear estado anterior de GOLD
   private config: any = null; // Armazenar config para referência
+  
+  // Configurações da IA Hedge Inteligente
+  private hedgeEnabled: boolean = true;
+  private hedgeConfig: HedgeConfig = DEFAULT_HEDGE_CONFIG;
+  private hedgeDecisionMade: boolean = false; // Flag para garantir apenas 1 hedge por candle
+  private hedgePositionId: number | null = null;
+  private lastHedgeCheckTime: number = 0; // Debounce para análise de hedge (30 segundos)
 
   constructor(userId: number) {
     this.userId = userId;
@@ -127,7 +140,7 @@ export class TradingBot {
       this.waitTime = config.waitTime ?? 8;
       this.mode = config.mode;
       
-      // Carregar configurações da IA Híbrida
+      // Carregar configurações da IA Híbrida (DESABILITADA)
       this.aiEnabled = config.aiEnabled ?? false;
       this.stakeHighConfidence = config.stakeHighConfidence ?? 400;
       this.stakeNormalConfidence = config.stakeNormalConfidence ?? 100;
@@ -140,6 +153,29 @@ export class TradingBot {
         console.log(`[AI_CONFIG] Stake Normal: $${this.stakeNormalConfidence / 100}`);
         console.log(`[AI_CONFIG] Threshold Filtro: ${this.aiFilterThreshold}%`);
         console.log(`[AI_CONFIG] Hedge Habilitado: ${this.aiHedgeEnabled}`);
+      }
+      
+      // Carregar configurações da IA Hedge Inteligente
+      this.hedgeEnabled = config.hedgeEnabled ?? true; // Padrão: true
+      
+      // Carregar hedgeConfig do banco (JSON) ou usar padrão
+      if (config.hedgeConfig) {
+        try {
+          this.hedgeConfig = JSON.parse(config.hedgeConfig);
+        } catch (error) {
+          console.warn(`[HEDGE_CONFIG] Erro ao parsear hedgeConfig, usando padrão: ${error}`);
+          this.hedgeConfig = DEFAULT_HEDGE_CONFIG;
+        }
+      } else {
+        this.hedgeConfig = DEFAULT_HEDGE_CONFIG;
+      }
+      
+      console.log(`[HEDGE_CONFIG] IA Hedge Habilitada: ${this.hedgeEnabled}`);
+      if (this.hedgeEnabled) {
+        console.log(`[HEDGE_CONFIG] Threshold Reforço: ${(this.hedgeConfig.reinforceThreshold * 100).toFixed(0)}%`);
+        console.log(`[HEDGE_CONFIG] Multiplicador Stake Reforço: ${this.hedgeConfig.reinforceStakeMultiplier}x`);
+        console.log(`[HEDGE_CONFIG] Multiplicador Stake Hedge: ${this.hedgeConfig.hedgeStakeMultiplier}x`);
+        console.log(`[HEDGE_CONFIG] Janela Análise: ${this.hedgeConfig.analysisStartMinute}-${this.hedgeConfig.analysisEndMinute} min`);
       }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -579,6 +615,14 @@ export class TradingBot {
         `[SAÍDA DA PREDIÇÃO] Direção: ${this.prediction.direction.toUpperCase()} | Close Previsto: ${this.prediction.predicted_close} | Gatilho Calculado: ${this.trigger} (${triggerPosition}) | Offset: ${offsetInfo} | Fase: ${this.prediction.phase} | Estratégia: ${this.prediction.strategy}`
       );
       
+      // ====================================================================
+      // IA ANTIGA DESABILITADA - Substituída por IA Hedge Inteligente
+      // ====================================================================
+      // A IA antiga bloqueava 80% das entradas do Fibonacci.
+      // Nova IA monitora posições e abre hedge quando necessário.
+      // Código mantido comentado para referência.
+      // ====================================================================
+      /*
       // Se IA estiver habilitada, fazer análise de confiança
       if (this.aiEnabled) {
         const aiConfig: AIConfig = {
@@ -640,6 +684,7 @@ export class TradingBot {
           return;
         }
       }
+      */
 
       // Verificar se já atingiu limite diário
       if (this.dailyPnL <= -this.stopDaily) {
@@ -776,6 +821,11 @@ export class TradingBot {
       this.currentPositionId = positionId;
       this.tradesThisCandle.add(this.currentCandleTimestamp);
       this.lastContractCheckTime = 0; // Resetar para permitir verificação imediata
+      
+      // Resetar flags de hedge para nova posição
+      this.hedgeDecisionMade = false;
+      this.hedgePositionId = null;
+      this.lastHedgeCheckTime = 0;
 
       this.state = "ENTERED";
       await this.updateBotState();
@@ -855,6 +905,65 @@ export class TradingBot {
 
       // 3. Se em perda, aguardar até o fim do candle (900s)
       // A posição será fechada automaticamente pela DERIV ou pelo closeCurrentCandle()
+      
+      // === ANÁLISE DE HEDGE (IA HEDGE INTELIGENTE) ===
+      // Executar apenas se:
+      // - Hedge está habilitado
+      // - Ainda não tomou decisão de hedge neste candle
+      // - Está na janela de tempo correta (12-14 min)
+      // - Debounce de 30 segundos
+      if (this.hedgeEnabled && 
+          !this.hedgeDecisionMade && 
+          this.prediction &&
+          elapsedSeconds >= this.hedgeConfig.analysisStartMinute * 60 &&
+          elapsedSeconds <= this.hedgeConfig.analysisEndMinute * 60) {
+        
+        // Debounce: analisar a cada 30 segundos
+        const timeSinceLastCheck = (now - this.lastHedgeCheckTime) / 1000;
+        if (timeSinceLastCheck >= 30) {
+          this.lastHedgeCheckTime = now;
+          
+          try {
+            // Preparar parâmetros para análise
+            const hedgeParams = {
+              entryPrice: parseFloat(this.prediction.predicted_close.toString()), // Usar predicted_close como referência
+              currentPrice: currentPrice,
+              predictedClose: parseFloat(this.prediction.predicted_close.toString()),
+              candleOpen: this.currentCandleOpen,
+              direction: this.prediction.direction,
+              elapsedMinutes: elapsedSeconds / 60,
+              originalStake: this.currentPositionStake
+            };
+            
+            // Chamar análise de hedge
+            const decision = analyzePositionForHedge(hedgeParams);
+            
+            await this.logEvent(
+              "HEDGE_ANALYSIS",
+              `[IA HEDGE] Ação: ${decision.action} | Progresso: ${(decision.progressRatio * 100).toFixed(1)}% | Tempo: ${decision.elapsedMinutes.toFixed(1)} min | ${decision.reason}`
+            );
+            
+            // Marcar que já analisou (independente da decisão)
+            this.hedgeDecisionMade = true;
+            
+            // Se decidiu abrir segunda posição, executar
+            if (decision.shouldOpenSecondPosition && decision.secondPositionType && decision.secondPositionStake) {
+              await this.openHedgePosition(
+                decision.secondPositionType,
+                decision.secondPositionStake,
+                decision.action,
+                decision.reason,
+                elapsedSeconds
+              );
+            }
+          } catch (hedgeError) {
+            await this.logEvent(
+              "HEDGE_ANALYSIS_ERROR",
+              `Erro na análise de hedge: ${hedgeError}`
+            );
+          }
+        }
+      }
     } catch (error) {
       // Incrementar contador de erros
       this.contractInfoErrors++;
@@ -1355,6 +1464,74 @@ export class TradingBot {
         console.log("[Bot] Saindo de horário GOLD");
         this.wasGoldHour = false;
       }
+    }
+  }
+  
+  /**
+   * Abre posição de hedge (segunda posição)
+   */
+  private async openHedgePosition(
+    contractType: 'CALL' | 'PUT',
+    stakeInCents: number,
+    hedgeAction: string,
+    hedgeReason: string,
+    elapsedSeconds: number
+  ): Promise<void> {
+    if (!this.derivService || !this.currentPositionId) return;
+    
+    try {
+      // Calcular duração restante do candle
+      const remainingSeconds = Math.max(900 - elapsedSeconds - 3, 60); // Mínimo 60s
+      
+      await this.logEvent(
+        "HEDGE_POSITION_OPENING",
+        `Abrindo posição hedge: ${contractType} | Stake: $${(stakeInCents / 100).toFixed(2)} | Duração: ${remainingSeconds}s | Ação: ${hedgeAction}`
+      );
+      
+      // Comprar contrato de hedge na DERIV
+      const contract = await this.derivService.buyContract(
+        this.symbol,
+        contractType,
+        stakeInCents / 100, // Converter centavos para unidade
+        remainingSeconds,
+        "s"
+      );
+      
+      // Salvar posição hedge no banco
+      const hedgePositionId = await insertPosition({
+        userId: this.userId,
+        contractId: contract.contract_id,
+        symbol: this.symbol,
+        direction: contractType === 'CALL' ? 'up' : 'down',
+        stake: stakeInCents,
+        entryPrice: contract.buy_price.toString(),
+        predictedClose: this.prediction!.predicted_close.toString(),
+        trigger: "0", // Hedge não tem trigger
+        phase: this.prediction!.phase,
+        strategy: `HEDGE_${hedgeAction}`,
+        confidence: "0",
+        status: "ENTERED",
+        candleTimestamp: this.currentCandleTimestamp,
+        entryTime: new Date(),
+        isGoldTrade: false,
+        // Campos específicos de hedge
+        isHedge: true,
+        originalPositionId: this.currentPositionId,
+        hedgeAction: hedgeAction,
+        hedgeReason: hedgeReason
+      });
+      
+      this.hedgePositionId = hedgePositionId;
+      
+      await this.logEvent(
+        "HEDGE_POSITION_OPENED",
+        `Posição hedge aberta: ${contractType} | Contract: ${contract.contract_id} | Stake: $${(stakeInCents / 100).toFixed(2)} | Ação: ${hedgeAction}`
+      );
+    } catch (error) {
+      await this.logEvent(
+        "HEDGE_POSITION_ERROR",
+        `Erro ao abrir posição hedge: ${error}`
+      );
     }
   }
 }

@@ -42,12 +42,20 @@ export default function Settings() {
   const [profitThreshold, setProfitThreshold] = useState("90");
   const [waitTime, setWaitTime] = useState("8");
   
-  // IA Híbrida
+  // IA Híbrida (DESABILITADA)
   const [aiEnabled, setAiEnabled] = useState(false);
   const [stakeHighConfidence, setStakeHighConfidence] = useState("4");
   const [stakeNormalConfidence, setStakeNormalConfidence] = useState("1");
   const [aiFilterThreshold, setAiFilterThreshold] = useState("60");
   const [aiHedgeEnabled, setAiHedgeEnabled] = useState(true);
+  
+  // IA Hedge Inteligente
+  const [hedgeEnabled, setHedgeEnabled] = useState(true);
+  const [reinforceThreshold, setReinforceThreshold] = useState("30");
+  const [reinforceStakeMultiplier, setReinforceStakeMultiplier] = useState("0.5");
+  const [hedgeStakeMultiplier, setHedgeStakeMultiplier] = useState("1.0");
+  const [analysisStartMinute, setAnalysisStartMinute] = useState("12.0");
+  const [analysisEndMinute, setAnalysisEndMinute] = useState("14.0");
 
   // Query
   const { data: config, isLoading, refetch } = trpc.config.get.useQuery(undefined, {
@@ -99,12 +107,29 @@ export default function Settings() {
       setProfitThreshold((config.profitThreshold || 90).toString());
       setWaitTime((config.waitTime || 8).toString());
       
-      // Carregar configurações da IA
+      // Carregar configurações da IA (DESABILITADA)
       setAiEnabled(config.aiEnabled ?? false);
       setStakeHighConfidence(((config.stakeHighConfidence ?? 400) / 100).toString());
       setStakeNormalConfidence(((config.stakeNormalConfidence ?? 100) / 100).toString());
       setAiFilterThreshold((config.aiFilterThreshold ?? 60).toString());
       setAiHedgeEnabled(config.aiHedgeEnabled ?? true);
+      
+      // Carregar configurações da IA Hedge Inteligente
+      setHedgeEnabled(config.hedgeEnabled ?? true);
+      
+      // Parsear hedgeConfig (JSON)
+      if (config.hedgeConfig) {
+        try {
+          const hedgeConfig = JSON.parse(config.hedgeConfig);
+          setReinforceThreshold(((hedgeConfig.reinforceThreshold ?? 0.30) * 100).toString());
+          setReinforceStakeMultiplier((hedgeConfig.reinforceStakeMultiplier ?? 0.5).toString());
+          setHedgeStakeMultiplier((hedgeConfig.hedgeStakeMultiplier ?? 1.0).toString());
+          setAnalysisStartMinute((hedgeConfig.analysisStartMinute ?? 12.0).toString());
+          setAnalysisEndMinute((hedgeConfig.analysisEndMinute ?? 14.0).toString());
+        } catch (error) {
+          console.error("Erro ao parsear hedgeConfig:", error);
+        }
+      }
     }
   }, [config]);
 
@@ -209,7 +234,7 @@ export default function Settings() {
       return;
     }
 
-    // Validar parâmetros da IA
+    // Validar parâmetros da IA (DESABILITADA)
     const stakeHighConfidenceNum = parseFloat(stakeHighConfidence);
     const stakeNormalConfidenceNum = parseFloat(stakeNormalConfidence);
     const aiFilterThresholdNum = parseInt(aiFilterThreshold);
@@ -228,6 +253,40 @@ export default function Settings() {
         return;
       }
     }
+    
+    // Validar parâmetros da IA Hedge Inteligente
+    const reinforceThresholdNum = parseFloat(reinforceThreshold);
+    const reinforceStakeMultiplierNum = parseFloat(reinforceStakeMultiplier);
+    const hedgeStakeMultiplierNum = parseFloat(hedgeStakeMultiplier);
+    const analysisStartMinuteNum = parseFloat(analysisStartMinute);
+    const analysisEndMinuteNum = parseFloat(analysisEndMinute);
+    
+    if (hedgeEnabled) {
+      if (isNaN(reinforceThresholdNum) || reinforceThresholdNum < 0 || reinforceThresholdNum > 100) {
+        toast.error("Threshold de Reforço deve ser um número entre 0 e 100");
+        return;
+      }
+      if (isNaN(reinforceStakeMultiplierNum) || reinforceStakeMultiplierNum < 0) {
+        toast.error("Multiplicador de Stake Reforço deve ser um número positivo");
+        return;
+      }
+      if (isNaN(hedgeStakeMultiplierNum) || hedgeStakeMultiplierNum < 0) {
+        toast.error("Multiplicador de Stake Hedge deve ser um número positivo");
+        return;
+      }
+      if (isNaN(analysisStartMinuteNum) || analysisStartMinuteNum < 0 || analysisStartMinuteNum > 14) {
+        toast.error("Minuto de Início deve ser entre 0 e 14");
+        return;
+      }
+      if (isNaN(analysisEndMinuteNum) || analysisEndMinuteNum < 0 || analysisEndMinuteNum > 15) {
+        toast.error("Minuto de Fim deve ser entre 0 e 15");
+        return;
+      }
+      if (analysisStartMinuteNum >= analysisEndMinuteNum) {
+        toast.error("Minuto de Início deve ser menor que Minuto de Fim");
+        return;
+      }
+    }
 
     setIsSaving(true);
     updateConfig.mutate({
@@ -242,12 +301,22 @@ export default function Settings() {
       triggerOffset: triggerOffsetNum,
       profitThreshold: profitThresholdNum,
       waitTime: waitTimeNum,
-      // Parâmetros da IA Híbrida
+      // Parâmetros da IA Híbrida (DESABILITADA)
       aiEnabled,
       stakeHighConfidence: Math.round(stakeHighConfidenceNum * 100),
       stakeNormalConfidence: Math.round(stakeNormalConfidenceNum * 100),
       aiFilterThreshold: aiFilterThresholdNum,
       aiHedgeEnabled,
+      // Parâmetros da IA Hedge Inteligente
+      hedgeEnabled,
+      hedgeConfig: JSON.stringify({
+        enabled: hedgeEnabled,
+        reinforceThreshold: reinforceThresholdNum / 100, // Converter % para decimal
+        reinforceStakeMultiplier: reinforceStakeMultiplierNum,
+        hedgeStakeMultiplier: hedgeStakeMultiplierNum,
+        analysisStartMinute: analysisStartMinuteNum,
+        analysisEndMinute: analysisEndMinuteNum
+      }),
     });
   };
 
@@ -627,6 +696,135 @@ export default function Settings() {
             )}
           </Card>
 
+          {/* IA Hedge Inteligente */}
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-white">IA Hedge Inteligente</CardTitle>
+                  <CardDescription className="text-slate-400">
+                    Monitora posições em tempo real e abre segunda posição para proteção ou reforço
+                  </CardDescription>
+                </div>
+                <Switch
+                  checked={hedgeEnabled}
+                  onCheckedChange={setHedgeEnabled}
+                  className="data-[state=checked]:bg-green-600"
+                />
+              </div>
+            </CardHeader>
+            
+            {hedgeEnabled && (
+              <CardContent className="space-y-4">
+                <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+                  <p className="text-sm text-green-300">
+                    <strong>⚡ IA Hedge Ativada:</strong> A IA monitora posições entre 12-14 minutos e decide:
+                  </p>
+                  <ul className="text-xs text-green-200 mt-2 space-y-1 ml-4">
+                    <li>• <strong>HOLD:</strong> Movimento forte (≥70% do esperado) → Não faz nada</li>
+                    <li>• <strong>REINFORCE:</strong> Pullback fraco (&lt;30%) → Abre mesma direção (50% stake)</li>
+                    <li>• <strong>HEDGE:</strong> Reversão detectada → Abre direção oposta (100% stake)</li>
+                  </ul>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="reinforceThreshold" className="text-slate-300">
+                      Threshold de Reforço (%)
+                    </Label>
+                    <Input
+                      id="reinforceThreshold"
+                      type="number"
+                      value={reinforceThreshold}
+                      onChange={(e) => setReinforceThreshold(e.target.value)}
+                      className="bg-slate-800 border-slate-700 text-white"
+                      placeholder="30"
+                      min="0"
+                      max="100"
+                      step="1"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Se progresso &lt; X%, abre segunda posição na mesma direção (padrão: 30%)
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="reinforceStakeMultiplier" className="text-slate-300">
+                      Multiplicador Stake Reforço
+                    </Label>
+                    <Input
+                      id="reinforceStakeMultiplier"
+                      type="number"
+                      value={reinforceStakeMultiplier}
+                      onChange={(e) => setReinforceStakeMultiplier(e.target.value)}
+                      className="bg-slate-800 border-slate-700 text-white"
+                      placeholder="0.5"
+                      min="0"
+                      step="0.1"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Multiplicador do stake original para reforço (padrão: 0.5 = 50%)
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="hedgeStakeMultiplier" className="text-slate-300">
+                      Multiplicador Stake Hedge
+                    </Label>
+                    <Input
+                      id="hedgeStakeMultiplier"
+                      type="number"
+                      value={hedgeStakeMultiplier}
+                      onChange={(e) => setHedgeStakeMultiplier(e.target.value)}
+                      className="bg-slate-800 border-slate-700 text-white"
+                      placeholder="1.0"
+                      min="0"
+                      step="0.1"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Multiplicador do stake original para hedge (padrão: 1.0 = 100%)
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label className="text-slate-300">
+                      Janela de Análise (minutos)
+                    </Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        id="analysisStartMinute"
+                        type="number"
+                        value={analysisStartMinute}
+                        onChange={(e) => setAnalysisStartMinute(e.target.value)}
+                        className="bg-slate-800 border-slate-700 text-white"
+                        placeholder="12.0"
+                        min="0"
+                        max="14"
+                        step="0.5"
+                      />
+                      <Input
+                        id="analysisEndMinute"
+                        type="number"
+                        value={analysisEndMinute}
+                        onChange={(e) => setAnalysisEndMinute(e.target.value)}
+                        className="bg-slate-800 border-slate-700 text-white"
+                        placeholder="14.0"
+                        min="0"
+                        max="15"
+                        step="0.5"
+                      />
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Período do candle M15 para análise de hedge (padrão: 12.0 - 14.0 min)
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+          
           {/* Filtro de Horário */}
           <TimeFilterSettings config={config} onUpdate={refetch} />
 

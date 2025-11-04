@@ -35,12 +35,15 @@ export const config = mysqlTable("config", {
   triggerOffset: int("triggerOffset").default(16), // offset do gatilho em pontos
   profitThreshold: int("profitThreshold").default(90), // threshold de lucro para early close (%)
   waitTime: int("waitTime").default(8), // tempo de espera em minutos antes de capturar dados para predição
-  // Configurações do Agente IA (Estratégia Híbrida)
+  // Configurações do Agente IA (Estratégia Híbrida) - DESABILITADO
   aiEnabled: boolean("aiEnabled").default(false).notNull(), // Toggle para ativar/desativar IA
   stakeHighConfidence: int("stakeHighConfidence").default(400), // Stake para trades de alta confiança (em centavos) - padrão $4
   stakeNormalConfidence: int("stakeNormalConfidence").default(100), // Stake para trades normais (em centavos) - padrão $1
   aiFilterThreshold: int("aiFilterThreshold").default(60), // Threshold de confiança do filtro (0-100)
   aiHedgeEnabled: boolean("aiHedgeEnabled").default(true).notNull(), // Habilitar hedge em trades de baixa confiança
+  // Configurações da IA Hedge Inteligente
+  hedgeEnabled: boolean("hedgeEnabled").default(true).notNull(), // Toggle para ativar/desativar IA Hedge
+  hedgeConfig: text("hedgeConfig"), // Configurações de hedge armazenadas como JSON
   // Configurações do Filtro de Horário
   timeFilterEnabled: boolean("timeFilterEnabled").default(false).notNull(), // Toggle para ativar/desativar filtro de horário
   allowedHours: text("allowedHours"), // Array de horários permitidos (0-23) armazenado como JSON
@@ -93,7 +96,12 @@ export const positions = mysqlTable("positions", {
   pnl: int("pnl"), // em centavos
   status: mysqlEnum("status", ["ARMED", "ENTERED", "CLOSED", "CANCELLED"]).notNull(),
   candleTimestamp: bigint("candleTimestamp", { mode: "number" }).notNull(),
-  isGoldTrade: boolean("isGoldTrade").default(false), // Flag indicando se foi trade em horário GOLD,
+  isGoldTrade: boolean("isGoldTrade").default(false), // Flag indicando se foi trade em horário GOLD
+  // Campos para IA Hedge Inteligente
+  isHedge: boolean("isHedge").default(false), // Flag indicando se é uma posição hedge
+  originalPositionId: int("originalPositionId"), // ID da posição original (se for hedge)
+  hedgeAction: varchar("hedgeAction", { length: 20 }), // Ação do hedge: HOLD, REINFORCE, HEDGE
+  hedgeReason: text("hedgeReason"), // Razão detalhada da decisão de hedge
   entryTime: timestamp("entryTime"),
   exitTime: timestamp("exitTime"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
