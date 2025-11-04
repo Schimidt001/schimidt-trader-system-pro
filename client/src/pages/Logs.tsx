@@ -1,7 +1,8 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Loader2 } from "lucide-react";
+import { Loader2, Activity, Clock, TrendingUp, AlertCircle } from "lucide-react";
+import { useMemo } from "react";
 
 export default function Logs() {
   const { user, loading: authLoading } = useAuth();
@@ -13,6 +14,26 @@ export default function Logs() {
       refetchInterval: 3000,
     }
   );
+
+  // Buscar status do bot para obter timestamp do candle atual
+  const { data: botStatus } = trpc.bot.status.useQuery(undefined, {
+    enabled: !!user,
+    refetchInterval: 2000,
+  });
+
+  // Filtrar logs da operação atual (candle atual)
+  const currentOperationLogs = useMemo(() => {
+    if (!logs || !botStatus?.currentCandleTimestamp) return [];
+    
+    // Logs que pertencem ao candle atual
+    // Um candle M15 dura 900 segundos (15 minutos)
+    const candleStart = botStatus.currentCandleTimestamp;
+    const candleEnd = candleStart + 900;
+    
+    return logs.filter(log => {
+      return log.timestampUtc >= candleStart && log.timestampUtc < candleEnd;
+    });
+  }, [logs, botStatus?.currentCandleTimestamp]);
 
   if (authLoading || isLoading) {
     return (
@@ -59,6 +80,26 @@ export default function Logs() {
     }
   };
 
+  const getEventIcon = (eventType: string) => {
+    switch (eventType) {
+      case "BOT_STARTED":
+      case "BOT_STOPPED":
+        return <Activity className="w-4 h-4" />;
+      case "PREDICTION_MADE":
+        return <TrendingUp className="w-4 h-4" />;
+      case "POSITION_ARMED":
+      case "POSITION_ENTERED":
+      case "POSITION_CLOSED":
+        return <Clock className="w-4 h-4" />;
+      case "ERROR":
+      case "STOP_DAILY_HIT":
+      case "TAKE_DAILY_HIT":
+        return <AlertCircle className="w-4 h-4" />;
+      default:
+        return <Activity className="w-4 h-4" />;
+    }
+  };
+
   const formatTimestamp = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
     return date.toLocaleString("pt-BR", {
@@ -72,17 +113,114 @@ export default function Logs() {
     });
   };
 
+  const formatTime = (timestamp: number) => {
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZone: "UTC",
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-      <div className="container mx-auto p-6">
+      <div className="container mx-auto p-6 space-y-6">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-white">Log de Eventos</h1>
-          <p className="text-slate-400 mt-1">Histórico de eventos do sistema (UTC)</p>
+          <p className="text-slate-400 mt-1">Monitoramento em tempo real do sistema (UTC)</p>
         </div>
 
+        {/* SEÇÃO NOVA: Operação Atual */}
+        <Card className="bg-gradient-to-br from-blue-950/30 via-slate-900/50 to-purple-950/30 border-blue-800/50 shadow-xl">
+          <CardHeader className="pb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-500/20 rounded-lg">
+                  <Activity className="w-6 h-6 text-blue-400" />
+                </div>
+                <div>
+                  <CardTitle className="text-white text-xl">Operação Atual</CardTitle>
+                  <CardDescription className="text-slate-400">
+                    Eventos do candle em andamento
+                  </CardDescription>
+                </div>
+              </div>
+              {botStatus?.currentCandleTimestamp && (
+                <div className="text-right">
+                  <div className="text-xs text-slate-500 font-mono">Candle iniciado em</div>
+                  <div className="text-sm text-blue-400 font-mono">
+                    {formatTime(botStatus.currentCandleTimestamp)}
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!botStatus?.currentCandleTimestamp || !botStatus?.isRunning ? (
+              <div className="text-center py-12">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-800/50 mb-4">
+                  <Clock className="w-8 h-8 text-slate-600" />
+                </div>
+                <p className="text-slate-400 text-lg">Aguardando início de operação</p>
+                <p className="text-slate-500 text-sm mt-2">
+                  {botStatus?.isRunning 
+                    ? "Coletando dados do candle..." 
+                    : "Inicie o bot para começar a operar"}
+                </p>
+              </div>
+            ) : currentOperationLogs.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-800/50 mb-4">
+                  <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+                </div>
+                <p className="text-slate-400 text-lg">Processando candle atual...</p>
+                <p className="text-slate-500 text-sm mt-2">Aguardando eventos</p>
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                {currentOperationLogs.map((log, index) => (
+                  <div
+                    key={log.id}
+                    className="group relative flex items-start gap-4 p-4 bg-slate-800/60 rounded-xl border border-slate-700/50 hover:border-blue-600/50 hover:bg-slate-800/80 transition-all duration-200"
+                  >
+                    {/* Linha de conexão entre eventos */}
+                    {index < currentOperationLogs.length - 1 && (
+                      <div className="absolute left-8 top-14 w-0.5 h-8 bg-gradient-to-b from-slate-600 to-transparent" />
+                    )}
+                    
+                    {/* Ícone do evento */}
+                    <div className={`flex-shrink-0 p-2 rounded-lg ${getEventColor(log.eventType)} bg-slate-900/50`}>
+                      {getEventIcon(log.eventType)}
+                    </div>
+                    
+                    {/* Conteúdo do evento */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className={`text-xs font-semibold px-2.5 py-1 rounded-md ${getEventColor(
+                            log.eventType
+                          )} bg-slate-900/70`}
+                        >
+                          {log.eventType}
+                        </span>
+                        <span className="text-xs text-slate-500 font-mono">
+                          {formatTime(log.timestampUtc)}
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-200 leading-relaxed">{log.message}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* SEÇÃO ORIGINAL: Histórico Completo */}
         <Card className="bg-slate-900/50 border-slate-800">
           <CardHeader>
-            <CardTitle className="text-white">Eventos Recentes</CardTitle>
+            <CardTitle className="text-white">Histórico Completo</CardTitle>
             <CardDescription className="text-slate-400">
               Últimos 200 eventos do sistema
             </CardDescription>
@@ -120,4 +258,3 @@ export default function Logs() {
     </div>
   );
 }
-
