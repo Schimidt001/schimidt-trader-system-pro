@@ -35,12 +35,6 @@ export const config = mysqlTable("config", {
   triggerOffset: int("triggerOffset").default(16), // offset do gatilho em pontos
   profitThreshold: int("profitThreshold").default(90), // threshold de lucro para early close (%)
   waitTime: int("waitTime").default(8), // tempo de espera em minutos antes de capturar dados para predição
-  // Configurações do Agente IA (Estratégia Híbrida) - DESABILITADO
-  aiEnabled: boolean("aiEnabled").default(false).notNull(), // Toggle para ativar/desativar IA
-  stakeHighConfidence: int("stakeHighConfidence").default(400), // Stake para trades de alta confiança (em centavos) - padrão $4
-  stakeNormalConfidence: int("stakeNormalConfidence").default(100), // Stake para trades normais (em centavos) - padrão $1
-  aiFilterThreshold: int("aiFilterThreshold").default(60), // Threshold de confiança do filtro (0-100)
-  aiHedgeEnabled: boolean("aiHedgeEnabled").default(true).notNull(), // Habilitar hedge em trades de baixa confiança
   // Configurações da IA Hedge Inteligente
   hedgeEnabled: boolean("hedgeEnabled").default(true).notNull(), // Toggle para ativar/desativar IA Hedge
   hedgeConfig: text("hedgeConfig"), // Configurações de hedge armazenadas como JSON

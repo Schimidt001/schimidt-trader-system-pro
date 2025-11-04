@@ -1,13 +1,13 @@
 import { DerivService, type DerivTick } from "./derivService";
-import { predictionService, predictAmplitude, type AmplitudePredictionRequest } from "../prediction/predictionService";
+import { predictionService } from "../prediction/predictionService";
 import { TimeFilterService, type TimeFilterConfig } from "../timeFilter/TimeFilterService";
-import { makeAIDecision, calculateHedgedPnL, type AIConfig, type AIDecision } from "../ai/hybridStrategy";
 import { 
   analyzePositionForHedge, 
   type HedgeDecision, 
   type HedgeConfig,
   DEFAULT_HEDGE_CONFIG 
 } from "../ai/hedgeStrategy";
+import { validateHedgeConfig } from "../ai/hedgeConfigSchema";
 import type {
   PredictionRequest,
   PredictionResponse,
@@ -137,16 +137,17 @@ export class TradingBot {
       // Carregar configurações da IA Hedge Inteligente
       this.hedgeEnabled = config.hedgeEnabled ?? true; // Padrão: true
       
-      // Carregar hedgeConfig do banco (JSON) ou usar padrão
+      // Carregar hedgeConfig do banco (JSON) com validação Zod
       if (config.hedgeConfig) {
         try {
-          this.hedgeConfig = JSON.parse(config.hedgeConfig);
+          const parsedConfig = JSON.parse(config.hedgeConfig);
+          this.hedgeConfig = validateHedgeConfig(parsedConfig);
         } catch (error) {
           console.warn(`[HEDGE_CONFIG] Erro ao parsear hedgeConfig, usando padrão: ${error}`);
-          this.hedgeConfig = DEFAULT_HEDGE_CONFIG;
+          this.hedgeConfig = validateHedgeConfig({});
         }
       } else {
-        this.hedgeConfig = DEFAULT_HEDGE_CONFIG;
+        this.hedgeConfig = validateHedgeConfig({});
       }
       
       console.log(`[HEDGE_CONFIG] IA Hedge Habilitada: ${this.hedgeEnabled}`);

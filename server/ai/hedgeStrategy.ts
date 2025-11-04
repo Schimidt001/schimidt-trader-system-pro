@@ -1,64 +1,92 @@
 /**
- * Estratégia de Hedge Inteligente
+ * IA HEDGE INTELIGENTE - Versão 2.0
  * 
- * Esta IA monitora posições abertas pelo Fibonacci e decide se precisa
- * abrir uma segunda posição para proteger (hedge) ou reforçar o trade.
- * 
- * NÃO interfere na decisão de entrada do Fibonacci.
- * 
- * Criado em: 03/11/2025
+ * Estratégias matemáticas para ativos sintéticos
+ * Baseado em cálculos precisos, não em sentimento de mercado
  */
 
+export interface HedgeAnalysisParams {
+  entryPrice: number;           // Preço de entrada da posição original
+  currentPrice: number;          // Preço atual do ativo
+  predictedClose: number;        // Fechamento previsto pela IA
+  candleOpen: number;            // Abertura do candle
+  direction: 'up' | 'down';      // Direção da predição original
+  elapsedMinutes: number;        // Minutos decorridos no candle
+  originalStake: number;         // Stake original em centavos
+}
+
 export interface HedgeDecision {
-  action: 'HOLD' | 'REINFORCE' | 'HEDGE';
+  action: 'HOLD' | 'REINFORCE' | 'HEDGE' | 'REVERSAL_EDGE';
   shouldOpenSecondPosition: boolean;
   secondPositionType?: 'CALL' | 'PUT';
   secondPositionStake?: number;
   reason: string;
   progressRatio: number;
   elapsedMinutes: number;
+  // Métricas matemáticas
+  candleRange: number;
+  priceExtension: number;
+  reversalRisk: number;
+  momentumStrength: number;
 }
 
-export interface HedgeAnalysisParams {
-  entryPrice: number;           // Preço de entrada do Fibonacci
-  currentPrice: number;          // Preço atual
-  predictedClose: number;        // Fechamento previsto pelo Fibonacci
-  candleOpen: number;            // Abertura do candle
-  direction: 'up' | 'down';      // Direção da posição original
-  elapsedMinutes: number;        // Minutos decorridos no candle
-  originalStake: number;         // Stake da posição original (em centavos)
-}
-
-/**
- * Configuração da IA Hedge
- */
 export interface HedgeConfig {
-  enabled: boolean;                    // Habilitar/desabilitar hedge
-  reinforceThreshold: number;          // Threshold para reforço (padrão: 0.30)
-  reinforceStakeMultiplier: number;    // Multiplicador do stake para reforço (padrão: 0.5)
-  hedgeStakeMultiplier: number;        // Multiplicador do stake para hedge (padrão: 1.0)
-  analysisStartMinute: number;         // Minuto para começar análise (padrão: 12.0)
-  analysisEndMinute: number;           // Minuto para parar análise (padrão: 14.0)
+  enabled: boolean;
+  
+  // Estratégia 1: Detecção de Reversão (após 1.5 min da predição)
+  reversalDetectionMinute: number;      // Quando começar a detectar reversão (padrão: 9.5 min = 8 + 1.5)
+  reversalThreshold: number;            // % do range no lado oposto para considerar reversão (padrão: 0.6 = 60%)
+  reversalStakeMultiplier: number;      // Multiplicador do stake para hedge de reversão (padrão: 1.0 = 100%)
+  
+  // Estratégia 2: Reforço em Pullback
+  pullbackDetectionStart: number;       // Início da janela de detecção (padrão: 9.5 min)
+  pullbackDetectionEnd: number;         // Fim da janela de detecção (padrão: 12 min)
+  pullbackMinProgress: number;          // Progresso mínimo para considerar pullback (padrão: 0.15 = 15%)
+  pullbackMaxProgress: number;          // Progresso máximo para considerar pullback (padrão: 0.40 = 40%)
+  pullbackStakeMultiplier: number;      // Multiplicador do stake para reforço (padrão: 0.5 = 50%)
+  
+  // Estratégia 3: Reversão de Ponta (final do candle)
+  edgeReversalMinute: number;           // Quando começar a detectar reversão de ponta (padrão: 13.5 min)
+  edgeExtensionThreshold: number;       // % de extensão para considerar exaustão (padrão: 0.80 = 80%)
+  edgeStakeMultiplier: number;          // Multiplicador do stake para reversão de ponta (padrão: 0.75 = 75%)
+  
+  // Janela geral de análise
+  analysisStartMinute: number;
+  analysisEndMinute: number;
 }
 
 export const DEFAULT_HEDGE_CONFIG: HedgeConfig = {
   enabled: true,
-  reinforceThreshold: 0.30,
-  reinforceStakeMultiplier: 0.5,
-  hedgeStakeMultiplier: 1.0,
-  analysisStartMinute: 12.0,
-  analysisEndMinute: 14.0
+  
+  // Estratégia 1: Reversão
+  reversalDetectionMinute: 9.5,
+  reversalThreshold: 0.60,
+  reversalStakeMultiplier: 1.0,
+  
+  // Estratégia 2: Pullback
+  pullbackDetectionStart: 9.5,
+  pullbackDetectionEnd: 12.0,
+  pullbackMinProgress: 0.15,
+  pullbackMaxProgress: 0.40,
+  pullbackStakeMultiplier: 0.5,
+  
+  // Estratégia 3: Reversão de Ponta
+  edgeReversalMinute: 13.5,
+  edgeExtensionThreshold: 0.80,
+  edgeStakeMultiplier: 0.75,
+  
+  // Janela geral
+  analysisStartMinute: 9.5,
+  analysisEndMinute: 14.5,
 };
 
 /**
- * Analisa se a posição atual precisa de hedge ou reforço
- * 
- * ORDEM DE VERIFICAÇÃO (conforme briefing):
- * 1. REVERSÃO (prioridade alta)
- * 2. REFORÇO
- * 3. HOLD
+ * Analisa a posição e decide se deve abrir uma segunda posição (hedge ou reforço)
  */
-export function analyzePositionForHedge(params: HedgeAnalysisParams): HedgeDecision {
+export function analyzePositionForHedge(
+  params: HedgeAnalysisParams,
+  config: HedgeConfig = DEFAULT_HEDGE_CONFIG
+): HedgeDecision {
   const {
     entryPrice,
     currentPrice,
@@ -68,52 +96,128 @@ export function analyzePositionForHedge(params: HedgeAnalysisParams): HedgeDecis
     elapsedMinutes,
     originalStake
   } = params;
+
+  // Cálculos matemáticos base
+  const candleRange = Math.abs(currentPrice - candleOpen);
+  const expectedMovement = Math.abs(predictedClose - entryPrice);
+  const actualMovement = direction === 'up' 
+    ? currentPrice - entryPrice 
+    : entryPrice - currentPrice;
   
-  // Calcular progresso do movimento
-  const expectedChange = Math.abs(predictedClose - entryPrice);
-  const actualChange = Math.abs(currentPrice - entryPrice);
-  const progressRatio = expectedChange > 0 ? actualChange / expectedChange : 0;
+  const progressRatio = expectedMovement > 0 ? actualMovement / expectedMovement : 0;
   
-  // Calcular corpo do candle (para detectar reversão)
-  const currentBody = currentPrice - candleOpen;
-  const predictedBody = predictedClose - candleOpen;
-  const bodyReversed = (currentBody > 0 && predictedBody < 0) || 
-                       (currentBody < 0 && predictedBody > 0);
+  // Calcular em que lado do candle o preço está
+  const candleBody = currentPrice - candleOpen;
+  const candleBodyDirection: 'up' | 'down' = candleBody > 0 ? 'up' : 'down';
   
-  // === CENÁRIO C: REVERSÃO DETECTADA (HEDGE) ===
-  // Prioridade mais alta - verificar primeiro
-  if (bodyReversed && elapsedMinutes >= 13.0) {
-    return {
-      action: 'HEDGE',
-      shouldOpenSecondPosition: true,
-      secondPositionType: direction === 'up' ? 'PUT' : 'CALL',
-      secondPositionStake: Math.round(originalStake * 1.0), // 100% do stake
-      reason: `Reversão detectada: candle fechando ${currentBody > 0 ? 'verde' : 'vermelho'} mas predição era ${predictedBody > 0 ? 'verde' : 'vermelho'}. Progresso: ${(progressRatio * 100).toFixed(1)}%`,
-      progressRatio,
-      elapsedMinutes
-    };
+  // Extensão do preço em relação ao range do candle
+  const priceExtension = candleRange > 0 ? Math.abs(candleBody) / candleRange : 0;
+  
+  // Risco de reversão (preço no lado oposto da predição)
+  const reversalRisk = candleBodyDirection !== direction ? priceExtension : 0;
+  
+  // Força do momentum (baseado na velocidade do movimento)
+  const timeProgress = elapsedMinutes / 15; // % do tempo decorrido
+  const momentumStrength = timeProgress > 0 ? progressRatio / timeProgress : 0;
+
+  // ==========================================
+  // ESTRATÉGIA 1: DETECÇÃO DE REVERSÃO
+  // ==========================================
+  if (elapsedMinutes >= config.reversalDetectionMinute && 
+      elapsedMinutes <= config.pullbackDetectionEnd) {
+    
+    // Reversão detectada: preço está no lado oposto e muito estendido
+    if (reversalRisk >= config.reversalThreshold) {
+      return {
+        action: 'HEDGE',
+        shouldOpenSecondPosition: true,
+        secondPositionType: direction === 'up' ? 'PUT' : 'CALL',
+        secondPositionStake: Math.round(originalStake * config.reversalStakeMultiplier),
+        reason: `🔴 REVERSÃO DETECTADA: Preço ${reversalRisk >= 0.8 ? 'muito' : ''} estendido (${(reversalRisk * 100).toFixed(1)}%) no lado oposto da predição. Abrindo hedge protetor.`,
+        progressRatio,
+        elapsedMinutes,
+        candleRange,
+        priceExtension,
+        reversalRisk,
+        momentumStrength
+      };
+    }
   }
-  
-  // === CENÁRIO B: PULLBACK INSUFICIENTE (REFORÇAR) ===
-  // Só reforçar se ainda há tempo (antes de 13.5 min)
-  if (progressRatio < 0.30 && elapsedMinutes >= 12.0 && elapsedMinutes < 13.5) {
-    return {
-      action: 'REINFORCE',
-      shouldOpenSecondPosition: true,
-      secondPositionType: direction === 'up' ? 'CALL' : 'PUT',
-      secondPositionStake: Math.round(originalStake * 0.5), // 50% do stake
-      reason: `Pullback insuficiente: movimento está em ${(progressRatio * 100).toFixed(1)}% do esperado (< 30%). Reforçando posição.`,
-      progressRatio,
-      elapsedMinutes
-    };
+
+  // ==========================================
+  // ESTRATÉGIA 2: REFORÇO EM PULLBACK
+  // ==========================================
+  if (elapsedMinutes >= config.pullbackDetectionStart && 
+      elapsedMinutes <= config.pullbackDetectionEnd) {
+    
+    // Pullback detectado: movimento na direção certa mas atrasado
+    if (progressRatio >= config.pullbackMinProgress && 
+        progressRatio <= config.pullbackMaxProgress &&
+        candleBodyDirection === direction) {
+      
+      return {
+        action: 'REINFORCE',
+        shouldOpenSecondPosition: true,
+        secondPositionType: direction === 'up' ? 'CALL' : 'PUT',
+        secondPositionStake: Math.round(originalStake * config.pullbackStakeMultiplier),
+        reason: `🟢 PULLBACK IDENTIFICADO: Movimento correto (${direction.toUpperCase()}) mas atrasado (${(progressRatio * 100).toFixed(1)}%). Reforçando posição com preço melhor.`,
+        progressRatio,
+        elapsedMinutes,
+        candleRange,
+        priceExtension,
+        reversalRisk,
+        momentumStrength
+      };
+    }
   }
+
+  // ==========================================
+  // ESTRATÉGIA 3: REVERSÃO DE PONTA
+  // ==========================================
+  if (elapsedMinutes >= config.edgeReversalMinute) {
+    
+    // Candle muito estendido na direção da predição - provável reversão
+    if (candleBodyDirection === direction && 
+        priceExtension >= config.edgeExtensionThreshold) {
+      
+      return {
+        action: 'REVERSAL_EDGE',
+        shouldOpenSecondPosition: true,
+        secondPositionType: direction === 'up' ? 'PUT' : 'CALL',
+        secondPositionStake: Math.round(originalStake * config.edgeStakeMultiplier),
+        reason: `🟡 EXAUSTÃO DE PONTA: Candle muito estendido (${(priceExtension * 100).toFixed(1)}%) na direção ${direction.toUpperCase()}. Apostando em reversão de final.`,
+        progressRatio,
+        elapsedMinutes,
+        candleRange,
+        priceExtension,
+        reversalRisk,
+        momentumStrength
+      };
+    }
+  }
+
+  // ==========================================
+  // HOLD: Nenhuma estratégia acionada
+  // ==========================================
+  let holdReason = '';
   
-  // === CENÁRIO A: MOVIMENTO FORTE (SEGURAR) ===
+  if (progressRatio > 0.50) {
+    holdReason = `✅ Movimento forte: ${(progressRatio * 100).toFixed(1)}% do esperado alcançado. Posição está boa.`;
+  } else if (elapsedMinutes < config.analysisStartMinute) {
+    holdReason = `⏳ Aguardando janela de análise (${config.analysisStartMinute} min). Progresso atual: ${(progressRatio * 100).toFixed(1)}%.`;
+  } else {
+    holdReason = `📊 Movimento dentro do esperado: ${(progressRatio * 100).toFixed(1)}%. Nenhuma ação necessária.`;
+  }
+
   return {
     action: 'HOLD',
     shouldOpenSecondPosition: false,
-    reason: `Movimento forte: ${(progressRatio * 100).toFixed(1)}% do esperado alcançado. Posição está boa.`,
+    reason: holdReason,
     progressRatio,
-    elapsedMinutes
+    elapsedMinutes,
+    candleRange,
+    priceExtension,
+    reversalRisk,
+    momentumStrength
   };
 }
