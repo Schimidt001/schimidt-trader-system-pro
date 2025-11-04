@@ -1,5 +1,7 @@
 import { DerivService, DerivCandle, DerivTick } from "./derivService";
 import { predictionService } from "../prediction/predictionService";
+import { analyzePositionForHedge, DEFAULT_HEDGE_CONFIG, type HedgeConfig } from "../ai/hedgeStrategy";
+import { validateHedgeConfig } from "../ai/hedgeConfigSchema";
 import type {
   PredictionRequest,
   PredictionResponse,
@@ -68,6 +70,10 @@ export class TradingBot {
   private waitTime: number = 8; // tempo de espera em minutos antes de capturar dados
   private mode: "DEMO" | "REAL" = "DEMO";
   
+  // Configurações da IA Hedge
+  private hedgeEnabled: boolean = true;
+  private hedgeConfig: HedgeConfig = DEFAULT_HEDGE_CONFIG;
+  
   // Controle de risco
   private dailyPnL: number = 0;
   private tradesThisCandle: Set<number> = new Set();
@@ -105,6 +111,25 @@ export class TradingBot {
       this.profitThreshold = config.profitThreshold ?? 90;
       this.waitTime = config.waitTime ?? 8;
       this.mode = config.mode;
+      
+      // Carregar configurações da IA Hedge
+      this.hedgeEnabled = config.hedgeEnabled ?? true;
+      if (config.hedgeConfig) {
+        try {
+          const parsedConfig = JSON.parse(config.hedgeConfig);
+          this.hedgeConfig = validateHedgeConfig(parsedConfig);
+        } catch (error) {
+          console.warn(`[HEDGE_CONFIG] Erro ao parsear hedgeConfig, usando padrão: ${error}`);
+          this.hedgeConfig = validateHedgeConfig({});
+        }
+      } else {
+        this.hedgeConfig = validateHedgeConfig({});
+      }
+      
+      console.log(`[HEDGE_CONFIG] IA Hedge Habilitada: ${this.hedgeEnabled}`);
+      if (this.hedgeEnabled) {
+        console.log(`[HEDGE_CONFIG] Janela de análise: ${this.hedgeConfig.analysisStartMinute} - ${this.hedgeConfig.analysisEndMinute} min`);
+      }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
       if (!token) {

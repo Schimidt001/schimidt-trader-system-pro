@@ -35,6 +35,9 @@ export const config = mysqlTable("config", {
   triggerOffset: int("triggerOffset").default(16), // offset do gatilho em pontos
   profitThreshold: int("profitThreshold").default(90), // threshold de lucro para early close (%)
   waitTime: int("waitTime").default(8), // tempo de espera em minutos antes de capturar dados para predição
+  // Configurações da IA Hedge Inteligente
+  hedgeEnabled: boolean("hedgeEnabled").default(true).notNull(), // Toggle para ativar/desativar IA Hedge
+  hedgeConfig: text("hedgeConfig"), // Configurações de hedge armazenadas como JSON
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
