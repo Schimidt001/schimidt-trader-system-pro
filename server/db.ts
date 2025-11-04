@@ -122,7 +122,37 @@ export async function getUserById(id: number) {
 export async function getConfigByUserId(userId: number): Promise<Config | undefined> {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(config).where(eq(config.userId, userId)).limit(1);
+  const result = await db
+    .select({
+      id: config.id,
+      userId: config.userId,
+      mode: config.mode,
+      tokenDemo: config.tokenDemo,
+      tokenReal: config.tokenReal,
+      symbol: config.symbol,
+      stake: config.stake,
+      stopDaily: config.stopDaily,
+      takeDaily: config.takeDaily,
+      lookback: config.lookback,
+      triggerOffset: config.triggerOffset,
+      profitThreshold: config.profitThreshold,
+      waitTime: config.waitTime,
+      // IA Hedge Inteligente
+      hedgeEnabled: config.hedgeEnabled,
+      hedgeConfig: config.hedgeConfig,
+      // Filtro de Horário
+      timeFilterEnabled: config.timeFilterEnabled,
+      allowedHours: config.allowedHours,
+      goldHours: config.goldHours,
+      goldStake: config.goldStake,
+      timezone: config.timezone,
+      phaseStrategyCache: config.phaseStrategyCache,
+      createdAt: config.createdAt,
+      updatedAt: config.updatedAt,
+    })
+    .from(config)
+    .where(eq(config.userId, userId))
+    .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
