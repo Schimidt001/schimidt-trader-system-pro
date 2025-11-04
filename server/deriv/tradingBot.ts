@@ -40,6 +40,12 @@ export class TradingBot {
   private currentCandleClose: number = 0; // Último preço (close)
   private currentCandleStartTime: Date | null = null;
   
+  // Valores construídos com ticks (para comparação/debug)
+  private constructedOpen: number = 0;
+  private constructedHigh: number = 0;
+  private constructedLow: number = 0;
+  private constructedClose: number = 0;
+  
   // Dados da predição
   private prediction: PredictionResponse | null = null;
   private trigger: number = 0;
@@ -133,7 +139,13 @@ export class TradingBot {
 
       this.isRunning = true;
       
-      // Se estado for COLLECTING, iniciar coleta de dados ANTES de subscrever
+      // Subscrever ticks para construção de candles e monitoramento
+      this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
+        this.handleTick(tick);
+      });
+      console.log(`[TradingBot] Subscribed to ticks for ${this.symbol}`);
+      
+      // Se estado for COLLECTING, iniciar coleta de dados
       if (this.state === "IDLE" || this.state === "COLLECTING") {
         this.state = "COLLECTING";
         await this.updateBotState();
@@ -144,19 +156,6 @@ export class TradingBot {
         await this.logEvent("BOT_RESTARTED", `Bot reiniciado em estado ${this.state}`);
         console.log(`[TradingBot] Bot restarted in state: ${this.state}`);
       }
-      
-      // Subscrever candles em tempo real da DERIV (dados oficiais via WebSocket)
-      // IMPORTANTE: Fazer isso DEPOIS de coletar histórico para evitar duplicação
-      this.derivService.subscribeCandles(this.symbol, 900, (candle: any) => {
-        this.handleCandleUpdate(candle);
-      });
-      console.log(`[TradingBot] Subscribed to candles for ${this.symbol}`);
-      
-      // Subscrever ticks para monitoramento de preço em tempo real
-      this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
-        this.handleTickForMonitoring(tick);
-      });
-      console.log(`[TradingBot] Subscribed to ticks for ${this.symbol}`);
     } catch (error) {
       console.error("[TradingBot] Error starting bot:", error);
       this.state = "ERROR_API";
@@ -254,14 +253,12 @@ export class TradingBot {
   }
 
   /**
-   * Trata atualizações de candle da DERIV (dados oficiais via WebSocket)
+   * Trata cada tick recebido e constrói candle em tempo real
    */
-  private async handleCandleUpdate(candle: any): Promise<void> {
+  private async handleTick(tick: DerivTick): Promise<void> {
     if (!this.isRunning) return;
 
-    // IMPORTANTE: ohlc retorna open_time (timestamp do início do candle)
-    // e os valores como strings que precisam ser convertidos
-    const candleTimestamp = candle.open_time || candle.epoch;
+    const candleTimestamp = Math.floor(tick.epoch / 900) * 900; // Arredondar para M15
 
     // Novo candle?
     if (candleTimestamp !== this.currentCandleTimestamp) {
@@ -270,65 +267,71 @@ export class TradingBot {
         await this.closeCurrentCandle();
       }
 
-      // Iniciar novo candle com dados oficiais da DERIV
+      // Iniciar novo candle
+      // NOTA: Valores construídos são apenas para monitoramento
+      // Valores REAIS serão buscados da DERIV antes da predição
+      const candleOpen = tick.quote;
+      console.log(`[CANDLE_OPEN] Novo candle iniciado com primeiro tick: ${candleOpen} | timestamp: ${candleTimestamp}`);
+      
       this.currentCandleTimestamp = candleTimestamp;
+      
+      // Armazenar valores construídos (para comparação)
+      this.constructedOpen = candleOpen;
+      this.constructedHigh = candleOpen;
+      this.constructedLow = candleOpen;
+      this.constructedClose = candleOpen;
+      
+      // Inicializar valores atuais (serão substituídos pela DERIV)
+      this.currentCandleOpen = candleOpen;
+      this.currentCandleHigh = candleOpen;
+      this.currentCandleLow = candleOpen;
+      this.currentCandleClose = candleOpen;
+      
       this.currentCandleStartTime = new Date(candleTimestamp * 1000);
       this.tradesThisCandle.clear();
-      
-      // Usar dados oficiais da DERIV (converter strings para numbers)
-      this.currentCandleOpen = typeof candle.open === 'string' ? parseFloat(candle.open) : candle.open;
-      this.currentCandleHigh = typeof candle.high === 'string' ? parseFloat(candle.high) : candle.high;
-      this.currentCandleLow = typeof candle.low === 'string' ? parseFloat(candle.low) : candle.low;
-      this.currentCandleClose = typeof candle.close === 'string' ? parseFloat(candle.close) : candle.close;
-      
-      console.log(`[CANDLE_UPDATE] ✅ Novo candle (DERIV oficial): open=${this.currentCandleOpen}, high=${this.currentCandleHigh}, low=${this.currentCandleLow}, close=${this.currentCandleClose} | timestamp=${candleTimestamp}`);
-      
-      await this.logEvent("CANDLE_INITIALIZED", 
-        `Novo candle (DERIV oficial via WebSocket): timestamp=${candleTimestamp}, open=${this.currentCandleOpen}, high=${this.currentCandleHigh}, low=${this.currentCandleLow}, close=${this.currentCandleClose}`);
 
       this.state = "WAITING_MIDPOINT";
       await this.updateBotState();
+      await this.logEvent("CANDLE_INITIALIZED", 
+        `Novo candle: timestamp=${candleTimestamp}, firstTick=${tick.quote}`);
       
       // Criar timer para forçar fim do candle após 900 segundos (15 minutos)
       this.scheduleCandleEnd(candleTimestamp);
     } else {
-      // Atualizar candle atual com dados oficiais da DERIV (converter strings para numbers)
-      this.currentCandleOpen = typeof candle.open === 'string' ? parseFloat(candle.open) : candle.open;
-      this.currentCandleHigh = typeof candle.high === 'string' ? parseFloat(candle.high) : candle.high;
-      this.currentCandleLow = typeof candle.low === 'string' ? parseFloat(candle.low) : candle.low;
-      this.currentCandleClose = typeof candle.close === 'string' ? parseFloat(candle.close) : candle.close;
+      // Atualizar valores construídos com ticks
+      this.constructedHigh = Math.max(this.constructedHigh, tick.quote);
+      this.constructedLow = Math.min(this.constructedLow, tick.quote);
+      this.constructedClose = tick.quote;
+      
+      // Atualizar valores atuais (serão substituídos pela DERIV antes da predição)
+      this.currentCandleHigh = Math.max(this.currentCandleHigh, tick.quote);
+      this.currentCandleLow = Math.min(this.currentCandleLow, tick.quote);
+      this.currentCandleClose = tick.quote;
     }
 
-    // Timing da predição é verificado no handleTickForMonitoring (mais preciso)
-  }
+    // Calcular segundos decorridos desde o início do candle
+    const elapsedSeconds = Math.floor((tick.epoch - this.currentCandleTimestamp));
+    
+    // Proteção: Se elapsedSeconds for maior que 900 (15 min), algo está errado
+    if (elapsedSeconds > 900 || elapsedSeconds < 0) {
+      console.warn(`[ELAPSED_SECONDS_ERROR] Valor incorreto: ${elapsedSeconds}s. Ignorando tick.`);
+      return;
+    }
 
-  /**
-   * Trata ticks para monitoramento de preço em tempo real
-   * (usado para verificar timing, gatilhos e gerenciar posições)
-   */
-  private async handleTickForMonitoring(tick: DerivTick): Promise<void> {
-    if (!this.isRunning) return;
-
-    // Verificar timing para predição (ticks chegam frequentemente, garantindo timing preciso)
-    if (this.state === "WAITING_MIDPOINT" && this.currentCandleTimestamp > 0) {
-      const now = Math.floor(Date.now() / 1000);
-      const elapsedSeconds = now - this.currentCandleTimestamp;
-      const waitTimeSeconds = this.waitTime * 60;
-      
-      if (elapsedSeconds >= waitTimeSeconds) {
-        await this.makePrediction(elapsedSeconds);
-        return; // Retornar após fazer predição
-      }
+    // Momento da predição: waitTime configurado (em segundos)
+    const waitTimeSeconds = this.waitTime * 60;
+    if (elapsedSeconds >= waitTimeSeconds && this.state === "WAITING_MIDPOINT") {
+      await this.makePrediction(elapsedSeconds);
     }
 
     // Se armado, verificar gatilho
     if (this.state === "ARMED" && this.prediction) {
-      await this.checkTrigger(tick.quote, 0);
+      await this.checkTrigger(tick.quote, elapsedSeconds);
     }
 
     // Se em posição, gerenciar saída
     if (this.state === "ENTERED" && this.currentPositionId) {
-      await this.managePosition(tick.quote, 0);
+      await this.managePosition(tick.quote, elapsedSeconds);
     }
   }
 
@@ -374,12 +377,83 @@ export class TradingBot {
       this.state = "PREDICTING";
       await this.updateBotState();
 
-      // Dados já são oficiais da DERIV (via subscribeCandles)
-      // Log dos valores para confirmação
-      await this.logEvent(
-        "PREDICTION_DATA",
-        `[PREDIÇÃO] Usando dados oficiais DERIV: Open=${this.currentCandleOpen} | High=${this.currentCandleHigh} | Low=${this.currentCandleLow} | Close=${this.currentCandleClose}`
-      );
+      // CRÍTICO: Buscar candle atual da DERIV para garantir dados EXATOS
+      // NÃO usar valores construídos manualmente - eles podem estar incorretos
+      try {
+        if (!this.derivService) {
+          throw new Error("DerivService não disponível");
+        }
+        
+        // Buscar últimos 2 candles para garantir que pegamos o atual
+        const currentCandles = await this.derivService.getCandleHistory(this.symbol, 900, 2);
+        
+        // Encontrar o candle atual pelo timestamp
+        const currentCandle = currentCandles.find(c => c.epoch === this.currentCandleTimestamp);
+        
+        if (!currentCandle) {
+          // Se não encontrou, pode ser que o candle ainda não esteja disponível
+          // Tentar novamente após 2 segundos
+          await this.logEvent(
+            "DERIV_CANDLE_RETRY",
+            `[SYNC DERIV] Candle atual não encontrado, tentando novamente em 2s...`
+          );
+          
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          const retryCandles = await this.derivService.getCandleHistory(this.symbol, 900, 2);
+          const retryCurrent = retryCandles.find(c => c.epoch === this.currentCandleTimestamp);
+          
+          if (!retryCurrent) {
+            throw new Error(`Candle atual (timestamp ${this.currentCandleTimestamp}) não encontrado na DERIV após retry`);
+          }
+          
+          // Usar valores do retry
+          this.currentCandleOpen = retryCurrent.open;
+          this.currentCandleHigh = retryCurrent.high;
+          this.currentCandleLow = retryCurrent.low;
+          this.currentCandleClose = retryCurrent.close;
+          
+          await this.logEvent(
+            "DERIV_CANDLE_SYNC_SUCCESS",
+            `[SYNC OK - RETRY] Valores oficiais DERIV: Open=${retryCurrent.open} | High=${retryCurrent.high} | Low=${retryCurrent.low} | Close=${retryCurrent.close}`
+          );
+          
+          // Log comparativo para debug
+          await this.logEvent(
+            "CANDLE_VALUES_COMPARISON",
+            `[COMPARAÇÃO] Construído: O=${this.constructedOpen.toFixed(4)} H=${this.constructedHigh.toFixed(4)} L=${this.constructedLow.toFixed(4)} | DERIV: O=${retryCurrent.open.toFixed(4)} H=${retryCurrent.high.toFixed(4)} L=${retryCurrent.low.toFixed(4)} | Diferenças: O=${Math.abs(this.constructedOpen - retryCurrent.open).toFixed(4)} H=${Math.abs(this.constructedHigh - retryCurrent.high).toFixed(4)} L=${Math.abs(this.constructedLow - retryCurrent.low).toFixed(4)}`
+          );
+        } else {
+          // Candle encontrado na primeira tentativa
+          this.currentCandleOpen = currentCandle.open;
+          this.currentCandleHigh = currentCandle.high;
+          this.currentCandleLow = currentCandle.low;
+          this.currentCandleClose = currentCandle.close;
+          
+          await this.logEvent(
+            "DERIV_CANDLE_SYNC_SUCCESS",
+            `[SYNC OK] Valores oficiais DERIV: Open=${currentCandle.open} | High=${currentCandle.high} | Low=${currentCandle.low} | Close=${currentCandle.close}`
+          );
+          
+          // Log comparativo para debug
+          await this.logEvent(
+            "CANDLE_VALUES_COMPARISON",
+            `[COMPARAÇÃO] Construído: O=${this.constructedOpen.toFixed(4)} H=${this.constructedHigh.toFixed(4)} L=${this.constructedLow.toFixed(4)} | DERIV: O=${currentCandle.open.toFixed(4)} H=${currentCandle.high.toFixed(4)} L=${currentCandle.low.toFixed(4)} | Diferenças: O=${Math.abs(this.constructedOpen - currentCandle.open).toFixed(4)} H=${Math.abs(this.constructedHigh - currentCandle.high).toFixed(4)} L=${Math.abs(this.constructedLow - currentCandle.low).toFixed(4)}`
+          );
+        }
+      } catch (error) {
+        // CRÍTICO: Se não conseguir obter valores da DERIV, ABORTAR predição
+        // Melhor pular uma predição do que usar dados incorretos
+        await this.logEvent(
+          "DERIV_CANDLE_SYNC_CRITICAL_ERROR",
+          `[ERRO CRÍTICO] Não foi possível obter candle oficial da DERIV: ${error}. ABORTANDO predição para evitar cálculos incorretos.`
+        );
+        
+        // Voltar ao estado de espera e tentar no próximo candle
+        this.state = "WAITING_MIDPOINT";
+        await this.updateBotState();
+        return;
+      }
 
       // Buscar histórico
       const history = await getCandleHistory(this.symbol, this.lookback);
