@@ -220,8 +220,9 @@ export async function getTodayPositions(userId: number): Promise<any[]> {
   today.setHours(0, 0, 0, 0);
   
   // Fazer JOIN com candles para obter open, high, low do candle
+  // Usar subquery para garantir apenas 1 candle por timestamp
   const results = await db
-    .select({
+    .selectDistinct({
       id: positions.id,
       userId: positions.userId,
       contractId: positions.contractId,
