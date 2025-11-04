@@ -133,19 +133,7 @@ export class TradingBot {
 
       this.isRunning = true;
       
-      // Subscrever candles em tempo real da DERIV (dados oficiais via WebSocket)
-      this.derivService.subscribeCandles(this.symbol, 900, (candle: DerivCandle) => {
-        this.handleCandleUpdate(candle);
-      });
-      console.log(`[TradingBot] Subscribed to candles for ${this.symbol}`);
-      
-      // Subscrever ticks para monitoramento de preço em tempo real
-      this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
-        this.handleTickForMonitoring(tick);
-      });
-      console.log(`[TradingBot] Subscribed to ticks for ${this.symbol}`);
-      
-      // Se estado for COLLECTING, iniciar coleta de dados
+      // Se estado for COLLECTING, iniciar coleta de dados ANTES de subscrever
       if (this.state === "IDLE" || this.state === "COLLECTING") {
         this.state = "COLLECTING";
         await this.updateBotState();
@@ -156,6 +144,19 @@ export class TradingBot {
         await this.logEvent("BOT_RESTARTED", `Bot reiniciado em estado ${this.state}`);
         console.log(`[TradingBot] Bot restarted in state: ${this.state}`);
       }
+      
+      // Subscrever candles em tempo real da DERIV (dados oficiais via WebSocket)
+      // IMPORTANTE: Fazer isso DEPOIS de coletar histórico para evitar duplicação
+      this.derivService.subscribeCandles(this.symbol, 900, (candle: any) => {
+        this.handleCandleUpdate(candle);
+      });
+      console.log(`[TradingBot] Subscribed to candles for ${this.symbol}`);
+      
+      // Subscrever ticks para monitoramento de preço em tempo real
+      this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
+        this.handleTickForMonitoring(tick);
+      });
+      console.log(`[TradingBot] Subscribed to ticks for ${this.symbol}`);
     } catch (error) {
       console.error("[TradingBot] Error starting bot:", error);
       this.state = "ERROR_API";
@@ -255,10 +256,12 @@ export class TradingBot {
   /**
    * Trata atualizações de candle da DERIV (dados oficiais via WebSocket)
    */
-  private async handleCandleUpdate(candle: DerivCandle): Promise<void> {
+  private async handleCandleUpdate(candle: any): Promise<void> {
     if (!this.isRunning) return;
 
-    const candleTimestamp = candle.epoch;
+    // IMPORTANTE: ohlc retorna open_time (timestamp do início do candle)
+    // e os valores como strings que precisam ser convertidos
+    const candleTimestamp = candle.open_time || candle.epoch;
 
     // Novo candle?
     if (candleTimestamp !== this.currentCandleTimestamp) {
@@ -272,11 +275,11 @@ export class TradingBot {
       this.currentCandleStartTime = new Date(candleTimestamp * 1000);
       this.tradesThisCandle.clear();
       
-      // Usar dados oficiais da DERIV diretamente
-      this.currentCandleOpen = candle.open;
-      this.currentCandleHigh = candle.high;
-      this.currentCandleLow = candle.low;
-      this.currentCandleClose = candle.close;
+      // Usar dados oficiais da DERIV (converter strings para numbers)
+      this.currentCandleOpen = typeof candle.open === 'string' ? parseFloat(candle.open) : candle.open;
+      this.currentCandleHigh = typeof candle.high === 'string' ? parseFloat(candle.high) : candle.high;
+      this.currentCandleLow = typeof candle.low === 'string' ? parseFloat(candle.low) : candle.low;
+      this.currentCandleClose = typeof candle.close === 'string' ? parseFloat(candle.close) : candle.close;
       
       console.log(`[CANDLE_UPDATE] ✅ Novo candle (DERIV oficial): open=${this.currentCandleOpen}, high=${this.currentCandleHigh}, low=${this.currentCandleLow}, close=${this.currentCandleClose} | timestamp=${candleTimestamp}`);
       
@@ -289,11 +292,11 @@ export class TradingBot {
       // Criar timer para forçar fim do candle após 900 segundos (15 minutos)
       this.scheduleCandleEnd(candleTimestamp);
     } else {
-      // Atualizar candle atual com dados oficiais da DERIV
-      this.currentCandleOpen = candle.open;
-      this.currentCandleHigh = candle.high;
-      this.currentCandleLow = candle.low;
-      this.currentCandleClose = candle.close;
+      // Atualizar candle atual com dados oficiais da DERIV (converter strings para numbers)
+      this.currentCandleOpen = typeof candle.open === 'string' ? parseFloat(candle.open) : candle.open;
+      this.currentCandleHigh = typeof candle.high === 'string' ? parseFloat(candle.high) : candle.high;
+      this.currentCandleLow = typeof candle.low === 'string' ? parseFloat(candle.low) : candle.low;
+      this.currentCandleClose = typeof candle.close === 'string' ? parseFloat(candle.close) : candle.close;
     }
 
     // Calcular segundos decorridos desde o início do candle
