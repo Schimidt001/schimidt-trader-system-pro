@@ -30,8 +30,29 @@ export default function Logs() {
     const candleStart = botStatus.currentCandleTimestamp;
     const candleEnd = candleStart + 900;
     
+    // Eventos de fechamento do candle anterior que devem ser excluídos
+    const closingEventTypes = [
+      'CANDLE_CLOSED',
+      'CANDLE_FORCED_CLOSE',
+      'CONTRACT_CLOSE_DEBUG',
+      'WARNING',
+      'PNL_CALCULATION',
+      'POSITION_CLOSED'
+    ];
+    
     return logs.filter(log => {
-      return log.timestampUtc >= candleStart && log.timestampUtc < candleEnd;
+      // Verificar se está dentro do intervalo do candle atual
+      const isInCurrentCandle = log.timestampUtc >= candleStart && log.timestampUtc < candleEnd;
+      
+      if (!isInCurrentCandle) return false;
+      
+      // Se o evento aconteceu exatamente no início do candle (mesmo segundo)
+      // e é um evento de fechamento, excluir (pertence ao candle anterior)
+      if (log.timestampUtc === candleStart && closingEventTypes.includes(log.eventType)) {
+        return false;
+      }
+      
+      return true;
     });
   }, [logs, botStatus?.currentCandleTimestamp]);
 
@@ -132,7 +153,7 @@ export default function Logs() {
         </div>
 
         {/* SEÇÃO NOVA: Operação Atual */}
-        <Card className="bg-gradient-to-br from-blue-950/30 via-slate-900/50 to-purple-950/30 border-blue-800/50 shadow-xl">
+        <Card className="bg-gradient-to-br from-blue-950/40 via-slate-900/60 to-purple-950/40 border-4 border-blue-600/60 shadow-2xl ring-2 ring-blue-500/30">
           <CardHeader className="pb-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
