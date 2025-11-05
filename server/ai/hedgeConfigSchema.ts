@@ -71,7 +71,7 @@ export const hedgeConfigSchema = z.object({
   analysisStartMinute: z.number()
     .min(8.0, "Deve ser >= 8 minutos")
     .max(13.0, "Deve ser <= 13 minutos")
-    .default(9.5),
+    .default(12.0),
   
   analysisEndMinute: z.number()
     .min(12.0, "Deve ser >= 12 minutos")
