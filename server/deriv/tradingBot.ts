@@ -186,7 +186,7 @@ export class TradingBot {
         if (this.hedgeEnabled) {
           await this.logEvent(
             "HEDGE_STATUS",
-            `🛡️ IA HEDGE ATIVA | Janela de análise: ${this.hedgeConfig.analysisStartMinute.toFixed(1)}-${this.hedgeConfig.analysisEndMinute.toFixed(1)} min`
+            `🛡️ IA HEDGE ATIVA | Análise: min ${Math.floor(this.hedgeConfig.analysisStartMinute)}-${Math.floor(this.hedgeConfig.analysisEndMinute)} (últimos 3 min do candle)`
           );
         } else {
           await this.logEvent("HEDGE_STATUS", "❌ IA HEDGE DESATIVADA");

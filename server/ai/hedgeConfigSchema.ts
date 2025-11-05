@@ -75,8 +75,8 @@ export const hedgeConfigSchema = z.object({
   
   analysisEndMinute: z.number()
     .min(12.0, "Deve ser >= 12 minutos")
-    .max(14.98, "Deve ser <= 14.98 minutos (último momento do candle)")
-    .default(14.98),
+    .max(14.0, "Deve ser <= 14.0 minutos (último momento para ações)")
+    .default(14.0),
 })
 .refine(
   (data) => data.pullbackDetectionStart < data.pullbackDetectionEnd,
@@ -120,7 +120,7 @@ export const DEFAULT_HEDGE_CONFIG: HedgeConfigValidated = {
   edgeExtensionThreshold: 0.80,     // 80% (valor original seguro)
   edgeStakeMultiplier: 1.5,         // Otimizado: 1.5x
   analysisStartMinute: 12.0,
-  analysisEndMinute: 14.98,
+  analysisEndMinute: 14.0,
 };
 
 /**

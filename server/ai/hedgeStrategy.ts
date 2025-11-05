@@ -80,9 +80,9 @@ export const DEFAULT_HEDGE_CONFIG: HedgeConfig = {
   
   // Janela geral
   // Otimizado: últimos 3 minutos do candle (12, 13, 14)
-  // 14.98 = segundo 899 (último momento válido do candle)
+  // 14.0 = final do minuto 14 (último momento para abrir operações)
   analysisStartMinute: 12.0,
-  analysisEndMinute: 14.98,
+  analysisEndMinute: 14.0,
 };
 
 /**
