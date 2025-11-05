@@ -194,6 +194,9 @@ export default function Settings() {
         triggerOffset: triggerOffsetNum,
         profitThreshold: profitThresholdNum,
         waitTime: waitTimeNum,
+        contractType,
+        barrierHigh,
+        barrierLow,
       });
       
       // Depois testar conexão
