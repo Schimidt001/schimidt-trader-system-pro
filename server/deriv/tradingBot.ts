@@ -639,6 +639,8 @@ export class TradingBot {
     if (!this.prediction || !this.derivService) return;
 
     try {
+      console.log(`[ENTER_POSITION] Iniciando entrada de posição | Preço: ${entryPrice} | Elapsed: ${elapsedSeconds}s | ContractType: ${this.contractType}`);
+      
       // Determinar tipo de contrato baseado na configuração
       let contractType: string;
       let barrier: string | undefined;
@@ -650,18 +652,16 @@ export class TradingBot {
         // TOUCH: usar barreira baseada na direção da predição
         contractType = "ONETOUCH";
         const barrierOffset = parseFloat(this.prediction.direction === "up" ? this.barrierHigh : this.barrierLow);
-        // Calcular barreira absoluta: preço atual + offset em pontos
-        // API DERIV aceita no máximo 2 casas decimais
-        const absoluteBarrier = entryPrice + barrierOffset;
-        barrier = `+${Math.abs(absoluteBarrier - entryPrice).toFixed(2)}`;
+        // Usar offset relativo diretamente (API DERIV aceita no máximo 2 casas decimais)
+        // Formato: "+1.50" significa 1.50 pontos acima do preço de entrada
+        barrier = barrierOffset > 0 ? `+${barrierOffset.toFixed(2)}` : `${barrierOffset.toFixed(2)}`;
       } else {
         // NO_TOUCH: usar barreira oposta à direção da predição
         contractType = "NOTOUCH";
         const barrierOffset = parseFloat(this.prediction.direction === "up" ? this.barrierLow : this.barrierHigh);
-        // Calcular barreira absoluta: preço atual + offset em pontos
-        // API DERIV aceita no máximo 2 casas decimais
-        const absoluteBarrier = entryPrice + barrierOffset;
-        barrier = barrierOffset > 0 ? `+${Math.abs(absoluteBarrier - entryPrice).toFixed(2)}` : `-${Math.abs(absoluteBarrier - entryPrice).toFixed(2)}`;
+        // Usar offset relativo diretamente (API DERIV aceita no máximo 2 casas decimais)
+        // Formato: "+1.50" ou "-1.50" significa distância do preço de entrada
+        barrier = barrierOffset > 0 ? `+${barrierOffset.toFixed(2)}` : `${barrierOffset.toFixed(2)}`;
       }
       
       // Calcular duração até 20 segundos antes do fim do candle M15 (900s)
