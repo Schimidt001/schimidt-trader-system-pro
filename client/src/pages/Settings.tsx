@@ -5,6 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -41,6 +47,28 @@ export default function Settings() {
   const [profitThreshold, setProfitThreshold] = useState("90");
   const [waitTime, setWaitTime] = useState("8");
   const [hedgeEnabled, setHedgeEnabled] = useState(true);
+
+  // Estados para os 13 parâmetros da IA Hedge
+  // Estratégia 1: Detecção de Reversão
+  const [reversalDetectionMinute, setReversalDetectionMinute] = useState("12.0");
+  const [reversalThreshold, setReversalThreshold] = useState("0.60");
+  const [reversalStakeMultiplier, setReversalStakeMultiplier] = useState("1.5");
+  
+  // Estratégia 2: Reforço em Pullback
+  const [pullbackDetectionStart, setPullbackDetectionStart] = useState("12.0");
+  const [pullbackDetectionEnd, setPullbackDetectionEnd] = useState("14.0");
+  const [pullbackMinProgress, setPullbackMinProgress] = useState("0.15");
+  const [pullbackMaxProgress, setPullbackMaxProgress] = useState("0.40");
+  const [pullbackStakeMultiplier, setPullbackStakeMultiplier] = useState("1.4");
+  
+  // Estratégia 3: Reversão de Ponta
+  const [edgeReversalMinute, setEdgeReversalMinute] = useState("12.0");
+  const [edgeExtensionThreshold, setEdgeExtensionThreshold] = useState("0.80");
+  const [edgeStakeMultiplier, setEdgeStakeMultiplier] = useState("1.5");
+  
+  // Janela geral
+  const [analysisStartMinute, setAnalysisStartMinute] = useState("12.0");
+  const [analysisEndMinute, setAnalysisEndMinute] = useState("14.0");
 
   // Query
   const { data: config, isLoading } = trpc.config.get.useQuery(undefined, {
@@ -92,6 +120,29 @@ export default function Settings() {
       setProfitThreshold((config.profitThreshold || 90).toString());
       setWaitTime((config.waitTime || 8).toString());
       setHedgeEnabled(config.hedgeEnabled ?? true);
+      
+      // Carregar configurações da IA Hedge se existirem
+      if (config.hedgeConfig) {
+        try {
+          const parsed = JSON.parse(config.hedgeConfig);
+          setReversalDetectionMinute((parsed.reversalDetectionMinute ?? 12.0).toString());
+          setReversalThreshold((parsed.reversalThreshold ?? 0.60).toString());
+          setReversalStakeMultiplier((parsed.reversalStakeMultiplier ?? 1.5).toString());
+          setPullbackDetectionStart((parsed.pullbackDetectionStart ?? 12.0).toString());
+          setPullbackDetectionEnd((parsed.pullbackDetectionEnd ?? 14.0).toString());
+          setPullbackMinProgress((parsed.pullbackMinProgress ?? 0.15).toString());
+          setPullbackMaxProgress((parsed.pullbackMaxProgress ?? 0.40).toString());
+          setPullbackStakeMultiplier((parsed.pullbackStakeMultiplier ?? 1.4).toString());
+          setEdgeReversalMinute((parsed.edgeReversalMinute ?? 12.0).toString());
+          setEdgeExtensionThreshold((parsed.edgeExtensionThreshold ?? 0.80).toString());
+          setEdgeStakeMultiplier((parsed.edgeStakeMultiplier ?? 1.5).toString());
+          setAnalysisStartMinute((parsed.analysisStartMinute ?? 12.0).toString());
+          setAnalysisEndMinute((parsed.analysisEndMinute ?? 14.0).toString());
+        } catch (error) {
+          console.error("Erro ao parsear hedgeConfig:", error);
+          // Manter valores padrão se houver erro
+        }
+      }
     }
   }, [config]);
 
@@ -139,6 +190,24 @@ export default function Settings() {
       setIsTesting(false);
       toast.error("Erro ao salvar configuração");
     }
+  };
+
+  const handleRestoreDefaults = () => {
+    // Restaurar valores padrão da IA Hedge
+    setReversalDetectionMinute("12.0");
+    setReversalThreshold("0.60");
+    setReversalStakeMultiplier("1.5");
+    setPullbackDetectionStart("12.0");
+    setPullbackDetectionEnd("14.0");
+    setPullbackMinProgress("0.15");
+    setPullbackMaxProgress("0.40");
+    setPullbackStakeMultiplier("1.4");
+    setEdgeReversalMinute("12.0");
+    setEdgeExtensionThreshold("0.80");
+    setEdgeStakeMultiplier("1.5");
+    setAnalysisStartMinute("12.0");
+    setAnalysisEndMinute("14.0");
+    toast.success("Configurações da IA Hedge restauradas para os padrões");
   };
 
   const handleSave = () => {
@@ -196,6 +265,24 @@ export default function Settings() {
       return;
     }
 
+    // Construir objeto hedgeConfig com os 13 parâmetros
+    const hedgeConfigObj = {
+      enabled: hedgeEnabled,
+      reversalDetectionMinute: parseFloat(reversalDetectionMinute),
+      reversalThreshold: parseFloat(reversalThreshold),
+      reversalStakeMultiplier: parseFloat(reversalStakeMultiplier),
+      pullbackDetectionStart: parseFloat(pullbackDetectionStart),
+      pullbackDetectionEnd: parseFloat(pullbackDetectionEnd),
+      pullbackMinProgress: parseFloat(pullbackMinProgress),
+      pullbackMaxProgress: parseFloat(pullbackMaxProgress),
+      pullbackStakeMultiplier: parseFloat(pullbackStakeMultiplier),
+      edgeReversalMinute: parseFloat(edgeReversalMinute),
+      edgeExtensionThreshold: parseFloat(edgeExtensionThreshold),
+      edgeStakeMultiplier: parseFloat(edgeStakeMultiplier),
+      analysisStartMinute: parseFloat(analysisStartMinute),
+      analysisEndMinute: parseFloat(analysisEndMinute),
+    };
+
     setIsSaving(true);
     updateConfig.mutate({
       mode,
@@ -210,6 +297,7 @@ export default function Settings() {
       profitThreshold: profitThresholdNum,
       waitTime: waitTimeNum,
       hedgeEnabled,
+      hedgeConfig: JSON.stringify(hedgeConfigObj),
     });
   };
 
@@ -501,6 +589,300 @@ export default function Settings() {
                   onCheckedChange={setHedgeEnabled}
                 />
               </div>
+
+              {/* Accordion para Configurações Avançadas */}
+              {hedgeEnabled && (
+                <Accordion type="single" collapsible className="w-full">
+                  <AccordionItem value="advanced" className="border-slate-700">
+                    <AccordionTrigger className="text-slate-300 hover:text-white">
+                      ⚙️ Configurações Avançadas da IA Hedge
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-6 pt-4">
+                      {/* Estratégia 1: Detecção de Reversão */}
+                      <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                        <h4 className="text-sm font-semibold text-slate-200">
+                          Estratégia 1: Detecção de Reversão
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          Abre hedge quando preço se move fortemente contra a predição original (&gt;60% do range na direção oposta)
+                        </p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="reversalDetectionMinute" className="text-slate-300">
+                              Minuto de Detecção
+                            </Label>
+                            <Input
+                              id="reversalDetectionMinute"
+                              type="number"
+                              step="0.1"
+                              value={reversalDetectionMinute}
+                              onChange={(e) => setReversalDetectionMinute(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="8.0"
+                              max="14.0"
+                            />
+                            <p className="text-xs text-slate-500">8.0 - 14.0 min (padrão: 12.0)</p>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="reversalThreshold" className="text-slate-300">
+                              Threshold (%)
+                            </Label>
+                            <Input
+                              id="reversalThreshold"
+                              type="number"
+                              step="0.01"
+                              value={reversalThreshold}
+                              onChange={(e) => setReversalThreshold(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="0.30"
+                              max="0.95"
+                            />
+                            <p className="text-xs text-slate-500">0.30 - 0.95 (padrão: 0.60 = 60%)</p>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="reversalStakeMultiplier" className="text-slate-300">
+                              Multiplicador de Stake
+                            </Label>
+                            <Input
+                              id="reversalStakeMultiplier"
+                              type="number"
+                              step="0.1"
+                              value={reversalStakeMultiplier}
+                              onChange={(e) => setReversalStakeMultiplier(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="0.1"
+                              max="2.0"
+                            />
+                            <p className="text-xs text-slate-500">0.1 - 2.0x (padrão: 1.5x)</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Estratégia 2: Reforço em Pullback */}
+                      <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                        <h4 className="text-sm font-semibold text-slate-200">
+                          Estratégia 2: Reforço em Pullback
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          Reforça posição quando movimento está correto mas lento ou após pequena retração (15-40% do esperado)
+                        </p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="pullbackDetectionStart" className="text-slate-300">
+                              Início da Janela (min)
+                            </Label>
+                            <Input
+                              id="pullbackDetectionStart"
+                              type="number"
+                              step="0.1"
+                              value={pullbackDetectionStart}
+                              onChange={(e) => setPullbackDetectionStart(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="8.0"
+                              max="13.0"
+                            />
+                            <p className="text-xs text-slate-500">8.0 - 13.0 min (padrão: 12.0)</p>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="pullbackDetectionEnd" className="text-slate-300">
+                              Fim da Janela (min)
+                            </Label>
+                            <Input
+                              id="pullbackDetectionEnd"
+                              type="number"
+                              step="0.1"
+                              value={pullbackDetectionEnd}
+                              onChange={(e) => setPullbackDetectionEnd(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="10.0"
+                              max="14.0"
+                            />
+                            <p className="text-xs text-slate-500">10.0 - 14.0 min (padrão: 14.0)</p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="pullbackMinProgress" className="text-slate-300">
+                              Progresso Mínimo
+                            </Label>
+                            <Input
+                              id="pullbackMinProgress"
+                              type="number"
+                              step="0.01"
+                              value={pullbackMinProgress}
+                              onChange={(e) => setPullbackMinProgress(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="0.05"
+                              max="0.50"
+                            />
+                            <p className="text-xs text-slate-500">0.05 - 0.50 (padrão: 0.15 = 15%)</p>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="pullbackMaxProgress" className="text-slate-300">
+                              Progresso Máximo
+                            </Label>
+                            <Input
+                              id="pullbackMaxProgress"
+                              type="number"
+                              step="0.01"
+                              value={pullbackMaxProgress}
+                              onChange={(e) => setPullbackMaxProgress(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="0.20"
+                              max="0.80"
+                            />
+                            <p className="text-xs text-slate-500">0.20 - 0.80 (padrão: 0.40 = 40%)</p>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="pullbackStakeMultiplier" className="text-slate-300">
+                              Multiplicador de Stake
+                            </Label>
+                            <Input
+                              id="pullbackStakeMultiplier"
+                              type="number"
+                              step="0.1"
+                              value={pullbackStakeMultiplier}
+                              onChange={(e) => setPullbackStakeMultiplier(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="0.1"
+                              max="1.5"
+                            />
+                            <p className="text-xs text-slate-500">0.1 - 1.5x (padrão: 1.4x)</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Estratégia 3: Reversão de Ponta */}
+                      <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                        <h4 className="text-sm font-semibold text-slate-200">
+                          Estratégia 3: Reversão de Ponta
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          Aposta em pequena reversão quando preço esticou demais na direção prevista (&gt;80% do range)
+                        </p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="edgeReversalMinute" className="text-slate-300">
+                              Minuto de Detecção
+                            </Label>
+                            <Input
+                              id="edgeReversalMinute"
+                              type="number"
+                              step="0.1"
+                              value={edgeReversalMinute}
+                              onChange={(e) => setEdgeReversalMinute(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="12.0"
+                              max="14.5"
+                            />
+                            <p className="text-xs text-slate-500">12.0 - 14.5 min (padrão: 12.0)</p>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="edgeExtensionThreshold" className="text-slate-300">
+                              Threshold de Extensão
+                            </Label>
+                            <Input
+                              id="edgeExtensionThreshold"
+                              type="number"
+                              step="0.01"
+                              value={edgeExtensionThreshold}
+                              onChange={(e) => setEdgeExtensionThreshold(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="0.60"
+                              max="0.95"
+                            />
+                            <p className="text-xs text-slate-500">0.60 - 0.95 (padrão: 0.80 = 80%)</p>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="edgeStakeMultiplier" className="text-slate-300">
+                              Multiplicador de Stake
+                            </Label>
+                            <Input
+                              id="edgeStakeMultiplier"
+                              type="number"
+                              step="0.1"
+                              value={edgeStakeMultiplier}
+                              onChange={(e) => setEdgeStakeMultiplier(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="0.1"
+                              max="1.5"
+                            />
+                            <p className="text-xs text-slate-500">0.1 - 1.5x (padrão: 1.5x)</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Janela Geral de Análise */}
+                      <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                        <h4 className="text-sm font-semibold text-slate-200">
+                          Janela de Análise
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          Período em que a IA Hedge analisa e pode abrir posições secundárias
+                        </p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="analysisStartMinute" className="text-slate-300">
+                              Início da Análise (min)
+                            </Label>
+                            <Input
+                              id="analysisStartMinute"
+                              type="number"
+                              step="0.1"
+                              value={analysisStartMinute}
+                              onChange={(e) => setAnalysisStartMinute(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="8.0"
+                              max="13.0"
+                            />
+                            <p className="text-xs text-slate-500">8.0 - 13.0 min (padrão: 12.0)</p>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="analysisEndMinute" className="text-slate-300">
+                              Fim da Análise (min)
+                            </Label>
+                            <Input
+                              id="analysisEndMinute"
+                              type="number"
+                              step="0.1"
+                              value={analysisEndMinute}
+                              onChange={(e) => setAnalysisEndMinute(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="12.0"
+                              max="14.0"
+                            />
+                            <p className="text-xs text-slate-500">12.0 - 14.0 min (padrão: 14.0)</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botão Restaurar Padrões */}
+                      <div className="pt-4 border-t border-slate-700">
+                        <Button
+                          variant="outline"
+                          onClick={handleRestoreDefaults}
+                          className="w-full border-slate-600 hover:bg-slate-700"
+                        >
+                          Restaurar Padrões
+                        </Button>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              )}
             </CardContent>
           </Card>
 
