@@ -85,6 +85,18 @@ export const appRouter = router({
           userId: ctx.user.id,
           ...input,
         });
+        
+        // Logar alterações de hedge se houver
+        if (input.hedgeEnabled !== undefined) {
+          const bot = getBotForUser(ctx.user.id);
+          if (bot) {
+            await bot.logEvent(
+              "CONFIG_UPDATED",
+              `⚡ IA HEDGE ${input.hedgeEnabled ? 'ATIVADA' : 'DESATIVADA'} pelo usuário`
+            );
+          }
+        }
+        
         return { success: true };
       }),
 

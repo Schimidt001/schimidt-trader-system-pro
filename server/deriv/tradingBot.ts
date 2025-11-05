@@ -181,6 +181,17 @@ export class TradingBot {
         this.state = "COLLECTING";
         await this.updateBotState();
         await this.logEvent("BOT_STARTED", `Bot iniciado em modo ${this.mode} para ${this.symbol}`);
+        
+        // Logar status da IA Hedge
+        if (this.hedgeEnabled) {
+          await this.logEvent(
+            "HEDGE_STATUS",
+            `🛡️ IA HEDGE ATIVA | Janela de análise: ${this.hedgeConfig.analysisStartMinute.toFixed(1)}-${this.hedgeConfig.analysisEndMinute.toFixed(1)} min`
+          );
+        } else {
+          await this.logEvent("HEDGE_STATUS", "❌ IA HEDGE DESATIVADA");
+        }
+        
         await this.startDataCollection();
       } else {
         // Bot reiniciando em outro estado (ex: ENTERED, ARMED)
@@ -760,11 +771,14 @@ export class TradingBot {
       // Analisar posição
       const decision = analyzePositionForHedge(params, this.hedgeConfig);
 
-      await this.logEvent(
-        "HEDGE_ANALYSIS",
-        `[IA HEDGE] Ação: ${decision.action} | Motivo: ${decision.reason} | Progresso: ${(decision.progressRatio * 100).toFixed(1)}% | Tempo: ${elapsedMinutes.toFixed(2)}min`,
-        decision
-      );
+      // Logar apenas situações importantes (não HOLD)
+      if (decision.action !== 'HOLD') {
+        await this.logEvent(
+          "HEDGE_ANALYSIS",
+          `[IA HEDGE] Ação: ${decision.action} | Motivo: ${decision.reason} | Progresso: ${(decision.progressRatio * 100).toFixed(1)}% | Tempo: ${elapsedMinutes.toFixed(2)}min`,
+          decision
+        );
+      }
 
       // Executar hedge se necessário
       if (decision.shouldOpenSecondPosition && decision.secondPositionType && decision.secondPositionStake) {
