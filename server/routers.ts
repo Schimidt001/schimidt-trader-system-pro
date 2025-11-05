@@ -55,8 +55,8 @@ export const appRouter = router({
           profitThreshold: 90, // threshold padrão de lucro
           waitTime: 8, // tempo de espera padrão em minutos
           contractType: "RISE_FALL" as const, // tipo de contrato padrão
-          barrierHigh: "0.30", // barreira superior padrão
-          barrierLow: "-0.30", // barreira inferior padrão
+          barrierHigh: "3.00", // barreira superior padrão (pontos)
+          barrierLow: "-3.00", // barreira inferior padrão (pontos)
           hedgeEnabled: true, // IA Hedge ativada por padrão
           hedgeConfig: null,
         };

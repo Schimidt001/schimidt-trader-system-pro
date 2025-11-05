@@ -37,8 +37,8 @@ export const config = mysqlTable("config", {
   waitTime: int("waitTime").default(8), // tempo de espera em minutos antes de capturar dados para predição
   // Configurações de tipo de contrato e barreiras
   contractType: mysqlEnum("contractType", ["RISE_FALL", "TOUCH", "NO_TOUCH"]).default("RISE_FALL").notNull(), // Tipo de contrato
-  barrierHigh: varchar("barrierHigh", { length: 20 }).default("0.30"), // Barreira superior em % (ex: "0.30" = 30%)
-  barrierLow: varchar("barrierLow", { length: 20 }).default("-0.30"), // Barreira inferior em % (ex: "-0.30" = -30%)
+  barrierHigh: varchar("barrierHigh", { length: 20 }).default("3.00"), // Barreira superior em pontos (ex: "3.00" = 3 pontos acima)
+  barrierLow: varchar("barrierLow", { length: 20 }).default("-3.00"), // Barreira inferior em pontos (ex: "-3.00" = 3 pontos abaixo)
   // Configurações da IA Hedge Inteligente
   hedgeEnabled: boolean("hedgeEnabled").default(true).notNull(), // Toggle para ativar/desativar IA Hedge
   hedgeConfig: text("hedgeConfig"), // Configurações de hedge armazenadas como JSON

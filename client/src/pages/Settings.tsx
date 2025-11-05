@@ -49,8 +49,8 @@ export default function Settings() {
   
   // Estados para tipo de contrato e barreiras
   const [contractType, setContractType] = useState<"RISE_FALL" | "TOUCH" | "NO_TOUCH">("RISE_FALL");
-  const [barrierHigh, setBarrierHigh] = useState("0.30");
-  const [barrierLow, setBarrierLow] = useState("-0.30");
+  const [barrierHigh, setBarrierHigh] = useState("3.00");
+  const [barrierLow, setBarrierLow] = useState("-3.00");
   
   const [hedgeEnabled, setHedgeEnabled] = useState(true);
 
@@ -128,8 +128,8 @@ export default function Settings() {
       
       // Carregar configurações de tipo de contrato e barreiras
       setContractType(config.contractType || "RISE_FALL");
-      setBarrierHigh(config.barrierHigh || "0.30");
-      setBarrierLow(config.barrierLow || "-0.30");
+      setBarrierHigh(config.barrierHigh || "3.00");
+      setBarrierLow(config.barrierLow || "-3.00");
       
       setHedgeEnabled(config.hedgeEnabled ?? true);
       
@@ -616,10 +616,10 @@ export default function Settings() {
                       value={barrierHigh}
                       onChange={(e) => setBarrierHigh(e.target.value)}
                       className="bg-slate-800 border-slate-700 text-white"
-                      placeholder="0.30"
+                      placeholder="3.00"
                     />
                     <p className="text-xs text-slate-500">
-                      Distância em pontos acima do preço (ex: 0.30 = 0.30 pontos acima | Mínimo: 0.28)
+                      Distância em pontos acima do preço (ex: 3.00 = 3 pontos acima | Mínimo: 2.80)
                     </p>
                   </div>
 
@@ -633,10 +633,10 @@ export default function Settings() {
                       value={barrierLow}
                       onChange={(e) => setBarrierLow(e.target.value)}
                       className="bg-slate-800 border-slate-700 text-white"
-                      placeholder="-0.30"
+                      placeholder="-3.00"
                     />
                     <p className="text-xs text-slate-500">
-                      Distância em pontos abaixo do preço (ex: -0.30 = 0.30 pontos abaixo | Mínimo: 0.28)
+                      Distância em pontos abaixo do preço (ex: -3.00 = 3 pontos abaixo | Mínimo: 2.80)
                     </p>
                   </div>
                 </div>

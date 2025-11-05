@@ -78,8 +78,8 @@ export class TradingBot {
   
   // Configurações de tipo de contrato e barreiras
   private contractType: "RISE_FALL" | "TOUCH" | "NO_TOUCH" = "RISE_FALL";
-  private barrierHigh: string = "0.30"; // barreira superior em %
-  private barrierLow: string = "-0.30"; // barreira inferior em %
+  private barrierHigh: string = "3.00"; // barreira superior em pontos
+  private barrierLow: string = "-3.00"; // barreira inferior em pontos
   
   // Configurações da IA Hedge
   private hedgeEnabled: boolean = true;
@@ -125,12 +125,12 @@ export class TradingBot {
       
       // Carregar configurações de tipo de contrato e barreiras
       this.contractType = config.contractType ?? "RISE_FALL";
-      this.barrierHigh = config.barrierHigh ?? "0.30";
-      this.barrierLow = config.barrierLow ?? "-0.30";
+      this.barrierHigh = config.barrierHigh ?? "3.00";
+      this.barrierLow = config.barrierLow ?? "-3.00";
       
       console.log(`[CONTRACT_TYPE] Tipo de contrato: ${this.contractType}`);
       if (this.contractType !== "RISE_FALL") {
-        console.log(`[BARRIERS] Barreira Superior: ${this.barrierHigh}% | Barreira Inferior: ${this.barrierLow}%`);
+        console.log(`[BARRIERS] Barreira Superior: ${this.barrierHigh} pontos | Barreira Inferior: ${this.barrierLow} pontos`);
       }
       
       // Carregar configurações da IA Hedge
