@@ -651,16 +651,17 @@ export class TradingBot {
         contractType = "ONETOUCH";
         const barrierOffset = parseFloat(this.prediction.direction === "up" ? this.barrierHigh : this.barrierLow);
         // Calcular barreira absoluta: preço atual + offset em pontos
-        // Garantir distância mínima de 0.3 pontos (3000 pips)
+        // API DERIV aceita no máximo 2 casas decimais
         const absoluteBarrier = entryPrice + barrierOffset;
-        barrier = `+${Math.abs(absoluteBarrier - entryPrice).toFixed(5)}`;
+        barrier = `+${Math.abs(absoluteBarrier - entryPrice).toFixed(2)}`;
       } else {
         // NO_TOUCH: usar barreira oposta à direção da predição
         contractType = "NOTOUCH";
         const barrierOffset = parseFloat(this.prediction.direction === "up" ? this.barrierLow : this.barrierHigh);
         // Calcular barreira absoluta: preço atual + offset em pontos
+        // API DERIV aceita no máximo 2 casas decimais
         const absoluteBarrier = entryPrice + barrierOffset;
-        barrier = barrierOffset > 0 ? `+${Math.abs(absoluteBarrier - entryPrice).toFixed(5)}` : `-${Math.abs(absoluteBarrier - entryPrice).toFixed(5)}`;
+        barrier = barrierOffset > 0 ? `+${Math.abs(absoluteBarrier - entryPrice).toFixed(2)}` : `-${Math.abs(absoluteBarrier - entryPrice).toFixed(2)}`;
       }
       
       // Calcular duração até 20 segundos antes do fim do candle M15 (900s)
