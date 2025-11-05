@@ -649,11 +649,18 @@ export class TradingBot {
       } else if (this.contractType === "TOUCH") {
         // TOUCH: usar barreira baseada na direção da predição
         contractType = "ONETOUCH";
-        barrier = this.prediction.direction === "up" ? this.barrierHigh : this.barrierLow;
+        const barrierOffset = parseFloat(this.prediction.direction === "up" ? this.barrierHigh : this.barrierLow);
+        // Calcular barreira absoluta: preço atual + offset em pontos
+        // Garantir distância mínima de 0.3 pontos (3000 pips)
+        const absoluteBarrier = entryPrice + barrierOffset;
+        barrier = `+${Math.abs(absoluteBarrier - entryPrice).toFixed(5)}`;
       } else {
         // NO_TOUCH: usar barreira oposta à direção da predição
         contractType = "NOTOUCH";
-        barrier = this.prediction.direction === "up" ? this.barrierLow : this.barrierHigh;
+        const barrierOffset = parseFloat(this.prediction.direction === "up" ? this.barrierLow : this.barrierHigh);
+        // Calcular barreira absoluta: preço atual + offset em pontos
+        const absoluteBarrier = entryPrice + barrierOffset;
+        barrier = barrierOffset > 0 ? `+${Math.abs(absoluteBarrier - entryPrice).toFixed(5)}` : `-${Math.abs(absoluteBarrier - entryPrice).toFixed(5)}`;
       }
       
       // Calcular duração até 20 segundos antes do fim do candle M15 (900s)

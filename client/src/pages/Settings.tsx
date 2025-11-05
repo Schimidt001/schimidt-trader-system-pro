@@ -599,7 +599,7 @@ export default function Settings() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-slate-500">
-                  RISE/FALL: Predição de fechamento | TOUCH: Preço deve tocar barreira | NO TOUCH: Preço não deve tocar barreira
+                  RISE/FALL: Predição de fechamento | TOUCH: Preço deve tocar barreira (distância em pontos) | NO TOUCH: Preço não deve tocar barreira
                 </p>
               </div>
 
@@ -608,7 +608,7 @@ export default function Settings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
                   <div className="space-y-2">
                     <Label htmlFor="barrierHigh" className="text-slate-300">
-                      Barreira Superior (%)
+                      Barreira Superior (pontos)
                     </Label>
                     <Input
                       id="barrierHigh"
@@ -619,13 +619,13 @@ export default function Settings() {
                       placeholder="0.30"
                     />
                     <p className="text-xs text-slate-500">
-                      Barreira acima do preço atual (ex: 0.30 = 30% acima)
+                      Distância em pontos acima do preço (ex: 0.30 = 0.30 pontos acima | Mínimo: 0.28)
                     </p>
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="barrierLow" className="text-slate-300">
-                      Barreira Inferior (%)
+                      Barreira Inferior (pontos)
                     </Label>
                     <Input
                       id="barrierLow"
@@ -636,7 +636,7 @@ export default function Settings() {
                       placeholder="-0.30"
                     />
                     <p className="text-xs text-slate-500">
-                      Barreira abaixo do preço atual (ex: -0.30 = 30% abaixo)
+                      Distância em pontos abaixo do preço (ex: -0.30 = 0.30 pontos abaixo | Mínimo: 0.28)
                     </p>
                   </div>
                 </div>
