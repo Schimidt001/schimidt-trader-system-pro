@@ -46,6 +46,12 @@ export default function Settings() {
   const [triggerOffset, setTriggerOffset] = useState("16");
   const [profitThreshold, setProfitThreshold] = useState("90");
   const [waitTime, setWaitTime] = useState("8");
+  
+  // Estados para tipo de contrato e barreiras
+  const [contractType, setContractType] = useState<"RISE_FALL" | "TOUCH" | "NO_TOUCH">("RISE_FALL");
+  const [barrierHigh, setBarrierHigh] = useState("0.30");
+  const [barrierLow, setBarrierLow] = useState("-0.30");
+  
   const [hedgeEnabled, setHedgeEnabled] = useState(true);
 
   // Estados para os 13 parâmetros da IA Hedge
@@ -119,6 +125,12 @@ export default function Settings() {
       setTriggerOffset((config.triggerOffset ?? 16).toString()); // Usar ?? para aceitar 0
       setProfitThreshold((config.profitThreshold || 90).toString());
       setWaitTime((config.waitTime || 8).toString());
+      
+      // Carregar configurações de tipo de contrato e barreiras
+      setContractType(config.contractType || "RISE_FALL");
+      setBarrierHigh(config.barrierHigh || "0.30");
+      setBarrierLow(config.barrierLow || "-0.30");
+      
       setHedgeEnabled(config.hedgeEnabled ?? true);
       
       // Carregar configurações da IA Hedge se existirem
@@ -296,6 +308,9 @@ export default function Settings() {
       triggerOffset: triggerOffsetNum,
       profitThreshold: profitThresholdNum,
       waitTime: waitTimeNum,
+      contractType,
+      barrierHigh,
+      barrierLow,
       hedgeEnabled,
       hedgeConfig: JSON.stringify(hedgeConfigObj),
     });
@@ -564,6 +579,65 @@ export default function Settings() {
                   </p>
                 </div>
               </div>
+
+              {/* Tipo de Contrato */}
+              <div className="space-y-2">
+                <Label htmlFor="contractType" className="text-slate-300">
+                  Tipo de Contrato
+                </Label>
+                <Select value={contractType} onValueChange={(value: "RISE_FALL" | "TOUCH" | "NO_TOUCH") => setContractType(value)}>
+                  <SelectTrigger id="contractType" className="bg-slate-800 border-slate-700 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="RISE_FALL">RISE/FALL (CALL/PUT)</SelectItem>
+                    <SelectItem value="TOUCH">TOUCH (One Touch)</SelectItem>
+                    <SelectItem value="NO_TOUCH">NO TOUCH</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  RISE/FALL: Predição de fechamento | TOUCH: Preço deve tocar barreira | NO TOUCH: Preço não deve tocar barreira
+                </p>
+              </div>
+
+              {/* Barreiras (visível apenas para TOUCH/NO_TOUCH) */}
+              {contractType !== "RISE_FALL" && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                  <div className="space-y-2">
+                    <Label htmlFor="barrierHigh" className="text-slate-300">
+                      Barreira Superior (%)
+                    </Label>
+                    <Input
+                      id="barrierHigh"
+                      type="text"
+                      value={barrierHigh}
+                      onChange={(e) => setBarrierHigh(e.target.value)}
+                      className="bg-slate-800 border-slate-700 text-white"
+                      placeholder="0.30"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Barreira acima do preço atual (ex: 0.30 = 30% acima)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="barrierLow" className="text-slate-300">
+                      Barreira Inferior (%)
+                    </Label>
+                    <Input
+                      id="barrierLow"
+                      type="text"
+                      value={barrierLow}
+                      onChange={(e) => setBarrierLow(e.target.value)}
+                      className="bg-slate-800 border-slate-700 text-white"
+                      placeholder="-0.30"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Barreira abaixo do preço atual (ex: -0.30 = 30% abaixo)
+                    </p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

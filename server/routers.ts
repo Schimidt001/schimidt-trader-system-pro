@@ -54,6 +54,9 @@ export const appRouter = router({
           triggerOffset: 16, // offset padrão do gatilho
           profitThreshold: 90, // threshold padrão de lucro
           waitTime: 8, // tempo de espera padrão em minutos
+          contractType: "RISE_FALL" as const, // tipo de contrato padrão
+          barrierHigh: "0.30", // barreira superior padrão
+          barrierLow: "-0.30", // barreira inferior padrão
           hedgeEnabled: true, // IA Hedge ativada por padrão
           hedgeConfig: null,
         };
@@ -76,6 +79,9 @@ export const appRouter = router({
           triggerOffset: z.number().int().nonnegative(), // Aceita 0 (desativado) ou valores positivos
           profitThreshold: z.number().int().min(1).max(100),
           waitTime: z.number().int().min(1).max(14), // 1-14 minutos (candle M15)
+          contractType: z.enum(["RISE_FALL", "TOUCH", "NO_TOUCH"]),
+          barrierHigh: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal
+          barrierLow: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal
           hedgeEnabled: z.boolean().optional(),
           hedgeConfig: z.string().optional(),
         })

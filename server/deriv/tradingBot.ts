@@ -76,6 +76,11 @@ export class TradingBot {
   private waitTime: number = 8; // tempo de espera em minutos antes de capturar dados
   private mode: "DEMO" | "REAL" = "DEMO";
   
+  // Configurações de tipo de contrato e barreiras
+  private contractType: "RISE_FALL" | "TOUCH" | "NO_TOUCH" = "RISE_FALL";
+  private barrierHigh: string = "0.30"; // barreira superior em %
+  private barrierLow: string = "-0.30"; // barreira inferior em %
+  
   // Configurações da IA Hedge
   private hedgeEnabled: boolean = true;
   private hedgeConfig: HedgeConfig = DEFAULT_HEDGE_CONFIG;
@@ -117,6 +122,16 @@ export class TradingBot {
       this.profitThreshold = config.profitThreshold ?? 90;
       this.waitTime = config.waitTime ?? 8;
       this.mode = config.mode;
+      
+      // Carregar configurações de tipo de contrato e barreiras
+      this.contractType = config.contractType ?? "RISE_FALL";
+      this.barrierHigh = config.barrierHigh ?? "0.30";
+      this.barrierLow = config.barrierLow ?? "-0.30";
+      
+      console.log(`[CONTRACT_TYPE] Tipo de contrato: ${this.contractType}`);
+      if (this.contractType !== "RISE_FALL") {
+        console.log(`[BARRIERS] Barreira Superior: ${this.barrierHigh}% | Barreira Inferior: ${this.barrierLow}%`);
+      }
       
       // Carregar configurações da IA Hedge
       this.hedgeEnabled = config.hedgeEnabled ?? true;
@@ -624,7 +639,22 @@ export class TradingBot {
     if (!this.prediction || !this.derivService) return;
 
     try {
-      const contractType = this.prediction.direction === "up" ? "CALL" : "PUT";
+      // Determinar tipo de contrato baseado na configuração
+      let contractType: string;
+      let barrier: string | undefined;
+      
+      if (this.contractType === "RISE_FALL") {
+        // RISE/FALL tradicional (CALL/PUT)
+        contractType = this.prediction.direction === "up" ? "CALL" : "PUT";
+      } else if (this.contractType === "TOUCH") {
+        // TOUCH: usar barreira baseada na direção da predição
+        contractType = "ONETOUCH";
+        barrier = this.prediction.direction === "up" ? this.barrierHigh : this.barrierLow;
+      } else {
+        // NO_TOUCH: usar barreira oposta à direção da predição
+        contractType = "NOTOUCH";
+        barrier = this.prediction.direction === "up" ? this.barrierLow : this.barrierHigh;
+      }
       
       // Calcular duração até 20 segundos antes do fim do candle M15 (900s)
       // Duração = (900 - elapsedSeconds - 20) segundos
@@ -637,7 +667,8 @@ export class TradingBot {
         contractType,
         this.stake / 100, // Converter centavos para unidade
         durationMinutes,
-        "m"
+        "m",
+        barrier // Passar barreira se for TOUCH/NO_TOUCH
       );
 
       // Salvar posição no banco

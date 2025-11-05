@@ -334,10 +334,11 @@ export class DerivService {
    */
   async buyContract(
     symbol: string,
-    contractType: "CALL" | "PUT",
+    contractType: "CALL" | "PUT" | "ONETOUCH" | "NOTOUCH",
     stake: number,
     duration: number = 1,
-    durationType: string = "m"
+    durationType: string = "m",
+    barrier?: string // Barreira para contratos TOUCH/NO_TOUCH (ex: "+0.30" ou "-0.30")
   ): Promise<DerivContract> {
     return new Promise((resolve, reject) => {
       const handler = (message: any) => {
@@ -357,18 +358,26 @@ export class DerivService {
 
       this.subscriptions.set("buy", handler);
       
+      // Construir parâmetros do contrato
+      const parameters: any = {
+        contract_type: contractType,
+        symbol: symbol,
+        duration: duration,
+        duration_unit: durationType,
+        basis: "stake",
+        amount: stake,
+        currency: "USD",
+      };
+      
+      // Adicionar barreira se for TOUCH ou NO_TOUCH
+      if (barrier && (contractType === "ONETOUCH" || contractType === "NOTOUCH")) {
+        parameters.barrier = barrier;
+      }
+      
       this.send({
         buy: 1,
         price: stake,
-        parameters: {
-          contract_type: contractType,
-          symbol: symbol,
-          duration: duration,
-          duration_unit: durationType,
-          basis: "stake",
-          amount: stake,
-          currency: "USD",
-        },
+        parameters,
       });
 
       setTimeout(() => {
