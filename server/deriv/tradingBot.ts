@@ -53,11 +53,17 @@ export class TradingBot {
   private trigger: number = 0;
   private pipSize: number = 0.01;
   
-  // Posição atual
-  private currentPositionId: number | null = null;
-  private contractId: string | null = null;
+  // Posições atuais (suporte a múltiplas posições: original + hedge)
+  private currentPositions: Array<{
+    positionId: number;
+    contractId: string;
+    isHedge: boolean;
+    parentPositionId?: number;
+    stake: number;
+  }> = [];
   private lastContractCheckTime: number = 0;
-  private candleEndTimer: NodeJS.Timeout | null = null; // Timer para forçar fim de candle
+  private candleEndTimer: NodeJS.Timeout | null = null;
+  private hedgeAlreadyOpened: boolean = false;
   
   // Configurações
   private symbol: string = "R_100";
@@ -355,7 +361,7 @@ export class TradingBot {
     }
 
     // Se em posição, gerenciar saída
-    if (this.state === "ENTERED" && this.currentPositionId) {
+    if (this.state === "ENTERED" && this.currentPositions.length > 0) {
       await this.managePosition(tick.quote, elapsedSeconds);
     }
   }
@@ -382,16 +388,17 @@ export class TradingBot {
       `Candle fechado e salvo (DERIV oficial): Open=${this.currentCandleOpen} | High=${this.currentCandleHigh} | Low=${this.currentCandleLow} | Close=${this.currentCandleClose}`
     );
 
-    // Se tinha posição aberta, fechar
-    if (this.state === "ENTERED" && this.currentPositionId) {
-      await this.closePosition("Candle fechado");
+    // Se tinha posições abertas, fechar todas
+    if (this.state === "ENTERED" && this.currentPositions.length > 0) {
+      await this.closeAllPositions("Candle fechado");
+    } else {
+      // Reset estado se não tinha posições
+      this.prediction = null;
+      this.trigger = 0;
+      this.hedgeAlreadyOpened = false;
+      this.state = "WAITING_MIDPOINT";
+      await this.updateBotState();
     }
-
-    // Reset estado (IDs já foram limpos em closePosition)
-    this.prediction = null;
-    this.trigger = 0;
-    this.state = "WAITING_MIDPOINT";
-    await this.updateBotState();
   }
 
   /**
@@ -622,8 +629,6 @@ export class TradingBot {
         "m"
       );
 
-      this.contractId = contract.contract_id;
-
       // Salvar posição no banco
       const positionId = await insertPosition({
         userId: this.userId,
@@ -640,9 +645,16 @@ export class TradingBot {
         status: "ENTERED",
         candleTimestamp: this.currentCandleTimestamp,
         entryTime: new Date(),
+        isHedge: false,
       });
 
-      this.currentPositionId = positionId;
+      // Adicionar à lista de posições
+      this.currentPositions.push({
+        positionId,
+        contractId: contract.contract_id,
+        isHedge: false,
+        stake: this.stake,
+      });
       this.tradesThisCandle.add(this.currentCandleTimestamp);
       this.lastContractCheckTime = 0; // Resetar para permitir verificação imediata
 
@@ -664,18 +676,22 @@ export class TradingBot {
    * Gerencia a posição aberta
    */
   private async managePosition(currentPrice: number, elapsedSeconds: number): Promise<void> {
-    if (!this.currentPositionId || !this.contractId || !this.derivService) return;
+    if (this.currentPositions.length === 0 || !this.derivService) return;
 
     // Debounce: só consultar contrato a cada 5 segundos
     const now = Date.now();
     if (now - this.lastContractCheckTime < 5000) {
-      return; // Pular esta verificação
+      return;
     }
     this.lastContractCheckTime = now;
 
     try {
-      // Obter informações do contrato
-      const contractInfo = await this.derivService.getContractInfo(this.contractId);
+      // Obter posição original (primeira da lista)
+      const originalPosition = this.currentPositions.find(p => !p.isHedge);
+      if (!originalPosition) return;
+
+      // Obter informações do contrato original
+      const contractInfo = await this.derivService.getContractInfo(originalPosition.contractId);
       
       const payout = contractInfo.payout || 0;
       const currentProfit = contractInfo.profit || 0;
@@ -683,23 +699,33 @@ export class TradingBot {
 
       // 1. Early close se lucro >= profitThreshold% do lucro máximo
       const profitRatio = this.profitThreshold / 100;
-      const stakeInDollars = this.stake / 100; // Converter centavos para dólares
-      const maxProfit = payout - stakeInDollars; // Lucro máximo possível
-      const targetProfit = maxProfit * profitRatio; // X% do lucro máximo
+      const stakeInDollars = originalPosition.stake / 100;
+      const maxProfit = payout - stakeInDollars;
+      const targetProfit = maxProfit * profitRatio;
       
       if (currentProfit >= targetProfit && sellPrice > 0) {
-        await this.closePosition(`Early close - ${this.profitThreshold}% do lucro máximo atingido`, sellPrice);
+        await this.closeAllPositions(`Early close - ${this.profitThreshold}% do lucro máximo atingido`);
         return;
       }
 
       // 2. Fechar 20 segundos antes do fim do candle (880s) APENAS SE EM LUCRO
       if (elapsedSeconds >= 880 && currentProfit > 0 && sellPrice > 0) {
-        await this.closePosition("Fechamento 20s antes do fim (em lucro)", sellPrice);
+        await this.closeAllPositions("Fechamento 20s antes do fim (em lucro)");
         return;
       }
 
-      // 3. Se em perda, aguardar até o fim do candle (900s)
-      // A posição será fechada automaticamente pela DERIV ou pelo closeCurrentCandle()
+      // 3. IA HEDGE: Analisar se deve abrir hedge (apenas nos últimos 3 minutos)
+      const elapsedMinutes = elapsedSeconds / 60;
+      if (this.hedgeEnabled && 
+          !this.hedgeAlreadyOpened && 
+          this.prediction &&
+          elapsedMinutes >= this.hedgeConfig.analysisStartMinute &&
+          elapsedMinutes <= this.hedgeConfig.analysisEndMinute) {
+        
+        await this.analyzeAndExecuteHedge(currentPrice, elapsedMinutes, originalPosition);
+      }
+
+      // 4. Se em perda, aguardar até o fim do candle (900s)
     } catch (error) {
       // Não logar erro a cada tick, apenas em caso de timeout crítico
       // A posição continuará sendo gerenciada e fechará no tempo correto
@@ -710,77 +736,197 @@ export class TradingBot {
   }
 
   /**
-   * Fecha a posição
+   * Analisa posição e executa hedge se necessário
    */
-  private async closePosition(reason: string, sellPrice?: number): Promise<void> {
-    if (!this.currentPositionId || !this.contractId || !this.derivService) return;
-
-    // Proteção contra múltiplas chamadas simultâneas
-    const positionId = this.currentPositionId;
-    const contractId = this.contractId;
-    
-    // Limpar IDs imediatamente para evitar duplicação
-    this.currentPositionId = null;
-    this.contractId = null;
+  private async analyzeAndExecuteHedge(
+    currentPrice: number,
+    elapsedMinutes: number,
+    originalPosition: { positionId: number; contractId: string; stake: number }
+  ): Promise<void> {
+    if (!this.prediction || !this.derivService) return;
 
     try {
-      // Tentar vender contrato se preço fornecido
-      if (sellPrice && sellPrice > 0) {
-        await this.derivService.sellContract(contractId, sellPrice);
-      }
+      // Preparar parâmetros para análise
+      const params = {
+        entryPrice: parseFloat(await this.getPositionEntryPrice(originalPosition.positionId)),
+        currentPrice,
+        predictedClose: this.prediction.predicted_close,
+        candleOpen: this.currentCandleOpen,
+        direction: this.prediction.direction,
+        elapsedMinutes,
+        originalStake: originalPosition.stake,
+      };
 
-      // Obter informações finais do contrato
-      const contractInfo = await this.derivService.getContractInfo(contractId);
-      
-      // Log detalhado dos valores da DERIV para debug
+      // Analisar posição
+      const decision = analyzePositionForHedge(params, this.hedgeConfig);
+
       await this.logEvent(
-        "CONTRACT_CLOSE_DEBUG",
-        `[DEBUG FECHAMENTO] Contract ID: ${contractId} | status: ${contractInfo.status} | profit: ${contractInfo.profit} | sell_price: ${contractInfo.sell_price} | buy_price: ${contractInfo.buy_price} | payout: ${contractInfo.payout} | exit_tick: ${contractInfo.exit_tick} | current_spot: ${contractInfo.current_spot}`
+        "HEDGE_ANALYSIS",
+        `[IA HEDGE] Ação: ${decision.action} | Motivo: ${decision.reason} | Progresso: ${(decision.progressRatio * 100).toFixed(1)}% | Tempo: ${elapsedMinutes.toFixed(2)}min`,
+        decision
       );
-      
-      // Calcular PnL baseado no resultado FINAL do contrato
-      let finalProfit = 0;
-      
-      if (contractInfo.status === 'sold' || contractInfo.status === 'won') {
-        // Contrato vendido ou ganho: usar sell_price ou payout
-        const sellPrice = contractInfo.sell_price || contractInfo.payout || 0;
-        finalProfit = sellPrice - contractInfo.buy_price;
-      } else if (contractInfo.status === 'lost') {
-        // Contrato perdido: perda total do stake
-        finalProfit = -contractInfo.buy_price;
-      } else {
-        // Contrato ainda aberto ou status desconhecido: usar profit atual (temporário)
-        // AVISO: Isso pode não refletir o resultado final!
-        finalProfit = contractInfo.profit || 0;
-        await this.logEvent(
-          "WARNING",
-          `[AVISO] Contrato ${contractId} fechado com status '${contractInfo.status}' - PnL pode não ser final`
+
+      // Executar hedge se necessário
+      if (decision.shouldOpenSecondPosition && decision.secondPositionType && decision.secondPositionStake) {
+        await this.openHedgePosition(
+          decision.secondPositionType,
+          decision.secondPositionStake,
+          originalPosition.positionId,
+          decision.action,
+          decision.reason,
+          elapsedMinutes
         );
+        
+        this.hedgeAlreadyOpened = true;
       }
-      
-      const exitPrice = contractInfo.exit_tick || contractInfo.current_spot || 0;
+    } catch (error) {
+      console.error("[TradingBot] Error analyzing hedge:", error);
+      await this.logEvent("ERROR", `Erro ao analisar hedge: ${error}`);
+    }
+  }
 
-      // Atualizar posição no banco
-      const pnlInCents = Math.round(finalProfit * 100);
-      await updatePosition(positionId, {
-        exitPrice: exitPrice.toString(),
-        pnl: pnlInCents,
-        status: "CLOSED",
-        exitTime: new Date(),
-      });
-      
-      await this.logEvent(
-        "PNL_CALCULATION",
-        `[CÁLCULO PNL] finalProfit DERIV: ${finalProfit} | pnlInCents (x100): ${pnlInCents} | pnlInDollars: ${(pnlInCents / 100).toFixed(2)}`
+  /**
+   * Abre posição de hedge
+   */
+  private async openHedgePosition(
+    contractType: 'CALL' | 'PUT',
+    stakeInCents: number,
+    parentPositionId: number,
+    hedgeAction: string,
+    hedgeReason: string,
+    elapsedMinutes: number
+  ): Promise<void> {
+    if (!this.derivService || !this.prediction) return;
+
+    try {
+      // Calcular duração restante do candle
+      const elapsedSeconds = elapsedMinutes * 60;
+      const durationSeconds = Math.max(900 - elapsedSeconds - 20, 60);
+      const durationMinutes = Math.ceil(durationSeconds / 60);
+
+      // Comprar contrato de hedge na DERIV
+      const contract = await this.derivService.buyContract(
+        this.symbol,
+        contractType,
+        stakeInCents / 100,
+        durationMinutes,
+        "m"
       );
 
-      // Atualizar PnL diário
-      this.dailyPnL += Math.round(finalProfit * 100);
-      await this.updateDailyMetrics(Math.round(finalProfit * 100));
+      // Salvar posição de hedge no banco
+      const hedgePositionId = await insertPosition({
+        userId: this.userId,
+        contractId: contract.contract_id,
+        symbol: this.symbol,
+        direction: contractType === 'CALL' ? 'up' : 'down',
+        stake: stakeInCents,
+        entryPrice: "0",
+        predictedClose: this.prediction.predicted_close.toString(),
+        trigger: "0",
+        phase: this.prediction.phase,
+        strategy: this.prediction.strategy,
+        confidence: this.prediction.confidence.toString(),
+        status: "ENTERED",
+        candleTimestamp: this.currentCandleTimestamp,
+        entryTime: new Date(),
+        isHedge: true,
+        parentPositionId,
+        hedgeAction,
+        hedgeReason,
+      });
+
+      // Adicionar à lista de posições
+      this.currentPositions.push({
+        positionId: hedgePositionId,
+        contractId: contract.contract_id,
+        isHedge: true,
+        parentPositionId,
+        stake: stakeInCents,
+      });
 
       await this.logEvent(
-        "POSITION_CLOSED",
-        `Posição fechada: ${reason} | PnL: ${finalProfit.toFixed(2)} | PnL Diário: ${(this.dailyPnL / 100).toFixed(2)}`
+        "HEDGE_POSITION_OPENED",
+        `🛡️ HEDGE ABERTO: ${contractType} | Stake: $${(stakeInCents / 100).toFixed(2)} (${(stakeInCents / this.stake).toFixed(1)}x) | Ação: ${hedgeAction} | Motivo: ${hedgeReason} | Contract: ${contract.contract_id}`
+      );
+    } catch (error) {
+      console.error("[TradingBot] Error opening hedge position:", error);
+      await this.logEvent("ERROR", `Erro ao abrir hedge: ${error}`);
+    }
+  }
+
+  /**
+   * Fecha todas as posições (original + hedge)
+   */
+  private async closeAllPositions(reason: string): Promise<void> {
+    if (this.currentPositions.length === 0 || !this.derivService) return;
+
+    const positions = [...this.currentPositions];
+    this.currentPositions = [];
+
+    let totalPnL = 0;
+    const closedPositions: Array<{ id: number; pnl: number; isHedge: boolean }> = [];
+
+    try {
+      // Fechar todas as posições
+      for (const position of positions) {
+        try {
+          // Obter informações finais do contrato
+          const contractInfo = await this.derivService.getContractInfo(position.contractId);
+
+          // Tentar vender se possível
+          if (contractInfo.sell_price && contractInfo.sell_price > 0) {
+            await this.derivService.sellContract(position.contractId, contractInfo.sell_price);
+          }
+
+          // Reconsultar após venda
+          const finalContractInfo = await this.derivService.getContractInfo(position.contractId);
+
+          // Calcular PnL
+          let finalProfit = 0;
+          if (finalContractInfo.status === 'sold' || finalContractInfo.status === 'won') {
+            const sellPrice = finalContractInfo.sell_price || finalContractInfo.payout || 0;
+            finalProfit = sellPrice - finalContractInfo.buy_price;
+          } else if (finalContractInfo.status === 'lost') {
+            finalProfit = -finalContractInfo.buy_price;
+          } else {
+            finalProfit = finalContractInfo.profit || 0;
+          }
+
+          const pnlInCents = Math.round(finalProfit * 100);
+          totalPnL += pnlInCents;
+
+          // Atualizar posição no banco
+          const exitPrice = finalContractInfo.exit_tick || finalContractInfo.current_spot || 0;
+          await updatePosition(position.positionId, {
+            exitPrice: exitPrice.toString(),
+            pnl: pnlInCents,
+            status: "CLOSED",
+            exitTime: new Date(),
+          });
+
+          closedPositions.push({
+            id: position.positionId,
+            pnl: pnlInCents,
+            isHedge: position.isHedge,
+          });
+
+          await this.logEvent(
+            position.isHedge ? "HEDGE_POSITION_CLOSED" : "POSITION_CLOSED",
+            `${position.isHedge ? '🛡️ Hedge' : 'Posição'} fechada: ${reason} | PnL: $${(pnlInCents / 100).toFixed(2)} | Contract: ${position.contractId}`
+          );
+        } catch (error) {
+          console.error(`[TradingBot] Error closing position ${position.contractId}:`, error);
+          await this.logEvent("ERROR", `Erro ao fechar posição ${position.contractId}: ${error}`);
+        }
+      }
+
+      // Atualizar PnL diário com total combinado
+      this.dailyPnL += totalPnL;
+      await this.updateDailyMetrics(totalPnL);
+
+      await this.logEvent(
+        "ALL_POSITIONS_CLOSED",
+        `✅ TODAS POSIÇÕES FECHADAS: ${reason} | PnL Total: $${(totalPnL / 100).toFixed(2)} | PnL Diário: $${(this.dailyPnL / 100).toFixed(2)} | Posições: ${closedPositions.length}`
       );
 
       // Verificar stop/take diário
@@ -796,15 +942,38 @@ export class TradingBot {
         return;
       }
 
-      // Reset para próximo candle (IDs já foram limpos no início da função)
+      // Reset para próximo candle
       this.prediction = null;
       this.trigger = 0;
+      this.hedgeAlreadyOpened = false;
       this.state = "WAITING_MIDPOINT";
       await this.updateBotState();
     } catch (error) {
-      console.error("[TradingBot] Error closing position:", error);
-      await this.logEvent("ERROR", `Erro ao fechar posição: ${error}`);
+      console.error("[TradingBot] Error closing all positions:", error);
+      await this.logEvent("ERROR", `Erro ao fechar todas posições: ${error}`);
     }
+  }
+
+  /**
+   * Obtém preço de entrada de uma posição
+   */
+  private async getPositionEntryPrice(positionId: number): Promise<string> {
+    try {
+      const position = await getPositionById(positionId);
+      return position?.entryPrice || "0";
+    } catch (error) {
+      console.error("[TradingBot] Error getting position entry price:", error);
+      return "0";
+    }
+  }
+  /**
+   * Fecha a posição (FUNÇÃO LEGADA - MANTIDA PARA COMPATIBILIDADE)
+   * NOTA: Use closeAllPositions() para nova lógica com suporte a hedge
+   */
+  private async closePosition(reason: string, sellPrice?: number): Promise<void> {
+    // DEPRECATED: Redirecionar para closeAllPositions
+    await this.closeAllPositions(reason);
+    return;
   }
 
   /**
@@ -856,12 +1025,15 @@ export class TradingBot {
    * Atualiza estado do bot no banco
    */
   private async updateBotState(): Promise<void> {
+    // Usar primeira posição (original) para compatibilidade com botState
+    const firstPosition = this.currentPositions.length > 0 ? this.currentPositions[0] : null;
+    
     await upsertBotState({
       userId: this.userId,
       state: this.state,
       isRunning: this.isRunning,
       currentCandleTimestamp: this.currentCandleTimestamp || null,
-      currentPositionId: this.currentPositionId || null,
+      currentPositionId: firstPosition?.positionId || null,
     });
   }
 

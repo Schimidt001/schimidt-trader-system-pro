@@ -85,6 +85,11 @@ export const positions = mysqlTable("positions", {
   candleTimestamp: bigint("candleTimestamp", { mode: "number" }).notNull(),
   entryTime: timestamp("entryTime"),
   exitTime: timestamp("exitTime"),
+  // Campos da IA Hedge
+  isHedge: boolean("isHedge").default(false).notNull(), // Indica se é hedge ou posição original
+  parentPositionId: int("parentPositionId"), // ID da posição original (se for hedge)
+  hedgeAction: varchar("hedgeAction", { length: 50 }), // HOLD, REINFORCE, HEDGE, REVERSAL_EDGE
+  hedgeReason: text("hedgeReason"), // Motivo da abertura do hedge
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
