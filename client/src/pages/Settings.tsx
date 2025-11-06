@@ -1115,6 +1115,24 @@ export default function Settings() {
 
               {hourlyFilterEnabled && (
                 <div className="space-y-4 pt-4 border-t border-slate-700">
+                  {/* Indicador de Horário Atual */}
+                  <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 mb-4">
+                    <div className="flex items-center justify-between text-sm">
+                      <div>
+                        <span className="text-slate-400">Horário UTC Atual:</span>
+                        <span className="ml-2 text-blue-400 font-semibold">
+                          {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} ({new Date().getUTCHours()}h)
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Seu Horário:</span>
+                        <span className="ml-2 text-green-400 font-semibold">
+                          {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
                   {/* Grade de Horários */}
                   <div className="space-y-2">
                     <Label className="text-slate-300">
