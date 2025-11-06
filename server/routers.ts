@@ -55,6 +55,8 @@ export const appRouter = router({
           profitThreshold: 90, // threshold padrão de lucro
           waitTime: 8, // tempo de espera padrão em minutos
           timeframe: 900, // timeframe padrão M15 (900 segundos)
+          repredictionEnabled: true, // re-predição M30 habilitada por padrão
+          repredictionDelay: 300, // delay padrão de 5 minutos (300 segundos)
           contractType: "RISE_FALL" as const, // tipo de contrato padrão
           barrierHigh: "3.00", // barreira superior padrão (pontos)
           barrierLow: "-3.00", // barreira inferior padrão (pontos)
@@ -83,6 +85,8 @@ export const appRouter = router({
           timeframe: z.number().int().refine(val => val === 900 || val === 1800, {
             message: "Timeframe deve ser 900 (M15) ou 1800 (M30)"
           }),
+          repredictionEnabled: z.boolean().optional(),
+          repredictionDelay: z.number().int().min(180).max(600).optional(), // 3-10 minutos
           contractType: z.enum(["RISE_FALL", "TOUCH", "NO_TOUCH"]),
           barrierHigh: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal
           barrierLow: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal

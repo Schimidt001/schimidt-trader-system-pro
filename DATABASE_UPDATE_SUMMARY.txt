@@ -1,0 +1,24 @@
+╔══════════════════════════════════════════════════════════════╗
+║         ATUALIZAÇÃO DO BANCO DE DADOS - CONCLUÍDA           ║
+╚══════════════════════════════════════════════════════════════╝
+
+✅ Migration Aplicada: 0005_add_timeframe_to_config.sql
+
+📊 NOVA COLUNA ADICIONADA:
+┌─────────────┬──────────┬──────────┬─────────┬─────────────┐
+│ Campo       │ Tipo     │ Null     │ Default │ Descrição   │
+├─────────────┼──────────┼──────────┼─────────┼─────────────┤
+│ timeframe   │ int      │ NO       │ 900     │ M15 ou M30  │
+└─────────────┴──────────┴──────────┴─────────┴─────────────┘
+
+📝 VALORES ACEITOS:
+  • 900  = M15 (15 minutos)
+  • 1800 = M30 (30 minutos)
+
+🔍 REGISTROS EXISTENTES ATUALIZADOS:
+  • Todos os registros receberam timeframe = 900 (M15)
+  • Compatibilidade total mantida
+  • Nenhum dado foi perdido
+
+✅ STATUS: PRONTO PARA USO
+

@@ -65,6 +65,12 @@ export class TradingBot {
   private candleEndTimer: NodeJS.Timeout | null = null;
   private hedgeAlreadyOpened: boolean = false;
   
+  // Re-predição para M30
+  private repredictionTimer: NodeJS.Timeout | null = null;
+  private repredictionEnabled: boolean = true;
+  private repredictionDelay: number = 300; // 5 minutos em segundos
+  private hasRepredicted: boolean = false;
+  
   // Configurações
   private symbol: string = "R_100";
   private stake: number = 1000; // em centavos
@@ -155,6 +161,17 @@ export class TradingBot {
       console.log(`[HEDGE_CONFIG] IA Hedge Habilitada: ${this.hedgeEnabled}`);
       if (this.hedgeEnabled) {
         console.log(`[HEDGE_CONFIG] Janela de análise: ${this.hedgeConfig.analysisStartMinute} - ${this.hedgeConfig.analysisEndMinute} min`);
+      }
+      
+      // Carregar configurações de re-predição (apenas para M30)
+      this.repredictionEnabled = config.repredictionEnabled ?? true;
+      this.repredictionDelay = config.repredictionDelay ?? 300;
+      
+      if (this.timeframe === 1800) {
+        console.log(`[REPREDICTION_CONFIG] Re-predição M30 Habilitada: ${this.repredictionEnabled}`);
+        if (this.repredictionEnabled) {
+          console.log(`[REPREDICTION_CONFIG] Delay: ${this.repredictionDelay}s (${Math.floor(this.repredictionDelay / 60)} min)`);
+        }
       }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -431,6 +448,13 @@ export class TradingBot {
       this.state = "WAITING_MIDPOINT";
       await this.updateBotState();
     }
+    
+    // Limpar timer de re-predição e flag
+    if (this.repredictionTimer) {
+      clearTimeout(this.repredictionTimer);
+      this.repredictionTimer = null;
+    }
+    this.hasRepredicted = false;
   }
 
   /**
@@ -607,6 +631,11 @@ export class TradingBot {
       this.state = "ARMED";
       await this.updateBotState();
       await this.logEvent("POSITION_ARMED", `Entrada armada no gatilho ${this.trigger}`);
+      
+      // Agendar re-predição para M30 (se habilitado)
+      if (this.timeframe === 1800 && this.repredictionEnabled) {
+        this.scheduleReprediction();
+      }
     } catch (error) {
       console.error("[TradingBot] Error making prediction:", error);
       await this.logEvent("ERROR", `Erro na predição: ${error}`);
@@ -645,6 +674,16 @@ export class TradingBot {
     if (!this.prediction || !this.derivService) return;
 
     try {
+      // Cancelar timer de re-predição (gatilho foi acionado)
+      if (this.repredictionTimer) {
+        clearTimeout(this.repredictionTimer);
+        this.repredictionTimer = null;
+        await this.logEvent(
+          "REPREDICTION_CANCELLED",
+          "Timer de re-predição cancelado (gatilho acionado)"
+        );
+      }
+      
       console.log(`[ENTER_POSITION] Iniciando entrada de posição | Preço: ${entryPrice} | Elapsed: ${elapsedSeconds}s | ContractType: ${this.contractType}`);
       
       // Determinar tipo de contrato baseado na configuração
@@ -1142,6 +1181,130 @@ export class TradingBot {
         console.log(`[CANDLE_END_TIMER] Candle já mudou, timer ignorado`);
       }
     }, timeUntilEnd);
+  }
+
+  /**
+   * Agenda re-predição para M30 (5 minutos após primeira predição)
+   */
+  private scheduleReprediction(): void {
+    // Limpar timer anterior se existir
+    if (this.repredictionTimer) {
+      clearTimeout(this.repredictionTimer);
+    }
+    
+    const delayMs = this.repredictionDelay * 1000;
+    
+    this.repredictionTimer = setTimeout(async () => {
+      // Verificar se ainda está ARMED (não entrou em posição)
+      if (this.state === "ARMED" && !this.hasRepredicted) {
+        await this.makeReprediction();
+      }
+    }, delayMs);
+    
+    this.logEvent(
+      "REPREDICTION_SCHEDULED",
+      `[M30] Re-predição agendada para daqui ${this.repredictionDelay}s (${Math.floor(this.repredictionDelay / 60)} min)`
+    );
+  }
+
+  /**
+   * Faz re-predição para M30 (caso gatilho não tenha sido acionado)
+   */
+  private async makeReprediction(): Promise<void> {
+    try {
+      await this.logEvent(
+        "REPREDICTION_START",
+        `[RE-PREDIÇÃO M30] Gatilho não acionado em ${Math.floor(this.repredictionDelay / 60)} min, fazendo nova predição...`
+      );
+      
+      if (!this.derivService) {
+        throw new Error("DerivService não disponível");
+      }
+      
+      // Buscar dados atualizados do candle
+      const currentCandles = await this.derivService.getCandleHistory(
+        this.symbol, 
+        this.timeframe, 
+        2
+      );
+      
+      const currentCandle = currentCandles.find(c => c.epoch === this.currentCandleTimestamp);
+      
+      if (!currentCandle) {
+        throw new Error("Candle atual não encontrado para re-predição");
+      }
+      
+      // Atualizar valores do candle com dados mais recentes
+      this.currentCandleHigh = currentCandle.high;
+      this.currentCandleLow = currentCandle.low;
+      this.currentCandleClose = currentCandle.close;
+      
+      await this.logEvent(
+        "REPREDICTION_CANDLE_UPDATE",
+        `Candle atualizado: H=${currentCandle.high} | L=${currentCandle.low} | C=${currentCandle.close}`
+      );
+      
+      // Calcular elapsed seconds atual
+      const now = Math.floor(Date.now() / 1000);
+      const elapsedSeconds = now - this.currentCandleTimestamp;
+      
+      // Buscar histórico para predição
+      const history = await this.derivService.getCandleHistory(this.symbol, this.timeframe, this.lookback);
+      const historyData = history.map((c) => ({
+        timestamp: c.epoch,
+        abertura: c.open,
+        maxima: c.high,
+        minima: c.low,
+        fechamento: c.close,
+      }));
+      
+      const timeframeLabel = this.timeframe === 900 ? "M15" : "M30";
+      const request = {
+        symbol: this.symbol,
+        tf: timeframeLabel,
+        history: historyData.slice(0, -1),
+        partial_current: {
+          timestamp_open: this.currentCandleTimestamp,
+          elapsed_seconds: elapsedSeconds,
+          abertura: this.currentCandleOpen,
+          minima_parcial: this.currentCandleLow,
+          maxima_parcial: this.currentCandleHigh,
+        },
+      };
+      
+      // Fazer nova predição
+      const oldPrediction = this.prediction;
+      this.prediction = await predictionService.predict(request);
+      
+      // Recalcular gatilho
+      const offset = this.triggerOffset;
+      const oldTrigger = this.trigger;
+      
+      if (offset === 0) {
+        this.trigger = this.prediction.predicted_close;
+      } else if (this.prediction.direction === "up") {
+        this.trigger = this.prediction.predicted_close - offset;
+      } else {
+        this.trigger = this.prediction.predicted_close + offset;
+      }
+      
+      this.hasRepredicted = true;
+      
+      await this.logEvent(
+        "REPREDICTION_COMPLETE",
+        `[RE-PREDIÇÃO CONCLUÍDA] ` +
+        `Antiga: ${oldPrediction?.direction.toUpperCase()} @ ${oldTrigger} | ` +
+        `Nova: ${this.prediction.direction.toUpperCase()} @ ${this.trigger} | ` +
+        `Close Previsto: ${this.prediction.predicted_close} | ` +
+        `Elapsed: ${elapsedSeconds}s (${Math.floor(elapsedSeconds / 60)} min)`
+      );
+      
+    } catch (error) {
+      await this.logEvent(
+        "REPREDICTION_ERROR",
+        `Erro na re-predição: ${error}`
+      );
+    }
   }
 
   /**

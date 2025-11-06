@@ -48,6 +48,10 @@ export default function Settings() {
   const [waitTime, setWaitTime] = useState("8");
   const [timeframe, setTimeframe] = useState("900"); // 900 (M15) ou 1800 (M30)
   
+  // Estados para re-predição M30
+  const [repredictionEnabled, setRepredictionEnabled] = useState(true);
+  const [repredictionDelay, setRepredictionDelay] = useState("300"); // 5 minutos em segundos
+  
   // Estados para tipo de contrato e barreiras
   const [contractType, setContractType] = useState<"RISE_FALL" | "TOUCH" | "NO_TOUCH">("RISE_FALL");
   const [barrierHigh, setBarrierHigh] = useState("3.00");
@@ -127,6 +131,10 @@ export default function Settings() {
       setProfitThreshold((config.profitThreshold || 90).toString());
       setWaitTime((config.waitTime || 8).toString());
       setTimeframe((config.timeframe || 900).toString());
+      
+      // Carregar configurações de re-predição M30
+      setRepredictionEnabled(config.repredictionEnabled ?? true);
+      setRepredictionDelay((config.repredictionDelay || 300).toString());
       
       // Carregar configurações de tipo de contrato e barreiras
       setContractType(config.contractType || "RISE_FALL");
@@ -280,6 +288,15 @@ export default function Settings() {
       return;
     }
 
+    // Validar configurações de re-predição
+    const repredictionDelayNum = parseInt(repredictionDelay);
+    if (timeframeNum === 1800 && repredictionEnabled) {
+      if (isNaN(repredictionDelayNum) || repredictionDelayNum < 180 || repredictionDelayNum > 600) {
+        toast.error("Delay de re-predição deve ser entre 180 e 600 segundos (3-10 min)");
+        return;
+      }
+    }
+
     if (mode === "DEMO" && !tokenDemo) {
       toast.error("Token DEMO é obrigatório no modo DEMO");
       return;
@@ -322,6 +339,8 @@ export default function Settings() {
       profitThreshold: profitThresholdNum,
       waitTime: waitTimeNum,
       timeframe: timeframeNum,
+      repredictionEnabled,
+      repredictionDelay: repredictionDelayNum,
       contractType,
       barrierHigh,
       barrierLow,
@@ -606,13 +625,63 @@ export default function Settings() {
                       <SelectItem value="1800">M30 (30 minutos)</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500">
                     Duração do candle para análise e trading (padrão: M15)
                   </p>
                 </div>
-              </div>
 
-              {/* Tipo de Contrato */}
+                {/* Re-predição M30 */}
+                {timeframe === "1800" && (
+                  <div className="space-y-4 p-4 bg-blue-900/20 rounded-lg border border-blue-700">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <Label className="text-slate-200 font-semibold">Re-Predição M30</Label>
+                        <p className="text-xs text-slate-400">
+                          Fazer nova predição se o gatilho não for acionado após o delay configurado
+                        </p>
+                      </div>
+                      <Switch 
+                        checked={repredictionEnabled}
+                        onCheckedChange={setRepredictionEnabled}
+                      />
+                    </div>
+                    
+                    {repredictionEnabled && (
+                      <div className="space-y-2">
+                        <Label htmlFor="repredictionDelay" className="text-slate-300">
+                          Delay para Re-Predição (segundos)
+                        </Label>
+                        <Input
+                          id="repredictionDelay"
+                          type="number"
+                          value={repredictionDelay}
+                          onChange={(e) => setRepredictionDelay(e.target.value)}
+                          className="bg-slate-800 border-slate-700 text-white"
+                          placeholder="300"
+                          min="180"
+                          max="600"
+                          step="60"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Tempo de espera após primeira predição antes de fazer nova predição (padrão: 300s = 5 min)
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Tipo de Contrato */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-slate-100">Tipo de Contrato</CardTitle>
+              <CardDescription className="text-slate-400">
+                Configure o tipo de contrato e barreiras
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="contractType" className="text-slate-300">
                   Tipo de Contrato

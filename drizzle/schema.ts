@@ -36,6 +36,9 @@ export const config = mysqlTable("config", {
   profitThreshold: int("profitThreshold").default(90), // threshold de lucro para early close (%)
   waitTime: int("waitTime").default(8), // tempo de espera em minutos antes de capturar dados para predição
   timeframe: int("timeframe").notNull().default(900), // timeframe em segundos: 900 (M15) ou 1800 (M30)
+  // Configurações de re-predição para M30
+  repredictionEnabled: boolean("repredictionEnabled").default(true).notNull(), // Habilitar re-predição para M30
+  repredictionDelay: int("repredictionDelay").default(300).notNull(), // Delay em segundos (padrão: 5 min)
   // Configurações de tipo de contrato e barreiras
   contractType: mysqlEnum("contractType", ["RISE_FALL", "TOUCH", "NO_TOUCH"]).default("RISE_FALL").notNull(), // Tipo de contrato
   barrierHigh: varchar("barrierHigh", { length: 20 }).default("3.00"), // Barreira superior em pontos (ex: "3.00" = 3 pontos acima)
