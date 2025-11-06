@@ -46,6 +46,7 @@ export const BOT_STATES = {
 
 // Símbolos DERIV disponíveis
 export const DERIV_SYMBOLS = [
+  // Sintéticos
   { value: "R_10", label: "Volatility 10 Index" },
   { value: "R_25", label: "Volatility 25 Index" },
   { value: "R_50", label: "Volatility 50 Index" },
@@ -56,4 +57,18 @@ export const DERIV_SYMBOLS = [
   { value: "1HZ50V", label: "Volatility 50 (1s) Index" },
   { value: "1HZ75V", label: "Volatility 75 (1s) Index" },
   { value: "1HZ100V", label: "Volatility 100 (1s) Index" },
+  // Forex - Pares Principais
+  { value: "frxEURUSD", label: "EUR/USD" },
+  { value: "frxGBPUSD", label: "GBP/USD" },
+  { value: "frxUSDJPY", label: "USD/JPY" },
+  { value: "frxAUDUSD", label: "AUD/USD" },
+  { value: "frxUSDCAD", label: "USD/CAD" },
+  { value: "frxUSDCHF", label: "USD/CHF" },
+  { value: "frxNZDUSD", label: "NZD/USD" },
+  // Forex - Pares Menores
+  { value: "frxEURGBP", label: "EUR/GBP" },
+  { value: "frxEURJPY", label: "EUR/JPY" },
+  { value: "frxEURAUD", label: "EUR/AUD" },
+  { value: "frxGBPJPY", label: "GBP/JPY" },
+  { value: "frxAUDJPY", label: "AUD/JPY" },
 ];

@@ -491,6 +491,44 @@ export class DerivService {
   }
 
   /**
+   * Obtém lista completa de símbolos ativos (Forex e Sintéticos)
+   */
+  async getActiveSymbols(market?: string): Promise<any[]> {
+    return new Promise((resolve, reject) => {
+      const handler = (message: any) => {
+        if (message.active_symbols) {
+          this.subscriptions.delete("active_symbols_list");
+          let symbols = message.active_symbols;
+          
+          // Filtrar por mercado se especificado
+          if (market) {
+            symbols = symbols.filter((s: any) => s.market === market);
+          }
+          
+          resolve(symbols);
+        } else if (message.error) {
+          this.subscriptions.delete("active_symbols_list");
+          reject(new Error(message.error.message));
+        }
+      };
+
+      this.subscriptions.set("active_symbols_list", handler);
+      
+      this.send({
+        active_symbols: "brief",
+        product_type: "basic",
+      });
+
+      setTimeout(() => {
+        if (this.subscriptions.has("active_symbols_list")) {
+          this.subscriptions.delete("active_symbols_list");
+          reject(new Error("Active symbols request timeout"));
+        }
+      }, 10000);
+    });
+  }
+
+  /**
    * Refaz subscrições ativas após reconexão
    */
   private resubscribe(): void {

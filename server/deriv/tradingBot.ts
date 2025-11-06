@@ -74,6 +74,7 @@ export class TradingBot {
   private triggerOffset: number = 16; // offset do gatilho em pontos
   private profitThreshold: number = 90; // threshold de lucro para early close (%)
   private waitTime: number = 8; // tempo de espera em minutos antes de capturar dados
+  private timeframe: number = 900; // timeframe em segundos: 900 (M15) ou 1800 (M30)
   private mode: "DEMO" | "REAL" = "DEMO";
   
   // Configurações de tipo de contrato e barreiras
@@ -121,12 +122,16 @@ export class TradingBot {
       
       this.profitThreshold = config.profitThreshold ?? 90;
       this.waitTime = config.waitTime ?? 8;
+      this.timeframe = config.timeframe ?? 900; // Padrão M15
       this.mode = config.mode;
+      
+      console.log(`[TIMEFRAME] Timeframe configurado: ${this.timeframe}s (${this.timeframe === 900 ? 'M15' : 'M30'})`);
       
       // Carregar configurações de tipo de contrato e barreiras
       this.contractType = config.contractType ?? "RISE_FALL";
       this.barrierHigh = config.barrierHigh ?? "3.00";
       this.barrierLow = config.barrierLow ?? "-3.00";
+      
       
       console.log(`[CONTRACT_TYPE] Tipo de contrato: ${this.contractType}`);
       if (this.contractType !== "RISE_FALL") {
@@ -250,14 +255,15 @@ export class TradingBot {
   private async startDataCollection(): Promise<void> {
     if (!this.derivService) return;
 
-    // Buscar histórico de candles
-    const history = await this.derivService.getCandleHistory(this.symbol, 900, this.lookback);
+    // Buscar histórico de candles com timeframe configurado
+    const history = await this.derivService.getCandleHistory(this.symbol, this.timeframe, this.lookback);
     
     // Salvar histórico no banco
+    const timeframeLabel = this.timeframe === 900 ? "M15" : "M30";
     for (const candle of history) {
       await insertCandle({
         symbol: this.symbol,
-        timeframe: "M15",
+        timeframe: timeframeLabel,
         timestampUtc: candle.epoch,
         open: candle.open.toString(),
         high: candle.high.toString(),
@@ -286,7 +292,7 @@ export class TradingBot {
         history: historyData.slice(0, -1), // Todos exceto o último
         partial_current: {
           timestamp_open: lastCandle.epoch,
-          elapsed_seconds: 900, // Candle completo
+          elapsed_seconds: this.timeframe, // Candle completo
           abertura: lastCandle.open,
           minima_parcial: lastCandle.low,
           maxima_parcial: lastCandle.high,
@@ -315,7 +321,7 @@ export class TradingBot {
   private async handleTick(tick: DerivTick): Promise<void> {
     if (!this.isRunning) return;
 
-    const candleTimestamp = Math.floor(tick.epoch / 900) * 900; // Arredondar para M15
+    const candleTimestamp = Math.floor(tick.epoch / this.timeframe) * this.timeframe; // Arredondar para o timeframe configurado
 
     // Novo candle?
     if (candleTimestamp !== this.currentCandleTimestamp) {
@@ -352,7 +358,7 @@ export class TradingBot {
       await this.logEvent("CANDLE_INITIALIZED", 
         `Novo candle: timestamp=${candleTimestamp}, firstTick=${tick.quote}`);
       
-      // Criar timer para forçar fim do candle após 900 segundos (15 minutos)
+      // Criar timer para forçar fim do candle após o timeframe configurado
       this.scheduleCandleEnd(candleTimestamp);
     } else {
       // Atualizar valores construídos com ticks
@@ -369,8 +375,8 @@ export class TradingBot {
     // Calcular segundos decorridos desde o início do candle
     const elapsedSeconds = Math.floor((tick.epoch - this.currentCandleTimestamp));
     
-    // Proteção: Se elapsedSeconds for maior que 900 (15 min), algo está errado
-    if (elapsedSeconds > 900 || elapsedSeconds < 0) {
+    // Proteção: Se elapsedSeconds for maior que o timeframe, algo está errado
+    if (elapsedSeconds > this.timeframe || elapsedSeconds < 0) {
       console.warn(`[ELAPSED_SECONDS_ERROR] Valor incorreto: ${elapsedSeconds}s. Ignorando tick.`);
       return;
     }
@@ -443,7 +449,7 @@ export class TradingBot {
         }
         
         // Buscar últimos 2 candles para garantir que pegamos o atual
-        const currentCandles = await this.derivService.getCandleHistory(this.symbol, 900, 2);
+        const currentCandles = await this.derivService.getCandleHistory(this.symbol, this.timeframe, 2);
         
         // Encontrar o candle atual pelo timestamp
         const currentCandle = currentCandles.find(c => c.epoch === this.currentCandleTimestamp);
@@ -458,7 +464,7 @@ export class TradingBot {
           
           await new Promise(resolve => setTimeout(resolve, 2000));
           
-          const retryCandles = await this.derivService.getCandleHistory(this.symbol, 900, 2);
+          const retryCandles = await this.derivService.getCandleHistory(this.symbol, this.timeframe, 2);
           const retryCurrent = retryCandles.find(c => c.epoch === this.currentCandleTimestamp);
           
           if (!retryCurrent) {
@@ -664,9 +670,9 @@ export class TradingBot {
         barrier = barrierOffset > 0 ? `+${barrierOffset.toFixed(2)}` : `${barrierOffset.toFixed(2)}`;
       }
       
-      // Calcular duração até 20 segundos antes do fim do candle M15 (900s)
-      // Duração = (900 - elapsedSeconds - 20) segundos
-      const durationSeconds = Math.max(900 - elapsedSeconds - 20, 60); // Mínimo 60s
+      // Calcular duração até 20 segundos antes do fim do candle
+      // Duração = (timeframe - elapsedSeconds - 20) segundos
+      const durationSeconds = Math.max(this.timeframe - elapsedSeconds - 20, 60); // Mínimo 60s
       const durationMinutes = Math.ceil(durationSeconds / 60); // Arredondar para cima em minutos
       
       // Comprar contrato na DERIV
@@ -854,7 +860,7 @@ export class TradingBot {
     try {
       // Calcular duração restante do candle
       const elapsedSeconds = elapsedMinutes * 60;
-      const durationSeconds = Math.max(900 - elapsedSeconds - 20, 60);
+      const durationSeconds = Math.max(this.timeframe - elapsedSeconds - 20, 60);
       const durationMinutes = Math.ceil(durationSeconds / 60);
 
       // Comprar contrato de hedge na DERIV
@@ -1091,7 +1097,7 @@ export class TradingBot {
   }
 
   /**
-   * Agenda o fim do candle após 900 segundos (15 minutos)
+   * Agenda o fim do candle após o timeframe configurado
    * Garante que o candle seja fechado mesmo se não chegar tick na virada
    */
   private scheduleCandleEnd(candleTimestamp: number): void {
@@ -1101,7 +1107,7 @@ export class TradingBot {
     }
     
     // Calcular quando o candle deve terminar
-    const candleEndTimestamp = candleTimestamp + 900; // 900 segundos = 15 minutos
+    const candleEndTimestamp = candleTimestamp + this.timeframe;
     const now = Math.floor(Date.now() / 1000);
     const timeUntilEnd = (candleEndTimestamp - now) * 1000; // Converter para milissegundos
     
@@ -1123,11 +1129,11 @@ export class TradingBot {
       // Verificar se ainda estamos no mesmo candle
       if (this.currentCandleTimestamp === candleTimestamp) {
         await this.logEvent("CANDLE_FORCED_CLOSE", 
-          `Candle fechado por timer após 900s sem receber tick de virada`);
+          `Candle fechado por timer após ${this.timeframe}s sem receber tick de virada`);
         await this.closeCurrentCandle();
         
         // Forçar início do próximo candle
-        const nextCandleTimestamp = candleTimestamp + 900;
+        const nextCandleTimestamp = candleTimestamp + this.timeframe;
         console.log(`[CANDLE_END_TIMER] Iniciando próximo candle: ${nextCandleTimestamp}`);
         
         // Resetar para aguardar primeiro tick do novo candle

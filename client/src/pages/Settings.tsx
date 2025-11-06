@@ -46,6 +46,7 @@ export default function Settings() {
   const [triggerOffset, setTriggerOffset] = useState("16");
   const [profitThreshold, setProfitThreshold] = useState("90");
   const [waitTime, setWaitTime] = useState("8");
+  const [timeframe, setTimeframe] = useState("900"); // 900 (M15) ou 1800 (M30)
   
   // Estados para tipo de contrato e barreiras
   const [contractType, setContractType] = useState<"RISE_FALL" | "TOUCH" | "NO_TOUCH">("RISE_FALL");
@@ -125,6 +126,7 @@ export default function Settings() {
       setTriggerOffset((config.triggerOffset ?? 16).toString()); // Usar ?? para aceitar 0
       setProfitThreshold((config.profitThreshold || 90).toString());
       setWaitTime((config.waitTime || 8).toString());
+      setTimeframe((config.timeframe || 900).toString());
       
       // Carregar configurações de tipo de contrato e barreiras
       setContractType(config.contractType || "RISE_FALL");
@@ -167,6 +169,7 @@ export default function Settings() {
     const triggerOffsetNum = parseInt(triggerOffset);
     const profitThresholdNum = parseInt(profitThreshold);
     const waitTimeNum = parseInt(waitTime);
+    const timeframeNum = parseInt(timeframe);
 
     if (mode === "DEMO" && !tokenDemo) {
       toast.error("Token DEMO é obrigatório");
@@ -194,6 +197,7 @@ export default function Settings() {
         triggerOffset: triggerOffsetNum,
         profitThreshold: profitThresholdNum,
         waitTime: waitTimeNum,
+        timeframe: timeframeNum,
         contractType,
         barrierHigh,
         barrierLow,
@@ -234,6 +238,7 @@ export default function Settings() {
     const triggerOffsetNum = parseInt(triggerOffset);
     const profitThresholdNum = parseInt(profitThreshold);
     const waitTimeNum = parseInt(waitTime);
+    const timeframeNum = parseInt(timeframe);
 
     if (isNaN(stakeNum) || stakeNum <= 0) {
       toast.error("Stake deve ser um número positivo");
@@ -265,8 +270,13 @@ export default function Settings() {
       return;
     }
 
-    if (isNaN(waitTimeNum) || waitTimeNum < 1 || waitTimeNum > 14) {
-      toast.error("Tempo de Espera deve ser um número entre 1 e 14 minutos");
+    if (isNaN(waitTimeNum) || waitTimeNum < 1 || waitTimeNum > 29) {
+      toast.error("Tempo de Espera deve ser um número entre 1 e 29 minutos");
+      return;
+    }
+
+    if (timeframeNum !== 900 && timeframeNum !== 1800) {
+      toast.error("Timeframe deve ser 900 (M15) ou 1800 (M30)");
       return;
     }
 
@@ -311,6 +321,7 @@ export default function Settings() {
       triggerOffset: triggerOffsetNum,
       profitThreshold: profitThresholdNum,
       waitTime: waitTimeNum,
+      timeframe: timeframeNum,
       contractType,
       barrierHigh,
       barrierLow,
@@ -449,7 +460,7 @@ export default function Settings() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="symbol" className="text-slate-300">
-                  Ativo Sintético
+                  Ativo (Sintético ou Forex)
                 </Label>
                 <Select value={symbol} onValueChange={setSymbol}>
                   <SelectTrigger id="symbol" className="bg-slate-800 border-slate-700 text-white">
@@ -575,10 +586,28 @@ export default function Settings() {
                     className="bg-slate-800 border-slate-700 text-white"
                     placeholder="8"
                     min="1"
-                    max="14"
+                    max="29"
                   />
                   <p className="text-xs text-slate-500">
-                    Tempo de espera no candle antes de capturar dados para predição (padrão: 8 minutos)
+                    Tempo de espera no candle antes de capturar dados para predição (padrão: 8 min para M15, 16 min para M30)
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="timeframe" className="text-slate-300">
+                    Timeframe
+                  </Label>
+                  <Select value={timeframe} onValueChange={setTimeframe}>
+                    <SelectTrigger id="timeframe" className="bg-slate-800 border-slate-700 text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="900">M15 (15 minutos)</SelectItem>
+                      <SelectItem value="1800">M30 (30 minutos)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    Duração do candle para análise e trading (padrão: M15)
                   </p>
                 </div>
               </div>

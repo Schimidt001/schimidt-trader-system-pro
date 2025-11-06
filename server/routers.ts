@@ -54,6 +54,7 @@ export const appRouter = router({
           triggerOffset: 16, // offset padrão do gatilho
           profitThreshold: 90, // threshold padrão de lucro
           waitTime: 8, // tempo de espera padrão em minutos
+          timeframe: 900, // timeframe padrão M15 (900 segundos)
           contractType: "RISE_FALL" as const, // tipo de contrato padrão
           barrierHigh: "3.00", // barreira superior padrão (pontos)
           barrierLow: "-3.00", // barreira inferior padrão (pontos)
@@ -78,7 +79,10 @@ export const appRouter = router({
           lookback: z.number().int().positive(),
           triggerOffset: z.number().int().nonnegative(), // Aceita 0 (desativado) ou valores positivos
           profitThreshold: z.number().int().min(1).max(100),
-          waitTime: z.number().int().min(1).max(14), // 1-14 minutos (candle M15)
+          waitTime: z.number().int().min(1).max(29), // 1-29 minutos (ajustado para M30)
+          timeframe: z.number().int().refine(val => val === 900 || val === 1800, {
+            message: "Timeframe deve ser 900 (M15) ou 1800 (M30)"
+          }),
           contractType: z.enum(["RISE_FALL", "TOUCH", "NO_TOUCH"]),
           barrierHigh: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal
           barrierLow: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal
@@ -143,9 +147,55 @@ export const appRouter = router({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: `Erro ao conectar: ${error.message}`,
-        });
+          }
       }
     }),
+
+    getActiveSymbols: protectedProcedure
+      .input(z.object({ market: z.string().optional() }))
+      .query(async ({ ctx, input }) => {
+        const config = await getConfigByUserId(ctx.user.id);
+        
+        if (!config) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Configura\u00e7\u00e3o n\u00e3o encontrada. Configure o token primeiro.",
+          });
+        }
+
+        const token = config.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
+        
+        if (!token) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Token ${config.mode} n\u00e3o configurado.`,
+          });
+        }
+
+        try {
+          const derivService = new DerivService(token, config.mode === "DEMO");
+          await derivService.connect();
+          
+          const symbols = await derivService.getActiveSymbols(input.market);
+          derivService.disconnect();
+          
+          return {
+            success: true,
+            symbols: symbols.map((s: any) => ({
+              symbol: s.symbol,
+              display_name: s.display_name,
+              market: s.market,
+              submarket: s.submarket,
+              pip: s.pip || 0.01,
+            })),
+          };
+        } catch (error: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Erro ao buscar s\u00edmbolos: ${error.message}`,
+          });
+        }
+      }),
   }),
 
   // Controle do bot

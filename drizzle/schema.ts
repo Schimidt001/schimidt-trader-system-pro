@@ -35,6 +35,7 @@ export const config = mysqlTable("config", {
   triggerOffset: int("triggerOffset").default(16), // offset do gatilho em pontos
   profitThreshold: int("profitThreshold").default(90), // threshold de lucro para early close (%)
   waitTime: int("waitTime").default(8), // tempo de espera em minutos antes de capturar dados para predição
+  timeframe: int("timeframe").notNull().default(900), // timeframe em segundos: 900 (M15) ou 1800 (M30)
   // Configurações de tipo de contrato e barreiras
   contractType: mysqlEnum("contractType", ["RISE_FALL", "TOUCH", "NO_TOUCH"]).default("RISE_FALL").notNull(), // Tipo de contrato
   barrierHigh: varchar("barrierHigh", { length: 20 }).default("3.00"), // Barreira superior em pontos (ex: "3.00" = 3 pontos acima)
