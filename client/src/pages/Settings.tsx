@@ -58,6 +58,13 @@ export default function Settings() {
   const [barrierLow, setBarrierLow] = useState("-3.00");
   
   const [hedgeEnabled, setHedgeEnabled] = useState(true);
+  
+  // Estados para Filtro de Horário
+  const [hourlyFilterEnabled, setHourlyFilterEnabled] = useState(false);
+  const [hourlyFilterMode, setHourlyFilterMode] = useState<"IDEAL" | "COMPATIBLE" | "GOLDEN" | "COMBINED" | "CUSTOM">("COMBINED");
+  const [hourlyFilterCustomHours, setHourlyFilterCustomHours] = useState<number[]>([5, 6, 12, 16, 17, 18, 20, 21, 22, 23]);
+  const [hourlyFilterGoldHours, setHourlyFilterGoldHours] = useState<number[]>([]);
+  const [hourlyFilterGoldMultiplier, setHourlyFilterGoldMultiplier] = useState("200");
 
   // Estados para os 13 parâmetros da IA Hedge
   // Estratégia 1: Detecção de Reversão
@@ -142,6 +149,25 @@ export default function Settings() {
       setBarrierLow(config.barrierLow || "-3.00");
       
       setHedgeEnabled(config.hedgeEnabled ?? true);
+      
+      // Carregar configurações do Filtro de Horário
+      setHourlyFilterEnabled(config.hourlyFilterEnabled ?? false);
+      setHourlyFilterMode(config.hourlyFilterMode || "COMBINED");
+      if (config.hourlyFilterCustomHours) {
+        try {
+          setHourlyFilterCustomHours(JSON.parse(config.hourlyFilterCustomHours));
+        } catch (e) {
+          setHourlyFilterCustomHours([5, 6, 12, 16, 17, 18, 20, 21, 22, 23]);
+        }
+      }
+      if (config.hourlyFilterGoldHours) {
+        try {
+          setHourlyFilterGoldHours(JSON.parse(config.hourlyFilterGoldHours));
+        } catch (e) {
+          setHourlyFilterGoldHours([]);
+        }
+      }
+      setHourlyFilterGoldMultiplier((config.hourlyFilterGoldMultiplier || 200).toString());
       
       // Carregar configurações da IA Hedge se existirem
       if (config.hedgeConfig) {
@@ -346,6 +372,11 @@ export default function Settings() {
       barrierLow,
       hedgeEnabled,
       hedgeConfig: JSON.stringify(hedgeConfigObj),
+      hourlyFilterEnabled,
+      hourlyFilterMode,
+      hourlyFilterCustomHours: JSON.stringify(hourlyFilterCustomHours),
+      hourlyFilterGoldHours: JSON.stringify(hourlyFilterGoldHours),
+      hourlyFilterGoldMultiplier: parseInt(hourlyFilterGoldMultiplier),
     });
   };
 
@@ -1057,6 +1088,114 @@ export default function Settings() {
                     </AccordionContent>
                   </AccordionItem>
                 </Accordion>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Filtro de Horário */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white">🕒 Filtro de Horário</CardTitle>
+              <CardDescription>Configure horários específicos para operação (ideal para Forex)</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="hourlyFilterEnabled" className="text-slate-300">
+                    Ativar Filtro de Horário
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Bot opera apenas nos horários permitidos (UTC)
+                  </p>
+                </div>
+                <Switch
+                  id="hourlyFilterEnabled"
+                  checked={hourlyFilterEnabled}
+                  onCheckedChange={setHourlyFilterEnabled}
+                />
+              </div>
+
+              {hourlyFilterEnabled && (
+                <div className="space-y-4 pt-4 border-t border-slate-700">
+                  {/* Modo do Filtro */}
+                  <div className="space-y-2">
+                    <Label htmlFor="hourlyFilterMode" className="text-slate-300">
+                      Modo do Filtro
+                    </Label>
+                    <Select value={hourlyFilterMode} onValueChange={(v: any) => setHourlyFilterMode(v)}>
+                      <SelectTrigger id="hourlyFilterMode" className="bg-slate-800 border-slate-700 text-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-800 border-slate-700">
+                        <SelectItem value="IDEAL" className="text-white hover:bg-slate-700">
+                          IDEAL (16h, 18h) - 2 horários premium
+                        </SelectItem>
+                        <SelectItem value="COMPATIBLE" className="text-white hover:bg-slate-700">
+                          COMPATIBLE - 8 horários padrão
+                        </SelectItem>
+                        <SelectItem value="GOLDEN" className="text-white hover:bg-slate-700">
+                          GOLDEN - 8 horários limpos
+                        </SelectItem>
+                        <SelectItem value="COMBINED" className="text-white hover:bg-slate-700">
+                          COMBINED - 10 horários balanceados (recomendado)
+                        </SelectItem>
+                        <SelectItem value="CUSTOM" className="text-white hover:bg-slate-700">
+                          CUSTOM - Personalizado
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      {hourlyFilterMode === "IDEAL" && "16h, 18h UTC"}
+                      {hourlyFilterMode === "COMPATIBLE" && "3h, 6h, 9h, 10h, 13h, 16h, 17h, 18h UTC"}
+                      {hourlyFilterMode === "GOLDEN" && "5h, 12h, 16h, 18h, 20h, 21h, 22h, 23h UTC"}
+                      {hourlyFilterMode === "COMBINED" && "5h, 6h, 12h, 16h, 17h, 18h, 20h, 21h, 22h, 23h UTC"}
+                      {hourlyFilterMode === "CUSTOM" && "Configure abaixo"}
+                    </p>
+                  </div>
+
+                  {/* Horários GOLD */}
+                  <div className="space-y-2">
+                    <Label className="text-slate-300">
+                      ⭐ Horários GOLD (máx 2)
+                    </Label>
+                    <p className="text-xs text-slate-500 mb-2">
+                      Horários especiais com stake multiplicado. Deixe vazio para desabilitar.
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        type="text"
+                        placeholder="Ex: 16,18"
+                        value={hourlyFilterGoldHours.join(",")}
+                        onChange={(e) => {
+                          const hours = e.target.value.split(",").map(h => parseInt(h.trim())).filter(h => !isNaN(h) && h >= 0 && h <= 23);
+                          setHourlyFilterGoldHours(hours.slice(0, 2));
+                        }}
+                        className="bg-slate-800 border-slate-700 text-white"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Multiplicador GOLD */}
+                  {hourlyFilterGoldHours.length > 0 && (
+                    <div className="space-y-2">
+                      <Label htmlFor="hourlyFilterGoldMultiplier" className="text-slate-300">
+                        Multiplicador de Stake GOLD
+                      </Label>
+                      <Input
+                        id="hourlyFilterGoldMultiplier"
+                        type="number"
+                        value={hourlyFilterGoldMultiplier}
+                        onChange={(e) => setHourlyFilterGoldMultiplier(e.target.value)}
+                        className="bg-slate-800 border-slate-700 text-white"
+                        min="100"
+                        step="50"
+                      />
+                      <p className="text-xs text-slate-500">
+                        100 = 1x (normal), 200 = 2x, 300 = 3x. Atual: {parseInt(hourlyFilterGoldMultiplier) / 100}x
+                      </p>
+                    </div>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
