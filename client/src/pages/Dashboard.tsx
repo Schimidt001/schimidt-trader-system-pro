@@ -12,6 +12,7 @@ export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   // Queries
   const { data: botStatus, refetch: refetchStatus } = trpc.bot.status.useQuery(undefined, {
@@ -158,6 +159,14 @@ export default function Dashboard() {
     }
   }, [currentState, botStatus?.candleStartTime, config?.waitTime]);
   
+  // Atualizar relógio a cada segundo
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+  
   // Label dinâmico baseado no tempo restante
   let stateLabel: string = BOT_STATES[currentState as keyof typeof BOT_STATES] || currentState;
   if (currentState === "WAITING_MIDPOINT" && timeRemaining !== null) {
@@ -178,6 +187,42 @@ export default function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold text-white">Schimidt Trader System PRO</h1>
             <p className="text-slate-400 mt-1">Sistema de Trading Automatizado 24/7</p>
+          </div>
+          
+          {/* Relógio GMT e Indicador de Horário */}
+          <div className="flex flex-col items-end gap-2">
+            <div className="bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2">
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <div className="text-xs text-slate-400">Horário GMT</div>
+                  <div className="text-lg font-mono font-bold text-blue-400">
+                    {currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' })}
+                  </div>
+                </div>
+                {config?.hourlyFilterEnabled && (
+                  <div className="border-l border-slate-600 pl-3">
+                    {(() => {
+                      const currentHour = currentTime.getUTCHours();
+                      const allowedHours = config.hourlyFilterCustomHours ? JSON.parse(config.hourlyFilterCustomHours) : [];
+                      const isAllowed = allowedHours.includes(currentHour);
+                      const goldHours = config.hourlyFilterGoldHours ? JSON.parse(config.hourlyFilterGoldHours) : [];
+                      const isGold = goldHours.includes(currentHour);
+                      
+                      return (
+                        <div className="text-right">
+                          <div className="text-xs text-slate-400">Status Horário</div>
+                          <div className={`text-sm font-semibold ${
+                            isGold ? 'text-yellow-400' : isAllowed ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {isGold ? '⭐ GOLD ATIVO' : isAllowed ? '✅ PERMITIDO' : '⚠️ BLOQUEADO'}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">

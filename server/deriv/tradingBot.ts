@@ -203,14 +203,31 @@ export class TradingBot {
           goldModeStakeMultiplier: hourlyFilterGoldMultiplier,
         });
         
+        const hoursFormatted = HourlyFilter.formatHours(this.hourlyFilter.getConfig().customHours);
         console.log(`[HOURLY_FILTER] Filtro de Horário Habilitado: ${hourlyFilterEnabled}`);
         console.log(`[HOURLY_FILTER] Modo: ${hourlyFilterMode}`);
-        console.log(`[HOURLY_FILTER] Horários permitidos (GMT): ${HourlyFilter.formatHours(this.hourlyFilter.getConfig().customHours)}`);
+        console.log(`[HOURLY_FILTER] Horários permitidos (GMT): ${hoursFormatted}`);
+        
+        // Log de evento visível no dashboard
+        await this.logEvent(
+          "HOURLY_FILTER_CONFIG",
+          `🕒 FILTRO DE HORÁRIO ATIVADO | Horários permitidos (GMT): ${hoursFormatted}`
+        );
+        
         if (hourlyFilterGoldHours.length > 0) {
-          console.log(`[HOURLY_FILTER] Horários GOLD (GMT): ${HourlyFilter.formatHours(hourlyFilterGoldHours)} (${hourlyFilterGoldMultiplier / 100}x stake)`);
+          const goldFormatted = HourlyFilter.formatHours(hourlyFilterGoldHours);
+          console.log(`[HOURLY_FILTER] Horários GOLD (GMT): ${goldFormatted} (${hourlyFilterGoldMultiplier / 100}x stake)`);
+          await this.logEvent(
+            "HOURLY_FILTER_GOLD",
+            `⭐ HORÁRIOS GOLD: ${goldFormatted} (stake ${hourlyFilterGoldMultiplier / 100}x)`
+          );
         }
       } else {
         console.log(`[HOURLY_FILTER] Filtro de Horário Desabilitado`);
+        await this.logEvent(
+          "HOURLY_FILTER_CONFIG",
+          `🕒 Filtro de Horário: DESATIVADO (bot operará em todos os horários)`
+        );
       }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -450,6 +467,32 @@ export class TradingBot {
       this.currentCandleClose = tick.quote;
     }
 
+    // VERIFICAÇÃO CONTÍNUA: Se filtro de horário está ativo e horário não é permitido
+    if (this.hourlyFilter && !this.hourlyFilter.isAllowedHour()) {
+      // Se estava operando, parar imediatamente
+      if (this.state !== "WAITING_NEXT_HOUR") {
+        this.state = "WAITING_NEXT_HOUR";
+        await this.updateBotState();
+        const nextHour = this.hourlyFilter.getNextAllowedHour();
+        await this.logEvent(
+          "HOURLY_FILTER_BLOCKED",
+          `⚠️ Horário ${new Date().getUTCHours()}h GMT não permitido. Bot em STAND BY até ${nextHour}h GMT`
+        );
+      }
+      // Não processar nada enquanto horário não for permitido
+      return;
+    }
+    
+    // Se estava em WAITING_NEXT_HOUR e agora horário é permitido, reativar
+    if (this.state === "WAITING_NEXT_HOUR" && this.hourlyFilter && this.hourlyFilter.isAllowedHour()) {
+      this.state = "WAITING_MIDPOINT";
+      await this.updateBotState();
+      await this.logEvent(
+        "HOURLY_FILTER_ACTIVATED",
+        `✅ Horário ${new Date().getUTCHours()}h GMT permitido! Bot reativado automaticamente`
+      );
+    }
+    
     // Calcular segundos decorridos desde o início do candle
     const elapsedSeconds = Math.floor((tick.epoch - this.currentCandleTimestamp));
     
