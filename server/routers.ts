@@ -147,7 +147,7 @@ export const appRouter = router({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: `Erro ao conectar: ${error.message}`,
-          }
+        });
       }
     }),
 
