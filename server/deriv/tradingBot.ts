@@ -712,15 +712,18 @@ export class TradingBot {
       // Calcular duração até 20 segundos antes do fim do candle
       // Duração = (timeframe - elapsedSeconds - 20) segundos
       const durationSeconds = Math.max(this.timeframe - elapsedSeconds - 20, 60); // Mínimo 60s
-      const durationMinutes = Math.ceil(durationSeconds / 60); // Arredondar para cima em minutos
+      
+      // Usar segundos (ticks) ao invés de minutos para maior precisão
+      // A DERIV aceita duração em segundos ("s") que é mais flexível
+      console.log(`[DURATION_CALC] Timeframe: ${this.timeframe}s | Elapsed: ${elapsedSeconds}s | Duration: ${durationSeconds}s`);
       
       // Comprar contrato na DERIV
       const contract = await this.derivService.buyContract(
         this.symbol,
         contractType,
         this.stake / 100, // Converter centavos para unidade
-        durationMinutes,
-        "m",
+        durationSeconds,
+        "s", // Usar segundos ao invés de minutos
         barrier // Passar barreira se for TOUCH/NO_TOUCH
       );
 
