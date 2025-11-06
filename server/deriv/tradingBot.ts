@@ -765,7 +765,7 @@ export class TradingBot {
       await this.updateBotState();
       await this.logEvent(
         "POSITION_ENTERED",
-        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${this.stake / 100} | Duração: ${durationMinutes}min (${durationSeconds}s) | Contract: ${contract.contract_id}`
+        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${this.stake / 100} | Duração: ${durationRounded / 60}min (${durationRounded}s) | Contract: ${contract.contract_id}`
       );
     } catch (error) {
       console.error("[TradingBot] Error entering position:", error);
