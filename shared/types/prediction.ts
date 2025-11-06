@@ -41,6 +41,7 @@ export type BotStateType =
   | "IDLE"
   | "COLLECTING"
   | "WAITING_MIDPOINT"
+  | "WAITING_NEXT_HOUR"
   | "PREDICTING"
   | "ARMED"
   | "ENTERED"

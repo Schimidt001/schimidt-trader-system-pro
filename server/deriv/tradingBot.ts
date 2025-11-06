@@ -1,6 +1,8 @@
 import { DerivService, DerivCandle, DerivTick } from "./derivService";
 import { predictionService } from "../prediction/predictionService";
 import { analyzePositionForHedge, DEFAULT_HEDGE_CONFIG, type HedgeConfig } from "../ai/hedgeStrategy";
+import { HourlyFilter } from "../../filtro-horario/hourlyFilterLogic";
+import type { HourlyFilterConfig } from "../../filtro-horario/types";
 import { validateHedgeConfig } from "../ai/hedgeConfigSchema";
 import type {
   PredictionRequest,
@@ -89,6 +91,9 @@ export class TradingBot {
   private barrierLow: string = "-3.00"; // barreira inferior em pontos
   private forexMinDurationMinutes: number = 15; // Duração mínima para Forex em minutos
   
+  // Configurações do Filtro de Horário
+  private hourlyFilter: HourlyFilter | null = null;
+  
   // Configurações da IA Hedge
   private hedgeEnabled: boolean = true;
   private hedgeConfig: HedgeConfig = DEFAULT_HEDGE_CONFIG;
@@ -174,6 +179,38 @@ export class TradingBot {
         if (this.repredictionEnabled) {
           console.log(`[REPREDICTION_CONFIG] Delay: ${this.repredictionDelay}s (${Math.floor(this.repredictionDelay / 60)} min)`);
         }
+      }
+      
+      // Carregar configurações do Filtro de Horário
+      const hourlyFilterEnabled = config.hourlyFilterEnabled ?? false;
+      if (hourlyFilterEnabled) {
+        const hourlyFilterMode = config.hourlyFilterMode ?? 'COMBINED';
+        const hourlyFilterCustomHours = config.hourlyFilterCustomHours 
+          ? JSON.parse(config.hourlyFilterCustomHours) 
+          : [];
+        const hourlyFilterGoldHours = config.hourlyFilterGoldHours 
+          ? JSON.parse(config.hourlyFilterGoldHours) 
+          : [];
+        const hourlyFilterGoldMultiplier = config.hourlyFilterGoldMultiplier ?? 200;
+        
+        this.hourlyFilter = new HourlyFilter({
+          enabled: hourlyFilterEnabled,
+          mode: hourlyFilterMode,
+          customHours: hourlyFilterCustomHours.length > 0 
+            ? hourlyFilterCustomHours 
+            : HourlyFilter.getHoursForMode(hourlyFilterMode),
+          goldModeHours: hourlyFilterGoldHours,
+          goldModeStakeMultiplier: hourlyFilterGoldMultiplier,
+        });
+        
+        console.log(`[HOURLY_FILTER] Filtro de Horário Habilitado: ${hourlyFilterEnabled}`);
+        console.log(`[HOURLY_FILTER] Modo: ${hourlyFilterMode}`);
+        console.log(`[HOURLY_FILTER] Horários permitidos: ${HourlyFilter.formatHours(this.hourlyFilter.getConfig().customHours)}`);
+        if (hourlyFilterGoldHours.length > 0) {
+          console.log(`[HOURLY_FILTER] Horários GOLD: ${HourlyFilter.formatHours(hourlyFilterGoldHours)} (${hourlyFilterGoldMultiplier / 100}x stake)`);
+        }
+      } else {
+        console.log(`[HOURLY_FILTER] Filtro de Horário Desabilitado`);
       }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -372,10 +409,32 @@ export class TradingBot {
       this.currentCandleStartTime = new Date(candleTimestamp * 1000);
       this.tradesThisCandle.clear();
 
+      // Verificar filtro de horário antes de processar o candle
+      if (this.hourlyFilter && !this.hourlyFilter.isAllowedHour()) {
+        this.state = "WAITING_NEXT_HOUR";
+        await this.updateBotState();
+        const nextHour = this.hourlyFilter.getNextAllowedHour();
+        await this.logEvent(
+          "HOURLY_FILTER_BLOCKED",
+          `Horário ${new Date().getUTCHours()}h UTC não permitido. Aguardando próximo horário: ${nextHour}h UTC`
+        );
+        // Não processar este candle
+        return;
+      }
+      
       this.state = "WAITING_MIDPOINT";
       await this.updateBotState();
       await this.logEvent("CANDLE_INITIALIZED", 
         `Novo candle: timestamp=${candleTimestamp}, firstTick=${tick.quote}`);
+      
+      // Logar se é horário GOLD
+      if (this.hourlyFilter && this.hourlyFilter.isGoldHour()) {
+        const multiplier = this.hourlyFilter.getConfig().goldModeStakeMultiplier / 100;
+        await this.logEvent(
+          "GOLD_HOUR_ACTIVE",
+          `⭐ HORÁRIO GOLD ATIVO | Stake será multiplicado por ${multiplier}x`
+        );
+      }
       
       // Criar timer para forçar fim do candle após o timeframe configurado
       this.scheduleCandleEnd(candleTimestamp);
@@ -738,11 +797,19 @@ export class TradingBot {
         console.log(`[DURATION_SYNTHETIC] Original: ${durationSeconds}s | Arredondado: ${durationRounded}s (${finalDurationMinutes} min)`);
       }
       
+      // Ajustar stake se for horário GOLD
+      let finalStake = this.stake;
+      if (this.hourlyFilter && this.hourlyFilter.isGoldHour()) {
+        finalStake = this.hourlyFilter.getAdjustedStake(this.stake);
+        const multiplier = this.hourlyFilter.getConfig().goldModeStakeMultiplier / 100;
+        console.log(`[GOLD_STAKE] Stake ajustado para horário GOLD: ${this.stake / 100} -> ${finalStake / 100} (${multiplier}x)`);
+      }
+      
       // Comprar contrato na DERIV usando duração em minutos (mais compatível)
       const contract = await this.derivService.buyContract(
         this.symbol,
         contractType,
-        this.stake / 100, // Converter centavos para unidade
+        finalStake / 100, // Converter centavos para unidade (com ajuste GOLD se aplicável)
         finalDurationMinutes, // Duração final em minutos
         "m", // Usar minutos para maior compatibilidade
         barrier // Passar barreira se for TOUCH/NO_TOUCH
@@ -754,7 +821,7 @@ export class TradingBot {
         contractId: contract.contract_id,
         symbol: this.symbol,
         direction: this.prediction.direction,
-        stake: this.stake,
+        stake: finalStake,
         entryPrice: entryPrice.toString(),
         predictedClose: this.prediction.predicted_close.toString(),
         trigger: this.trigger.toString(),
@@ -772,7 +839,7 @@ export class TradingBot {
         positionId,
         contractId: contract.contract_id,
         isHedge: false,
-        stake: this.stake,
+        stake: finalStake,
       });
       this.tradesThisCandle.add(this.currentCandleTimestamp);
       this.lastContractCheckTime = 0; // Resetar para permitir verificação imediata
@@ -781,7 +848,7 @@ export class TradingBot {
       await this.updateBotState();
       await this.logEvent(
         "POSITION_ENTERED",
-        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${this.stake / 100} | Duração: ${finalDurationMinutes}min | Contract: ${contract.contract_id}`
+        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${finalDurationMinutes}min | Contract: ${contract.contract_id}`
       );
     } catch (error) {
       console.error("[TradingBot] Error entering position:", error);

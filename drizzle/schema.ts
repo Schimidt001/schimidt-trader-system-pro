@@ -44,6 +44,12 @@ export const config = mysqlTable("config", {
   barrierHigh: varchar("barrierHigh", { length: 20 }).default("3.00"), // Barreira superior em pontos (ex: "3.00" = 3 pontos acima)
   barrierLow: varchar("barrierLow", { length: 20 }).default("-3.00"), // Barreira inferior em pontos (ex: "-3.00" = 3 pontos abaixo)
   forexMinDurationMinutes: int("forexMinDurationMinutes").default(15).notNull(), // Duração mínima para Forex em minutos
+  // Configurações do Filtro de Horário
+  hourlyFilterEnabled: boolean("hourlyFilterEnabled").default(false).notNull(), // Habilitar filtro de horário
+  hourlyFilterMode: mysqlEnum("hourlyFilterMode", ["IDEAL", "COMPATIBLE", "GOLDEN", "COMBINED", "CUSTOM"]).default("COMBINED").notNull(), // Modo do filtro
+  hourlyFilterCustomHours: text("hourlyFilterCustomHours"), // Horários personalizados (JSON array)
+  hourlyFilterGoldHours: text("hourlyFilterGoldHours"), // Horários GOLD (JSON array, máx 2)
+  hourlyFilterGoldMultiplier: int("hourlyFilterGoldMultiplier").default(200).notNull(), // Multiplicador de stake para horários GOLD (100 = 1x, 200 = 2x)
   // Configurações da IA Hedge Inteligente
   hedgeEnabled: boolean("hedgeEnabled").default(true).notNull(), // Toggle para ativar/desativar IA Hedge
   hedgeConfig: text("hedgeConfig"), // Configurações de hedge armazenadas como JSON
@@ -151,6 +157,7 @@ export const botState = mysqlTable("botState", {
     "IDLE",
     "COLLECTING",
     "WAITING_MIDPOINT",
+    "WAITING_NEXT_HOUR",
     "PREDICTING",
     "ARMED",
     "ENTERED",
