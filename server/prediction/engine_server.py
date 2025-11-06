@@ -97,9 +97,9 @@ def predict():
         history = data['history']
         partial = data['partial_current']
         
-        # Validar timeframe
-        if tf != 'M15':
-            return jsonify({'error': 'Only M15 timeframe is supported'}), 400
+        # Validar timeframe (aceita M15 e M30)
+        if tf not in ['M15', 'M30']:
+            return jsonify({'error': 'Only M15 and M30 timeframes are supported'}), 400
         
         # Alimentar engine com histórico (primeira vez)
         if not engine_initialized:

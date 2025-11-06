@@ -709,21 +709,26 @@ export class TradingBot {
         barrier = barrierOffset > 0 ? `+${barrierOffset.toFixed(2)}` : `${barrierOffset.toFixed(2)}`;
       }
       
-      // Calcular duração até 20 segundos antes do fim do candle
-      // Duração = (timeframe - elapsedSeconds - 20) segundos
-      const durationSeconds = Math.max(this.timeframe - elapsedSeconds - 20, 60); // Mínimo 60s
+      // Calcular duração até 30 segundos antes do fim do candle (margem de segurança)
+      // Duração = (timeframe - elapsedSeconds - 30) segundos
+      // Mínimo de 120s (2 min) para compatibilidade com Forex
+      const durationSeconds = Math.max(this.timeframe - elapsedSeconds - 30, 120);
       
       // Usar segundos (ticks) ao invés de minutos para maior precisão
       // A DERIV aceita duração em segundos ("s") que é mais flexível
       console.log(`[DURATION_CALC] Timeframe: ${this.timeframe}s | Elapsed: ${elapsedSeconds}s | Duration: ${durationSeconds}s`);
       
-      // Comprar contrato na DERIV
+      // Arredondar para múltiplo de 60 (minutos completos) para maior compatibilidade
+      const durationRounded = Math.ceil(durationSeconds / 60) * 60;
+      console.log(`[DURATION_ROUNDED] Original: ${durationSeconds}s | Arredondado: ${durationRounded}s (${durationRounded/60} min)`);
+      
+      // Comprar contrato na DERIV usando duração em minutos (mais compatível)
       const contract = await this.derivService.buyContract(
         this.symbol,
         contractType,
         this.stake / 100, // Converter centavos para unidade
-        durationSeconds,
-        "s", // Usar segundos ao invés de minutos
+        durationRounded / 60, // Converter para minutos
+        "m", // Usar minutos para maior compatibilidade
         barrier // Passar barreira se for TOUCH/NO_TOUCH
       );
 
