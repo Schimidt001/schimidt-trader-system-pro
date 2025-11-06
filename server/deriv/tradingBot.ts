@@ -205,9 +205,9 @@ export class TradingBot {
         
         console.log(`[HOURLY_FILTER] Filtro de Horário Habilitado: ${hourlyFilterEnabled}`);
         console.log(`[HOURLY_FILTER] Modo: ${hourlyFilterMode}`);
-        console.log(`[HOURLY_FILTER] Horários permitidos: ${HourlyFilter.formatHours(this.hourlyFilter.getConfig().customHours)}`);
+        console.log(`[HOURLY_FILTER] Horários permitidos (GMT): ${HourlyFilter.formatHours(this.hourlyFilter.getConfig().customHours)}`);
         if (hourlyFilterGoldHours.length > 0) {
-          console.log(`[HOURLY_FILTER] Horários GOLD: ${HourlyFilter.formatHours(hourlyFilterGoldHours)} (${hourlyFilterGoldMultiplier / 100}x stake)`);
+          console.log(`[HOURLY_FILTER] Horários GOLD (GMT): ${HourlyFilter.formatHours(hourlyFilterGoldHours)} (${hourlyFilterGoldMultiplier / 100}x stake)`);
         }
       } else {
         console.log(`[HOURLY_FILTER] Filtro de Horário Desabilitado`);
@@ -416,7 +416,7 @@ export class TradingBot {
         const nextHour = this.hourlyFilter.getNextAllowedHour();
         await this.logEvent(
           "HOURLY_FILTER_BLOCKED",
-          `Horário ${new Date().getUTCHours()}h UTC não permitido. Aguardando próximo horário: ${nextHour}h UTC`
+          `Horário ${new Date().getUTCHours()}h GMT não permitido. Aguardando próximo horário: ${nextHour}h GMT`
         );
         // Não processar este candle
         return;
@@ -1413,7 +1413,7 @@ export class TradingBot {
   }
 
   /**
-   * Obtém timestamp do início do candle atual (UTC)
+   * Obtém timestamp do início do candle atual (GMT)
    */
   getCandleStartTime(): number {
     return this.currentCandleTimestamp;

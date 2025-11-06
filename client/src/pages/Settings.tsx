@@ -1103,7 +1103,7 @@ export default function Settings() {
                     Ativar Filtro de Horário
                   </Label>
                   <p className="text-xs text-slate-500">
-                    Bot opera apenas nos horários permitidos (UTC)
+                    Bot opera apenas nos horários permitidos (GMT - padrão Deriv)
                   </p>
                 </div>
                 <Switch
@@ -1119,9 +1119,9 @@ export default function Settings() {
                   <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 mb-4">
                     <div className="flex items-center justify-between text-sm">
                       <div>
-                        <span className="text-slate-400">Horário UTC Atual:</span>
+                        <span className="text-slate-400">Horário GMT Atual:</span>
                         <span className="ml-2 text-blue-400 font-semibold">
-                          {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} ({new Date().getUTCHours()}h)
+                          {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} ({new Date().getUTCHours()}h GMT)
                         </span>
                       </div>
                       <div>
@@ -1136,7 +1136,7 @@ export default function Settings() {
                   {/* Grade de Horários */}
                   <div className="space-y-2">
                     <Label className="text-slate-300">
-                      Horários Permitidos (UTC)
+                      Horários Permitidos (GMT)
                     </Label>
                     <p className="text-xs text-slate-500 mb-3">
                       Clique nos horários para permitir/bloquear operações
