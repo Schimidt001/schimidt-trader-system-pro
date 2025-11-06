@@ -92,6 +92,12 @@ export const appRouter = router({
           barrierLow: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal
           hedgeEnabled: z.boolean().optional(),
           hedgeConfig: z.string().optional(),
+          // Filtro de Horário
+          hourlyFilterEnabled: z.boolean().optional(),
+          hourlyFilterMode: z.enum(["IDEAL", "COMPATIBLE", "GOLDEN", "COMBINED", "CUSTOM"]).optional(),
+          hourlyFilterCustomHours: z.string().optional(),
+          hourlyFilterGoldHours: z.string().optional(),
+          hourlyFilterGoldMultiplier: z.number().int().min(100).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
