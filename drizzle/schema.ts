@@ -43,6 +43,7 @@ export const config = mysqlTable("config", {
   contractType: mysqlEnum("contractType", ["RISE_FALL", "TOUCH", "NO_TOUCH"]).default("RISE_FALL").notNull(), // Tipo de contrato
   barrierHigh: varchar("barrierHigh", { length: 20 }).default("3.00"), // Barreira superior em pontos (ex: "3.00" = 3 pontos acima)
   barrierLow: varchar("barrierLow", { length: 20 }).default("-3.00"), // Barreira inferior em pontos (ex: "-3.00" = 3 pontos abaixo)
+  forexMinDurationMinutes: int("forexMinDurationMinutes").default(15).notNull(), // Duração mínima para Forex em minutos
   // Configurações da IA Hedge Inteligente
   hedgeEnabled: boolean("hedgeEnabled").default(true).notNull(), // Toggle para ativar/desativar IA Hedge
   hedgeConfig: text("hedgeConfig"), // Configurações de hedge armazenadas como JSON

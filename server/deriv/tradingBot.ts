@@ -87,6 +87,7 @@ export class TradingBot {
   private contractType: "RISE_FALL" | "TOUCH" | "NO_TOUCH" = "RISE_FALL";
   private barrierHigh: string = "3.00"; // barreira superior em pontos
   private barrierLow: string = "-3.00"; // barreira inferior em pontos
+  private forexMinDurationMinutes: number = 15; // Duração mínima para Forex em minutos
   
   // Configurações da IA Hedge
   private hedgeEnabled: boolean = true;
@@ -137,6 +138,7 @@ export class TradingBot {
       this.contractType = config.contractType ?? "RISE_FALL";
       this.barrierHigh = config.barrierHigh ?? "3.00";
       this.barrierLow = config.barrierLow ?? "-3.00";
+      this.forexMinDurationMinutes = config.forexMinDurationMinutes ?? 15;
       
       
       console.log(`[CONTRACT_TYPE] Tipo de contrato: ${this.contractType}`);
@@ -719,15 +721,29 @@ export class TradingBot {
       console.log(`[DURATION_CALC] Timeframe: ${this.timeframe}s | Elapsed: ${elapsedSeconds}s | Duration: ${durationSeconds}s`);
       
       // Arredondar para múltiplo de 60 (minutos completos) para maior compatibilidade
-      const durationRounded = Math.ceil(durationSeconds / 60) * 60;
-      console.log(`[DURATION_ROUNDED] Original: ${durationSeconds}s | Arredondado: ${durationRounded}s (${durationRounded/60} min)`);
+            let finalDurationMinutes: number;
+
+      // Verificar se é um ativo Forex (ex: major pairs, não sintéticos)
+      // Uma heurística simples: sintéticos geralmente começam com "R_" ou "1HZ"
+      const isForex = !this.symbol.startsWith("R_") && !this.symbol.startsWith("1HZ");
+
+      if (isForex) {
+        // Para Forex, a duração mínima é fixa (ex: 15 minutos), ignorando o candle
+        finalDurationMinutes = this.forexMinDurationMinutes;
+        console.log(`[DURATION_FOREX] Ativo Forex detectado. Usando duração mínima de ${finalDurationMinutes} min.`);
+      } else {
+        // Para Sintéticos, a duração acompanha o candle
+        const durationRounded = Math.ceil(durationSeconds / 60) * 60;
+        finalDurationMinutes = durationRounded / 60;
+        console.log(`[DURATION_SYNTHETIC] Original: ${durationSeconds}s | Arredondado: ${durationRounded}s (${finalDurationMinutes} min)`);
+      }
       
       // Comprar contrato na DERIV usando duração em minutos (mais compatível)
       const contract = await this.derivService.buyContract(
         this.symbol,
         contractType,
         this.stake / 100, // Converter centavos para unidade
-        durationRounded / 60, // Converter para minutos
+        finalDurationMinutes, // Duração final em minutos
         "m", // Usar minutos para maior compatibilidade
         barrier // Passar barreira se for TOUCH/NO_TOUCH
       );
@@ -765,7 +781,7 @@ export class TradingBot {
       await this.updateBotState();
       await this.logEvent(
         "POSITION_ENTERED",
-        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${this.stake / 100} | Duração: ${durationRounded / 60}min (${durationRounded}s) | Contract: ${contract.contract_id}`
+        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${this.stake / 100} | Duração: ${finalDurationMinutes}min | Contract: ${contract.contract_id}`
       );
     } catch (error) {
       console.error("[TradingBot] Error entering position:", error);
