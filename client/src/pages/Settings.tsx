@@ -376,6 +376,14 @@ export default function Settings() {
       hourlyFilterGoldHours: JSON.stringify(hourlyFilterGoldHours),
       hourlyFilterGoldMultiplier: parseInt(hourlyFilterGoldMultiplier),
     });
+    
+    console.log('[FILTRO] Salvando configurações:', {
+      hourlyFilterEnabled,
+      hourlyFilterCustomHours,
+      hourlyFilterCustomHoursJSON: JSON.stringify(hourlyFilterCustomHours),
+      hourlyFilterGoldHours,
+      hourlyFilterGoldHoursJSON: JSON.stringify(hourlyFilterGoldHours),
+    });
   };
 
   if (authLoading || isLoading) {
@@ -1150,11 +1158,16 @@ export default function Settings() {
                             key={hour}
                             type="button"
                             onClick={() => {
+                              console.log('[FILTRO] Clique no horário:', hour, 'Estado atual:', hourlyFilterCustomHours);
                               if (isSelected) {
-                                setHourlyFilterCustomHours(hourlyFilterCustomHours.filter(h => h !== hour));
+                                const newHours = hourlyFilterCustomHours.filter(h => h !== hour);
+                                console.log('[FILTRO] Removendo horário. Novo estado:', newHours);
+                                setHourlyFilterCustomHours(newHours);
                                 setHourlyFilterGoldHours(hourlyFilterGoldHours.filter(h => h !== hour));
                               } else {
-                                setHourlyFilterCustomHours([...hourlyFilterCustomHours, hour].sort((a, b) => a - b));
+                                const newHours = [...hourlyFilterCustomHours, hour].sort((a, b) => a - b);
+                                console.log('[FILTRO] Adicionando horário. Novo estado:', newHours);
+                                setHourlyFilterCustomHours(newHours);
                               }
                             }}
                             className={`
