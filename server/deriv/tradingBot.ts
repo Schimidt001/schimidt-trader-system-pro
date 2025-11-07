@@ -692,6 +692,20 @@ export class TradingBot {
     // Momento da predição: waitTime configurado (em segundos)
     const waitTimeSeconds = this.waitTime * 60;
     if (elapsedSeconds >= waitTimeSeconds && this.state === "WAITING_MIDPOINT") {
+      // Verificação preventiva para Forex: não fazer predição se não houver tempo suficiente
+      const isForex = !this.symbol.startsWith("R_") && !this.symbol.startsWith("1HZ");
+      const timeRemaining = this.timeframe - elapsedSeconds;
+      const minForexDuration = 15 * 60; // 15 minutos em segundos
+      
+      if (isForex && timeRemaining < minForexDuration) {
+        await this.logEvent(
+          "PREDICTION_SKIPPED",
+          `[FOREX] Predição ignorada - Tempo restante (${Math.floor(timeRemaining / 60)} min) menor que mínimo Forex (15 min). Aguardando próximo candle.`
+        );
+        console.log(`[FOREX_SKIP] Predição ignorada - Tempo restante: ${timeRemaining}s (${Math.floor(timeRemaining / 60)} min) < Mínimo Forex: ${minForexDuration}s (15 min)`);
+        return;
+      }
+      
       await this.makePrediction(elapsedSeconds);
     }
 
@@ -967,6 +981,25 @@ export class TradingBot {
     if (!this.prediction || !this.derivService) return;
 
     try {
+      // Verificar se é Forex e se há tempo suficiente para entrar
+      const isForex = !this.symbol.startsWith("R_") && !this.symbol.startsWith("1HZ");
+      const timeRemaining = this.timeframe - elapsedSeconds;
+      const minForexDuration = 15 * 60; // 15 minutos em segundos
+      
+      if (isForex && timeRemaining < minForexDuration) {
+        await this.logEvent(
+          "ENTRY_BLOCKED",
+          `[FOREX] Entrada bloqueada - Tempo restante (${Math.floor(timeRemaining / 60)} min) menor que mínimo Forex (15 min)`
+        );
+        console.log(`[FOREX_BLOCK] Entrada bloqueada - Tempo restante: ${timeRemaining}s (${Math.floor(timeRemaining / 60)} min) < Mínimo: ${minForexDuration}s (15 min)`);
+        
+        // Voltar para estado WAITING_MIDPOINT para aguardar próximo candle
+        this.state = "WAITING_MIDPOINT";
+        this.prediction = null;
+        this.trigger = null;
+        await this.updateBotState();
+        return;
+      }
       // Cancelar timer de re-predição (gatilho foi acionado)
       if (this.repredictionTimer) {
         clearTimeout(this.repredictionTimer);
