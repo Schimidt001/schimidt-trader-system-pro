@@ -87,9 +87,14 @@ export default function Settings() {
   const [analysisStartMinute, setAnalysisStartMinute] = useState("12.0");
   const [analysisEndMinute, setAnalysisEndMinute] = useState("14.0");
 
-  // Query
+  // Queries
   const { data: config, isLoading } = trpc.config.get.useQuery(undefined, {
     enabled: !!user,
+  });
+
+  const { data: botStatus } = trpc.bot.status.useQuery(undefined, {
+    enabled: !!user,
+    refetchInterval: false, // Não precisa ficar atualizando
   });
 
   // Mutations
@@ -123,12 +128,11 @@ export default function Settings() {
   });
 
   const updateConfig = trpc.config.update.useMutation({
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success("Configura\u00e7\u00f5es salvas com sucesso");
       setIsSaving(false);
       
       // Verificar se bot est\u00e1 rodando
-      const botStatus = await trpc.bot.status.query();
       if (botStatus?.isRunning) {
         console.log('[Settings] Bot est\u00e1 rodando, recarregando configura\u00e7\u00f5es...');
         reloadBotConfig.mutate();
