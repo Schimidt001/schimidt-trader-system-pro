@@ -365,10 +365,10 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Gráfico de Candles M15 */}
+        {/* Gráfico de Candles */}
         <Card className="bg-slate-900/50 border-slate-800">
           <CardHeader>
-            <CardTitle className="text-white">Gráfico M15 - {config?.symbol || "R_100"}</CardTitle>
+            <CardTitle className="text-white">Gráfico {config?.timeframe === 900 ? "M15" : config?.timeframe === 1800 ? "M30" : config?.timeframe === 3600 ? "M60" : "M15"} - {config?.symbol || "R_100"}</CardTitle>
             <CardDescription className="text-slate-400">
               Candles em tempo real com linhas de referência
             </CardDescription>

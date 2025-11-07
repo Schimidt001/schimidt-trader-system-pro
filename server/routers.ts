@@ -382,7 +382,7 @@ export const appRouter = router({
           
           const derivCandles = await derivService.getCandleHistory(
             input.symbol,
-            900, // M15 = 900 segundos
+            config.timeframe, // Usar timeframe da configuração (900, 1800 ou 3600)
             input.limit
           );
           
