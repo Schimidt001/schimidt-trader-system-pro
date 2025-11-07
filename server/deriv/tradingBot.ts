@@ -67,10 +67,10 @@ export class TradingBot {
   private candleEndTimer: NodeJS.Timeout | null = null;
   private hedgeAlreadyOpened: boolean = false;
   
-  // Re-predição para M30
+  // Re-predição para M30 e M60
   private repredictionTimer: NodeJS.Timeout | null = null;
   private repredictionEnabled: boolean = true;
-  private repredictionDelay: number = 300; // 5 minutos em segundos
+  private repredictionDelay: number = 300; // delay configurável em segundos
   private hasRepredicted: boolean = false;
   
   // Configurações
@@ -170,12 +170,13 @@ export class TradingBot {
         console.log(`[HEDGE_CONFIG] Janela de análise: ${this.hedgeConfig.analysisStartMinute} - ${this.hedgeConfig.analysisEndMinute} min`);
       }
       
-      // Carregar configurações de re-predição (apenas para M30)
+      // Carregar configurações de re-predição (para M30 e M60)
       this.repredictionEnabled = config.repredictionEnabled ?? true;
       this.repredictionDelay = config.repredictionDelay ?? 300;
       
-      if (this.timeframe === 1800) {
-        console.log(`[REPREDICTION_CONFIG] Re-predição M30 Habilitada: ${this.repredictionEnabled}`);
+      if (this.timeframe === 1800 || this.timeframe === 3600) {
+        const tfLabel = this.timeframe === 1800 ? "M30" : "M60";
+        console.log(`[REPREDICTION_CONFIG] Re-predição ${tfLabel} Habilitada: ${this.repredictionEnabled}`);
         if (this.repredictionEnabled) {
           console.log(`[REPREDICTION_CONFIG] Delay: ${this.repredictionDelay}s (${Math.floor(this.repredictionDelay / 60)} min)`);
         }
@@ -924,8 +925,8 @@ export class TradingBot {
       await this.updateBotState();
       await this.logEvent("POSITION_ARMED", `Entrada armada no gatilho ${this.trigger}`);
       
-      // Agendar re-predição para M30 (se habilitado)
-      if (this.timeframe === 1800 && this.repredictionEnabled) {
+      // Agendar re-predição para M30 e M60 (se habilitado)
+      if ((this.timeframe === 1800 || this.timeframe === 3600) && this.repredictionEnabled) {
         this.scheduleReprediction();
       }
     } catch (error) {
@@ -1506,7 +1507,7 @@ export class TradingBot {
   }
 
   /**
-   * Agenda re-predição para M30 (5 minutos após primeira predição)
+   * Agenda re-predição para M30 e M60 (delay configurável após primeira predição)
    */
   private scheduleReprediction(): void {
     // Limpar timer anterior se existir
@@ -1523,20 +1524,22 @@ export class TradingBot {
       }
     }, delayMs);
     
+    const tfLabel = this.timeframe === 1800 ? "M30" : "M60";
     this.logEvent(
       "REPREDICTION_SCHEDULED",
-      `[M30] Re-predição agendada para daqui ${this.repredictionDelay}s (${Math.floor(this.repredictionDelay / 60)} min)`
+      `[${tfLabel}] Re-predição agendada para daqui ${this.repredictionDelay}s (${Math.floor(this.repredictionDelay / 60)} min)`
     );
   }
 
   /**
-   * Faz re-predição para M30 (caso gatilho não tenha sido acionado)
+   * Faz re-predição para M30 e M60 (caso gatilho não tenha sido acionado)
    */
   private async makeReprediction(): Promise<void> {
     try {
+      const tfLabel = this.timeframe === 1800 ? "M30" : "M60";
       await this.logEvent(
         "REPREDICTION_START",
-        `[RE-PREDIÇÃO M30] Gatilho não acionado em ${Math.floor(this.repredictionDelay / 60)} min, fazendo nova predição...`
+        `[RE-PREDIÇÃO ${tfLabel}] Gatilho não acionado em ${Math.floor(this.repredictionDelay / 60)} min, fazendo nova predição...`
       );
       
       if (!this.derivService) {

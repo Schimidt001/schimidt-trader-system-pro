@@ -86,7 +86,7 @@ export const appRouter = router({
             message: "Timeframe deve ser 900 (M15), 1800 (M30) ou 3600 (M60)"
           }),
           repredictionEnabled: z.boolean().optional(),
-          repredictionDelay: z.number().int().min(180).max(600).optional(), // 3-10 minutos
+          repredictionDelay: z.number().int().min(60).optional(), // Mínimo 60s (1 min), sem limite máximo
           contractType: z.enum(["RISE_FALL", "TOUCH", "NO_TOUCH"]),
           barrierHigh: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal
           barrierLow: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal

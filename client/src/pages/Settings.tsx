@@ -706,12 +706,12 @@ export default function Settings() {
                   </p>
                 </div>
 
-                {/* Re-predição M30 */}
-                {timeframe === "1800" && (
+                {/* Re-predição M30 e M60 */}
+                {(timeframe === "1800" || timeframe === "3600") && (
                   <div className="space-y-4 p-4 bg-blue-900/20 rounded-lg border border-blue-700">
                     <div className="flex items-center justify-between">
                       <div className="space-y-1">
-                        <Label className="text-slate-200 font-semibold">Re-Predição M30</Label>
+                        <Label className="text-slate-200 font-semibold">Re-Predição {timeframe === "1800" ? "M30" : "M60"}</Label>
                         <p className="text-xs text-slate-400">
                           Fazer nova predição se o gatilho não for acionado após o delay configurado
                         </p>
@@ -734,8 +734,7 @@ export default function Settings() {
                           onChange={(e) => setRepredictionDelay(e.target.value)}
                           className="bg-slate-800 border-slate-700 text-white"
                           placeholder="300"
-                          min="180"
-                          max="600"
+                          min="60"
                           step="60"
                         />
                         <p className="text-xs text-slate-500">
