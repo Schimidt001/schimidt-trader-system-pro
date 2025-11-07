@@ -339,16 +339,16 @@ export default function Settings() {
       return;
     }
 
-    if (timeframeNum !== 900 && timeframeNum !== 1800) {
-      toast.error("Timeframe deve ser 900 (M15) ou 1800 (M30)");
+    if (timeframeNum !== 900 && timeframeNum !== 1800 && timeframeNum !== 3600) {
+      toast.error("Timeframe deve ser 900 (M15), 1800 (M30) ou 3600 (M60)");
       return;
     }
 
     // Validar configurações de re-predição
     const repredictionDelayNum = parseInt(repredictionDelay);
-    if (timeframeNum === 1800 && repredictionEnabled) {
-      if (isNaN(repredictionDelayNum) || repredictionDelayNum < 180 || repredictionDelayNum > 600) {
-        toast.error("Delay de re-predição deve ser entre 180 e 600 segundos (3-10 min)");
+    if ((timeframeNum === 1800 || timeframeNum === 3600) && repredictionEnabled) {
+      if (isNaN(repredictionDelayNum) || repredictionDelayNum < 60) {
+        toast.error("Delay de re-predição deve ser no mínimo 60 segundos (1 min)");
         return;
       }
     }
