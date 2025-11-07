@@ -19,7 +19,7 @@ Sistema de Trading Automatizado 24/7 para DERIV com Engine de Predição Proprie
 
 ## 🎯 Visão Geral
 
-O **Schimidt Trader System PRO** é uma plataforma completa de trading automatizado que opera 24/7 em ativos sintéticos da DERIV. O sistema utiliza uma engine de predição proprietária baseada no **Algoritmo Fibonacci da Amplitude** com **84.85% de assertividade** para prever o fechamento de candles M15 e executar trades automaticamente.
+O **Schimidt Trader System PRO** é uma plataforma completa de trading automatizado que opera 24/7 em ativos sintéticos da DERIV. O sistema utiliza uma engine de predição proprietária baseada no **Algoritmo Fibonacci da Amplitude** com **84.85% de assertividade** para prever o fechamento de candles (M15, M30, M60) e executar trades automaticamente.
 
 ### Características Principais
 
@@ -27,7 +27,7 @@ O **Schimidt Trader System PRO** é uma plataforma completa de trading automatiz
 - ✅ **Engine Proprietária** - Algoritmo Fibonacci da Amplitude integrado
 - ✅ **Gestão de Risco Avançada** - Stop/Take diário, early close inteligente
 - ✅ **Dados Reais** - Integração direta com API DERIV via WebSocket
-- ✅ **Interface Profissional** - Dashboard em tempo real com gráficos M15
+- ✅ **Interface Profissional** - Dashboard em tempo real com gráficos dinâmicos
 - ✅ **Modo DEMO e REAL** - Teste seguro antes de operar com dinheiro real
 
 ## 🏗️ Arquitetura
@@ -35,7 +35,7 @@ O **Schimidt Trader System PRO** é uma plataforma completa de trading automatiz
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    FRONTEND (React 19)                       │
-│  Dashboard │ Configurações │ Logs │ Gráfico M15 em Tempo Real│
+│  Dashboard │ Configurações │ Logs │ Gráfico (M15/M30/M60)  │
 └──────────────────────┬──────────────────────────────────────┘
                        │ tRPC
 ┌──────────────────────┴──────────────────────────────────────┐
@@ -58,7 +58,7 @@ O **Schimidt Trader System PRO** é uma plataforma completa de trading automatiz
 
 - **Algoritmo**: Fibonacci da Amplitude
 - **Assertividade**: 84.85%
-- **Timeframe**: M15 (15 minutos)
+- **Timeframes**: M15 (15 min), M30 (30 min), M60 (1 hora)
 - **Método**: Análise de fase + descoberta de padrões
 - **Entrada**: 50 candles históricos + candle atual parcial
 - **Saída**: Predição de fechamento + direção (UP/DOWN)
@@ -68,7 +68,7 @@ O **Schimidt Trader System PRO** é uma plataforma completa de trading automatiz
 #### Estados do Bot
 - `IDLE` - Parado, aguardando início
 - `COLLECTING` - Coletando histórico de candles
-- `WAITING_MIDPOINT` - Aguardando 8 minutos do candle M15
+- `WAITING_MIDPOINT` - Aguardando waitTime configurado do candle
 - `PREDICTING` - Chamando engine de predição
 - `ARMED` - Entrada armada, aguardando gatilho
 - `POSITION_OPEN` - Posição aberta, monitorando
@@ -78,15 +78,16 @@ O **Schimidt Trader System PRO** é uma plataforma completa de trading automatiz
 - `DISCONNECTED` - Desconectado da DERIV
 
 #### Lógica de Entrada
-1. Aguarda **8 minutos** do candle M15 atual
+1. Aguarda **waitTime configurado** do candle atual (ex: 8 min para M15, 15 min para M30, 20 min para M60)
 2. Coleta candle parcial (open, high, low, current)
 3. Envia para engine de predição
 4. Recebe predição de fechamento
-5. Calcula **gatilho** = predição ± 16 pontos
-   - UP: gatilho = predição - 16
-   - DOWN: gatilho = predição + 16
+5. Calcula **gatilho** = predição ± offset configurado (padrão: 16 pontos)
+   - UP: gatilho = predição - offset
+   - DOWN: gatilho = predição + offset
 6. Monitora preço em tempo real
 7. Executa CALL/PUT quando preço cruza gatilho
+8. **Re-predição** (M30/M60): Faz nova predição se gatilho não for acionado após delay configurado
 
 #### Gestão de Risco
 - **Stop Diário**: Para bot ao atingir prejuízo máximo
@@ -102,7 +103,7 @@ O **Schimidt Trader System PRO** é uma plataforma completa de trading automatiz
 - **Saldo Real**: Busca via API DERIV
 - **PnL Diário/Mensal**: Calculado de posições reais
 - **Trades Hoje**: Contador em tempo real
-- **Gráfico M15**: Candles com linhas de referência
+- **Gráfico Dinâmico**: Candles (M15/M30/M60) com linhas de referência
   - Linha azul: Fechamento previsto
   - Linha verde: Máxima
   - Linha vermelha: Mínima
@@ -239,7 +240,7 @@ VITE_APP_LOGO=https://your-logo-url.com/logo.png
    - Bot entrará em modo de espera
 
 4. **Monitore Operações**
-   - Acompanhe gráfico M15 em tempo real
+   - Acompanhe gráfico em tempo real (M15/M30/M60)
    - Veja predições nos **Logs**
    - Monitore posições abertas
    - Acompanhe PnL diário
@@ -262,7 +263,7 @@ Se o bot entrar em **"Erro de API"**:
 
 ### Algoritmo Fibonacci da Amplitude
 
-A engine proprietária utiliza o **Algoritmo Fibonacci da Amplitude** para prever o fechamento de candles M15 com 84.85% de assertividade.
+A engine proprietária utiliza o **Algoritmo Fibonacci da Amplitude** para prever o fechamento de candles (M15, M30, M60) com 84.85% de assertividade.
 
 #### Funcionamento
 
@@ -370,7 +371,7 @@ schimidt-trader-system-pro/
 - `dashboard.balance` - Busca saldo DERIV
 - `dashboard.positions` - Lista posições abertas
 - `dashboard.todayPositions` - Posições do dia
-- `dashboard.candles` - Histórico de candles M15
+- `dashboard.candles` - Histórico de candles (timeframe configurado)
 
 #### Logs
 - `logs.recent` - Últimos eventos do sistema

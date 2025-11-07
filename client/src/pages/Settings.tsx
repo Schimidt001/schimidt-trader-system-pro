@@ -48,7 +48,7 @@ export default function Settings() {
   const [waitTime, setWaitTime] = useState("8");
   const [timeframe, setTimeframe] = useState("900"); // 900 (M15) ou 1800 (M30)
   
-  // Estados para re-predição M30
+  // Estados para re-predição M30 e M60
   const [repredictionEnabled, setRepredictionEnabled] = useState(true);
   const [repredictionDelay, setRepredictionDelay] = useState("300"); // 5 minutos em segundos
   
@@ -161,7 +161,7 @@ export default function Settings() {
       setWaitTime((config.waitTime || 8).toString());
       setTimeframe((config.timeframe || 900).toString());
       
-      // Carregar configurações de re-predição M30
+      // Carregar configurações de re-predição M30 e M60
       setRepredictionEnabled(config.repredictionEnabled ?? true);
       setRepredictionDelay((config.repredictionDelay || 300).toString());
       
@@ -683,7 +683,7 @@ export default function Settings() {
                     min="1"
                   />
                   <p className="text-xs text-slate-500">
-                    Tempo de espera no candle antes de capturar dados para predição (padrão: 8 min para M15, 16 min para M30)
+                    Tempo de espera no candle antes de capturar dados para predição (sugestão: 8 min para M15, 15 min para M30, 20 min para M60)
                   </p>
                 </div>
 
@@ -702,7 +702,7 @@ export default function Settings() {
                     </SelectContent>
                   </Select>
                     <p className="text-xs text-slate-500">
-                    Duração do candle para análise e trading (padrão: M15)
+                    Duração do candle para análise e trading (M15: 15 min, M30: 30 min, M60: 1 hora)
                   </p>
                 </div>
 

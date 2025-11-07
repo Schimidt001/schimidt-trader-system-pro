@@ -21,7 +21,7 @@ export interface PartialCurrentCandle {
 
 export interface PredictionRequest {
   symbol: string;
-  tf: string; // Sempre "M15"
+  tf: string; // "M15", "M30" ou "M60"
   history: CandleData[];
   partial_current: PartialCurrentCandle;
 }

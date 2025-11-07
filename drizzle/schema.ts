@@ -61,7 +61,7 @@ export type Config = typeof config.$inferSelect;
 export type InsertConfig = typeof config.$inferInsert;
 
 /**
- * Histórico de candles M15
+ * Histórico de candles (M15, M30, M60)
  */
 export const candles = mysqlTable("candles", {
   id: int("id").autoincrement().primaryKey(),

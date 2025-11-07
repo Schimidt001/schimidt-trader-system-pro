@@ -55,7 +55,7 @@ export const appRouter = router({
           profitThreshold: 90, // threshold padrão de lucro
           waitTime: 8, // tempo de espera padrão em minutos
           timeframe: 900, // timeframe padrão M15 (900 segundos)
-          repredictionEnabled: true, // re-predição M30 habilitada por padrão
+          repredictionEnabled: true, // re-predição M30/M60 habilitada por padrão
           repredictionDelay: 300, // delay padrão de 5 minutos (300 segundos)
           contractType: "RISE_FALL" as const, // tipo de contrato padrão
           barrierHigh: "3.00", // barreira superior padrão (pontos)
