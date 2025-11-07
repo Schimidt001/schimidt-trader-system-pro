@@ -331,6 +331,12 @@ export default function Settings() {
       return;
     }
 
+    // VALIDAÇÃO CRÍTICA: Filtro de Horário não pode ter array vazio
+    if (hourlyFilterEnabled && hourlyFilterCustomHours.length === 0) {
+      toast.error("Selecione pelo menos 1 horário permitido ou desative o filtro de horário");
+      return;
+    }
+
     // Construir objeto hedgeConfig com os 13 parâmetros
     const hedgeConfigObj = {
       enabled: hedgeEnabled,

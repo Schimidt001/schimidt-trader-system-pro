@@ -185,9 +185,27 @@ export class TradingBot {
       const hourlyFilterEnabled = config.hourlyFilterEnabled ?? false;
       if (hourlyFilterEnabled) {
         const hourlyFilterMode = config.hourlyFilterMode ?? 'COMBINED';
-        const hourlyFilterCustomHours = config.hourlyFilterCustomHours 
-          ? JSON.parse(config.hourlyFilterCustomHours) 
-          : [];
+        let hourlyFilterCustomHours: number[] = [];
+        
+        // Parsear customHours com fallback
+        if (config.hourlyFilterCustomHours) {
+          try {
+            hourlyFilterCustomHours = JSON.parse(config.hourlyFilterCustomHours);
+          } catch (e) {
+            console.warn('[HOURLY_FILTER] Erro ao parsear customHours, usando preset');
+          }
+        }
+        
+        // FALLBACK ROBUSTO: Se array vazio, usar preset do modo
+        if (hourlyFilterCustomHours.length === 0) {
+          if (hourlyFilterMode === 'CUSTOM') {
+            console.warn('[HOURLY_FILTER] Modo CUSTOM sem horários, usando COMBINED');
+            hourlyFilterCustomHours = HourlyFilter.getHoursForMode('COMBINED');
+          } else {
+            hourlyFilterCustomHours = HourlyFilter.getHoursForMode(hourlyFilterMode);
+          }
+        }
+        
         const hourlyFilterGoldHours = config.hourlyFilterGoldHours 
           ? JSON.parse(config.hourlyFilterGoldHours) 
           : [];
@@ -196,9 +214,7 @@ export class TradingBot {
         this.hourlyFilter = new HourlyFilter({
           enabled: hourlyFilterEnabled,
           mode: hourlyFilterMode,
-          customHours: hourlyFilterCustomHours.length > 0 
-            ? hourlyFilterCustomHours 
-            : HourlyFilter.getHoursForMode(hourlyFilterMode),
+          customHours: hourlyFilterCustomHours, // Agora SEMPRE tem valores
           goldModeHours: hourlyFilterGoldHours,
           goldModeStakeMultiplier: hourlyFilterGoldMultiplier,
         });
