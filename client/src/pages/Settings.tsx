@@ -413,7 +413,7 @@ export default function Settings() {
       hourlyFilterMode: "CUSTOM",
       hourlyFilterCustomHours: JSON.stringify(hourlyFilterCustomHours),
       hourlyFilterGoldHours: JSON.stringify(hourlyFilterGoldHours),
-      hourlyFilterGoldMultiplier: parseInt(hourlyFilterGoldMultiplier),
+      hourlyFilterGoldMultiplier: parseInt(hourlyFilterGoldMultiplier) || 200, // Fallback para 200 (2x) se vazio
     });
     
     console.log('[FILTRO] Salvando configurações:', {
