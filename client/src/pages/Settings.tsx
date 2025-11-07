@@ -56,6 +56,7 @@ export default function Settings() {
   const [contractType, setContractType] = useState<"RISE_FALL" | "TOUCH" | "NO_TOUCH">("RISE_FALL");
   const [barrierHigh, setBarrierHigh] = useState("3.00");
   const [barrierLow, setBarrierLow] = useState("-3.00");
+  const [forexMinDurationMinutes, setForexMinDurationMinutes] = useState("15");
   
   const [hedgeEnabled, setHedgeEnabled] = useState(true);
   
@@ -168,6 +169,7 @@ export default function Settings() {
       setContractType(config.contractType || "RISE_FALL");
       setBarrierHigh(config.barrierHigh || "3.00");
       setBarrierLow(config.barrierLow || "-3.00");
+      setForexMinDurationMinutes((config.forexMinDurationMinutes || 15).toString());
       
       setHedgeEnabled(config.hedgeEnabled ?? true);
       
@@ -224,6 +226,7 @@ export default function Settings() {
     const profitThresholdNum = parseInt(profitThreshold);
     const waitTimeNum = parseInt(waitTime);
     const timeframeNum = parseInt(timeframe);
+    const forexMinDurationMinutesNum = parseInt(forexMinDurationMinutes);
 
     if (mode === "DEMO" && !tokenDemo) {
       toast.error("Token DEMO é obrigatório");
@@ -255,6 +258,7 @@ export default function Settings() {
         contractType,
         barrierHigh,
         barrierLow,
+        forexMinDurationMinutes: forexMinDurationMinutesNum,
       });
       
       // Depois testar conexão
@@ -293,6 +297,7 @@ export default function Settings() {
     const profitThresholdNum = parseInt(profitThreshold);
     const waitTimeNum = parseInt(waitTime);
     const timeframeNum = parseInt(timeframe);
+    const forexMinDurationMinutesNum = parseInt(forexMinDurationMinutes);
 
     if (isNaN(stakeNum) || stakeNum <= 0) {
       toast.error("Stake deve ser um número positivo");
@@ -324,8 +329,13 @@ export default function Settings() {
       return;
     }
 
-    if (isNaN(waitTimeNum) || waitTimeNum < 1 || waitTimeNum > 29) {
-      toast.error("Tempo de Espera deve ser um número entre 1 e 29 minutos");
+    if (isNaN(waitTimeNum) || waitTimeNum < 1) {
+      toast.error("Tempo de Espera deve ser um número positivo (mínimo 1 minuto)");
+      return;
+    }
+
+    if (isNaN(forexMinDurationMinutesNum) || forexMinDurationMinutesNum < 1) {
+      toast.error("Duração da Operação deve ser um número positivo (mínimo 1 minuto)");
       return;
     }
 
@@ -396,6 +406,7 @@ export default function Settings() {
       contractType,
       barrierHigh,
       barrierLow,
+      forexMinDurationMinutes: forexMinDurationMinutesNum,
       hedgeEnabled,
       hedgeConfig: JSON.stringify(hedgeConfigObj),
       hourlyFilterEnabled,
@@ -670,7 +681,6 @@ export default function Settings() {
                     className="bg-slate-800 border-slate-700 text-white"
                     placeholder="8"
                     min="1"
-                    max="29"
                   />
                   <p className="text-xs text-slate-500">
                     Tempo de espera no candle antes de capturar dados para predição (padrão: 8 min para M15, 16 min para M30)
@@ -804,6 +814,25 @@ export default function Settings() {
                   </div>
                 </div>
               )}
+
+              {/* Duração da Operação (para Forex) */}
+              <div className="space-y-2 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                <Label htmlFor="forexMinDurationMinutes" className="text-slate-300">
+                  Duração da Operação (minutos)
+                </Label>
+                <Input
+                  id="forexMinDurationMinutes"
+                  type="number"
+                  value={forexMinDurationMinutes}
+                  onChange={(e) => setForexMinDurationMinutes(e.target.value)}
+                  className="bg-slate-800 border-slate-700 text-white"
+                  placeholder="15"
+                  min="1"
+                />
+                <p className="text-xs text-slate-500">
+                  Tempo de duração da operação. Para Forex, este é o tempo fixo do contrato. Para Sintéticos, o tempo segue o candle. (Padrão: 15 minutos)
+                </p>
+              </div>
             </CardContent>
           </Card>
 
