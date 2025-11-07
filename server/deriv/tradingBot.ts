@@ -980,6 +980,12 @@ export class TradingBot {
   private async enterPosition(entryPrice: number, elapsedSeconds: number): Promise<void> {
     if (!this.prediction || !this.derivService) return;
 
+    // Proteção de idempotência: não entrar se já estiver em posição
+    if (this.state === "ENTERED") {
+      console.log(`[IDEMPOTENCY] Entrada ignorada - Bot já está em posição (estado: ${this.state})`);
+      return;
+    }
+
     try {
       // Verificar se é Forex e se há tempo suficiente para entrar
       const isForex = !this.symbol.startsWith("R_") && !this.symbol.startsWith("1HZ");
@@ -1011,6 +1017,10 @@ export class TradingBot {
       }
       
       console.log(`[ENTER_POSITION] Iniciando entrada de posição | Preço: ${entryPrice} | Elapsed: ${elapsedSeconds}s | ContractType: ${this.contractType}`);
+      
+      // Mudar estado para ENTERED IMEDIATAMENTE para evitar duplicação
+      this.state = "ENTERED";
+      await this.updateBotState();
       
       // Determinar tipo de contrato baseado na configuração
       let contractType: string;
@@ -1107,8 +1117,7 @@ export class TradingBot {
       this.tradesThisCandle.add(this.currentCandleTimestamp);
       this.lastContractCheckTime = 0; // Resetar para permitir verificação imediata
 
-      this.state = "ENTERED";
-      await this.updateBotState();
+      // Estado já foi mudado para ENTERED no início da função (linha 1022)
       await this.logEvent(
         "POSITION_ENTERED",
         `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${finalDurationMinutes}min | Contract: ${contract.contract_id}`
