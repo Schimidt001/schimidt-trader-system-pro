@@ -81,7 +81,7 @@ export const appRouter = router({
           lookback: z.number().int().positive(),
           triggerOffset: z.number().int().nonnegative(), // Aceita 0 (desativado) ou valores positivos
           profitThreshold: z.number().int().min(1).max(100),
-          waitTime: z.number().int().min(1).max(29), // 1-29 minutos (ajustado para M30)
+          waitTime: z.number().int().min(1), // Tempo de espera em minutos (mínimo 1 minuto)
           timeframe: z.number().int().refine(val => val === 900 || val === 1800, {
             message: "Timeframe deve ser 900 (M15) ou 1800 (M30)"
           }),
