@@ -1045,11 +1045,9 @@ export class TradingBot {
       console.log(`[DURATION_CALC] Timeframe: ${this.timeframe}s | Elapsed: ${elapsedSeconds}s | Duration: ${durationSeconds}s`);
       
       // Arredondar para múltiplo de 60 (minutos completos) para maior compatibilidade
-            let finalDurationMinutes: number;
+      let finalDurationMinutes: number;
 
-      // Verificar se é um ativo Forex (ex: major pairs, não sintéticos)
-      // Uma heurística simples: sintéticos geralmente começam com "R_" ou "1HZ"
-      const isForex = !this.symbol.startsWith("R_") && !this.symbol.startsWith("1HZ");
+      // isForex já foi declarado no início da função (linha 985)
 
       if (isForex) {
         // Para Forex, a duração mínima é fixa (ex: 15 minutos), ignorando o candle
