@@ -394,6 +394,37 @@ export class TradingBot {
   private async handleTick(tick: DerivTick): Promise<void> {
     if (!this.isRunning) return;
 
+    // VERIFICAÇÃO CONTÍNUA DO FILTRO - A CADA TICK
+    if (this.hourlyFilter) {
+      const isAllowed = this.hourlyFilter.isAllowedHour();
+      
+      // Se horário NÃO é permitido
+      if (!isAllowed) {
+        // Se não estava em WAITING_NEXT_HOUR, mudar estado e logar
+        if (this.state !== "WAITING_NEXT_HOUR") {
+          this.state = "WAITING_NEXT_HOUR";
+          await this.updateBotState();
+          const nextHour = this.hourlyFilter.getNextAllowedHour();
+          await this.logEvent(
+            "HOURLY_FILTER_BLOCKED",
+            `⚠️ Horário ${new Date().getUTCHours()}h GMT não permitido. Bot em STAND BY até ${nextHour}h GMT`
+          );
+        }
+        // Não processar tick enquanto horário não for permitido
+        return;
+      }
+      
+      // Se horário É permitido e estava em WAITING_NEXT_HOUR, reativar
+      if (isAllowed && this.state === "WAITING_NEXT_HOUR") {
+        this.state = "WAITING_MIDPOINT";
+        await this.updateBotState();
+        await this.logEvent(
+          "HOURLY_FILTER_ACTIVATED",
+          `✅ Horário ${new Date().getUTCHours()}h GMT permitido! Bot reativado automaticamente`
+        );
+      }
+    }
+
     const candleTimestamp = Math.floor(tick.epoch / this.timeframe) * this.timeframe; // Arredondar para o timeframe configurado
 
     // Novo candle?
