@@ -280,6 +280,32 @@ export const appRouter = router({
       
       return { success: true, message: "Estado do bot resetado" };
     }),
+
+    restart: protectedProcedure.mutation(async ({ ctx }) => {
+      // Parar bot se estiver rodando
+      try {
+        const bot = getBotForUser(ctx.user.id);
+        await bot.stop();
+        removeBotForUser(ctx.user.id);
+      } catch (error) {
+        // Ignorar erro se bot não estiver rodando
+      }
+      
+      // Aguardar 1 segundo para garantir que parou completamente
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Garantir que engine está rodando
+      if (!engineManager.isEngineRunning()) {
+        console.log("[Bot] Iniciando engine de predição...");
+        await engineManager.start();
+      }
+      
+      // Iniciar bot novamente (vai recarregar configurações do banco)
+      const newBot = getBotForUser(ctx.user.id);
+      await newBot.start();
+      
+      return { success: true, message: "Bot reiniciado com sucesso" };
+    }),
   }),
 
   // Dashboard e métricas

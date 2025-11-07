@@ -111,10 +111,28 @@ export default function Settings() {
     },
   });
 
-  const updateConfig = trpc.config.update.useMutation({
+  const restartBot = trpc.bot.restart.useMutation({
     onSuccess: () => {
-      toast.success("Configurações salvas com sucesso");
+      console.log('[Settings] Bot reiniciado automaticamente ap\u00f3s salvar configura\u00e7\u00f5es');
+    },
+    onError: (error) => {
+      console.error('[Settings] Erro ao reiniciar bot:', error);
+      // N\u00e3o mostrar erro ao usu\u00e1rio, pois \u00e9 autom\u00e1tico
+    },
+  });
+
+  const updateConfig = trpc.config.update.useMutation({
+    onSuccess: async () => {
+      toast.success("Configura\u00e7\u00f5es salvas com sucesso");
       setIsSaving(false);
+      
+      // Verificar se bot est\u00e1 rodando
+      const botStatus = await trpc.bot.status.query();
+      if (botStatus?.isRunning) {
+        console.log('[Settings] Bot est\u00e1 rodando, reiniciando automaticamente...');
+        toast.info("Reiniciando bot para aplicar novas configura\u00e7\u00f5es...");
+        restartBot.mutate();
+      }
     },
     onError: (error) => {
       toast.error(`Erro ao salvar: ${error.message}`);

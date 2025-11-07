@@ -94,6 +94,8 @@ export default function Dashboard() {
     },
   });
 
+
+
   const handleStart = () => {
     setIsStarting(true);
     startBot.mutate();
@@ -113,6 +115,8 @@ export default function Dashboard() {
       resetDailyData.mutate();
     }
   };
+
+
 
   if (authLoading) {
     return (
@@ -260,6 +264,7 @@ export default function Dashboard() {
               )}
               Resetar Dados
             </Button>
+
             {isRunning ? (
               <Button
                 onClick={handleStop}
