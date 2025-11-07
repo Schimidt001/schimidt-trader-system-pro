@@ -82,7 +82,7 @@ export class TradingBot {
   private triggerOffset: number = 16; // offset do gatilho em pontos
   private profitThreshold: number = 90; // threshold de lucro para early close (%)
   private waitTime: number = 8; // tempo de espera em minutos antes de capturar dados
-  private timeframe: number = 900; // timeframe em segundos: 900 (M15) ou 1800 (M30)
+  private timeframe: number = 900; // timeframe em segundos: 900 (M15), 1800 (M30) ou 3600 (M60)
   private mode: "DEMO" | "REAL" = "DEMO";
   
   // Configurações de tipo de contrato e barreiras
@@ -137,7 +137,7 @@ export class TradingBot {
       this.timeframe = config.timeframe ?? 900; // Padrão M15
       this.mode = config.mode;
       
-      console.log(`[TIMEFRAME] Timeframe configurado: ${this.timeframe}s (${this.timeframe === 900 ? 'M15' : 'M30'})`);
+      console.log(`[TIMEFRAME] Timeframe configurado: ${this.timeframe}s (${this.timeframe === 900 ? 'M15' : this.timeframe === 1800 ? 'M30' : 'M60'})`);
       
       // Carregar configurações de tipo de contrato e barreiras
       this.contractType = config.contractType ?? "RISE_FALL";
@@ -487,7 +487,7 @@ export class TradingBot {
     const history = await this.derivService.getCandleHistory(this.symbol, this.timeframe, this.lookback);
     
     // Salvar histórico no banco
-    const timeframeLabel = this.timeframe === 900 ? "M15" : "M30";
+    const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
     for (const candle of history) {
       await insertCandle({
         symbol: this.symbol,
@@ -516,7 +516,7 @@ export class TradingBot {
       const lastCandle = history[0];
       const initialPrediction = await predictionService.predict({
         symbol: this.symbol,
-        tf: "M15",
+        tf: timeframeLabel,
         history: historyData.slice(0, -1), // Todos exceto o último
         partial_current: {
           timestamp_open: lastCandle.epoch,
@@ -712,9 +712,10 @@ export class TradingBot {
     if (this.currentCandleTimestamp === 0) return;
 
     // Dados já são oficiais da DERIV (via subscribeCandles), salvar diretamente
+    const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
     await insertCandle({
       symbol: this.symbol,
-      timeframe: "M15",
+      timeframe: timeframeLabel,
       timestampUtc: this.currentCandleTimestamp,
       open: this.currentCandleOpen.toString(),
       high: this.currentCandleHigh.toString(),
@@ -845,9 +846,10 @@ export class TradingBot {
       }));
 
       // Montar request de predição
+      const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
       const request: PredictionRequest = {
         symbol: this.symbol,
-        tf: "M15",
+        tf: timeframeLabel,
         history: historyData,
         partial_current: {
           timestamp_open: this.currentCandleTimestamp,
@@ -1578,7 +1580,7 @@ export class TradingBot {
         fechamento: c.close,
       }));
       
-      const timeframeLabel = this.timeframe === 900 ? "M15" : "M30";
+      const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
       const request = {
         symbol: this.symbol,
         tf: timeframeLabel,

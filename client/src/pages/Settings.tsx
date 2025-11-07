@@ -698,6 +698,7 @@ export default function Settings() {
                     <SelectContent>
                       <SelectItem value="900">M15 (15 minutos)</SelectItem>
                       <SelectItem value="1800">M30 (30 minutos)</SelectItem>
+                      <SelectItem value="3600">M60 (1 hora)</SelectItem>
                     </SelectContent>
                   </Select>
                     <p className="text-xs text-slate-500">

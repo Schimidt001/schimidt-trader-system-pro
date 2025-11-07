@@ -35,7 +35,7 @@ export const config = mysqlTable("config", {
   triggerOffset: int("triggerOffset").default(16), // offset do gatilho em pontos
   profitThreshold: int("profitThreshold").default(90), // threshold de lucro para early close (%)
   waitTime: int("waitTime").default(8), // tempo de espera em minutos antes de capturar dados para predição
-  timeframe: int("timeframe").notNull().default(900), // timeframe em segundos: 900 (M15) ou 1800 (M30)
+  timeframe: int("timeframe").notNull().default(900), // timeframe em segundos: 900 (M15), 1800 (M30) ou 3600 (M60)
   // Configurações de re-predição para M30
   repredictionEnabled: boolean("repredictionEnabled").default(true).notNull(), // Habilitar re-predição para M30
   repredictionDelay: int("repredictionDelay").default(300).notNull(), // Delay em segundos (padrão: 5 min)
