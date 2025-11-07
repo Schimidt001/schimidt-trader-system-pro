@@ -111,13 +111,14 @@ export default function Settings() {
     },
   });
 
-  const restartBot = trpc.bot.restart.useMutation({
+  const reloadBotConfig = trpc.bot.reloadConfig.useMutation({
     onSuccess: () => {
-      console.log('[Settings] Bot reiniciado automaticamente ap\u00f3s salvar configura\u00e7\u00f5es');
+      console.log('[Settings] Configura\u00e7\u00f5es do bot recarregadas automaticamente');
+      toast.success("✅ Configura\u00e7\u00f5es aplicadas ao bot em tempo real");
     },
     onError: (error) => {
-      console.error('[Settings] Erro ao reiniciar bot:', error);
-      // N\u00e3o mostrar erro ao usu\u00e1rio, pois \u00e9 autom\u00e1tico
+      console.error('[Settings] Erro ao recarregar configura\u00e7\u00f5es:', error);
+      toast.error('Erro ao aplicar configura\u00e7\u00f5es ao bot');
     },
   });
 
@@ -129,9 +130,8 @@ export default function Settings() {
       // Verificar se bot est\u00e1 rodando
       const botStatus = await trpc.bot.status.query();
       if (botStatus?.isRunning) {
-        console.log('[Settings] Bot est\u00e1 rodando, reiniciando automaticamente...');
-        toast.info("Reiniciando bot para aplicar novas configura\u00e7\u00f5es...");
-        restartBot.mutate();
+        console.log('[Settings] Bot est\u00e1 rodando, recarregando configura\u00e7\u00f5es...');
+        reloadBotConfig.mutate();
       }
     },
     onError: (error) => {

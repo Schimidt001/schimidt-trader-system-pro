@@ -339,6 +339,145 @@ export class TradingBot {
   }
 
   /**
+   * Recarrega configurações do banco de dados sem parar o bot
+   * Útil para aplicar mudanças em tempo real
+   */
+  public async reloadConfig(): Promise<void> {
+    if (!this.isRunning) {
+      console.log('[RELOAD_CONFIG] Bot não está rodando, ignorando reload');
+      return;
+    }
+
+    console.log('[RELOAD_CONFIG] Recarregando configurações do banco...');
+    
+    const config = await getConfigByUserId(this.userId);
+    if (!config) {
+      console.warn('[RELOAD_CONFIG] Configuração não encontrada');
+      return;
+    }
+
+    // Atualizar configurações básicas
+    this.symbol = config.symbol;
+    this.stake = config.stake;
+    this.stopDaily = config.stopDaily;
+    this.takeDaily = config.takeDaily;
+    this.lookback = config.lookback;
+    this.triggerOffset = config.triggerOffset ?? 16;
+    this.profitThreshold = config.profitThreshold ?? 90;
+    this.waitTime = config.waitTime ?? 8;
+    this.timeframe = config.timeframe ?? 900;
+    this.mode = config.mode;
+    
+    // Atualizar tipo de contrato e barreiras
+    this.contractType = config.contractType ?? "RISE_FALL";
+    this.barrierHigh = config.barrierHigh ?? "3.00";
+    this.barrierLow = config.barrierLow ?? "-3.00";
+    this.forexMinDurationMinutes = config.forexMinDurationMinutes ?? 15;
+    
+    // Atualizar IA Hedge
+    this.hedgeEnabled = config.hedgeEnabled ?? true;
+    if (config.hedgeConfig) {
+      try {
+        const parsedConfig = JSON.parse(config.hedgeConfig);
+        this.hedgeConfig = validateHedgeConfig(parsedConfig);
+      } catch (error) {
+        console.warn(`[RELOAD_CONFIG] Erro ao parsear hedgeConfig: ${error}`);
+        this.hedgeConfig = validateHedgeConfig({});
+      }
+    } else {
+      this.hedgeConfig = validateHedgeConfig({});
+    }
+    
+    // Atualizar re-predição
+    this.repredictionEnabled = config.repredictionEnabled ?? true;
+    this.repredictionDelay = config.repredictionDelay ?? 300;
+    
+    // ATUALIZAR FILTRO DE HORÁRIO (parte mais importante!)
+    const hourlyFilterEnabled = config.hourlyFilterEnabled ?? false;
+    if (hourlyFilterEnabled) {
+      const hourlyFilterMode = config.hourlyFilterMode ?? 'COMBINED';
+      let hourlyFilterCustomHours: number[] = [];
+      
+      // Parsear customHours com fallback
+      if (config.hourlyFilterCustomHours) {
+        try {
+          hourlyFilterCustomHours = JSON.parse(config.hourlyFilterCustomHours);
+        } catch (e) {
+          console.warn('[RELOAD_CONFIG] Erro ao parsear customHours');
+        }
+      }
+      
+      // FALLBACK ROBUSTO: Se array vazio, usar preset do modo
+      if (hourlyFilterCustomHours.length === 0) {
+        if (hourlyFilterMode === 'CUSTOM') {
+          console.warn('[RELOAD_CONFIG] Modo CUSTOM sem horários, usando COMBINED');
+          hourlyFilterCustomHours = HourlyFilter.getHoursForMode('COMBINED');
+        } else {
+          hourlyFilterCustomHours = HourlyFilter.getHoursForMode(hourlyFilterMode);
+        }
+      }
+      
+      const hourlyFilterGoldHours = config.hourlyFilterGoldHours 
+        ? JSON.parse(config.hourlyFilterGoldHours) 
+        : [];
+      const hourlyFilterGoldMultiplier = config.hourlyFilterGoldMultiplier ?? 200;
+      
+      // Recriar filtro de horário
+      this.hourlyFilter = new HourlyFilter({
+        enabled: hourlyFilterEnabled,
+        mode: hourlyFilterMode,
+        customHours: hourlyFilterCustomHours,
+        goldModeHours: hourlyFilterGoldHours,
+        goldModeStakeMultiplier: hourlyFilterGoldMultiplier,
+      });
+      
+      const hoursFormatted = HourlyFilter.formatHours(hourlyFilterCustomHours);
+      console.log(`[RELOAD_CONFIG] Filtro de Horário atualizado: ${hoursFormatted}`);
+      
+      await this.logEvent(
+        "CONFIG_RELOADED",
+        `⚙️ Configurações recarregadas | Filtro: ${hoursFormatted}`
+      );
+      
+      // Verificar imediatamente se horário atual é permitido
+      const isAllowed = this.hourlyFilter.isAllowedHour();
+      if (!isAllowed && this.state !== "WAITING_NEXT_HOUR") {
+        this.state = "WAITING_NEXT_HOUR";
+        await this.updateBotState();
+        const nextHour = this.hourlyFilter.getNextAllowedHour();
+        await this.logEvent(
+          "HOURLY_FILTER_BLOCKED",
+          `⚠️ Horário ${new Date().getUTCHours()}h GMT não permitido. Bot em STAND BY até ${nextHour}h GMT`
+        );
+      } else if (isAllowed && this.state === "WAITING_NEXT_HOUR") {
+        this.state = "WAITING_MIDPOINT";
+        await this.updateBotState();
+        await this.logEvent(
+          "HOURLY_FILTER_ACTIVATED",
+          `✅ Horário ${new Date().getUTCHours()}h GMT permitido! Bot reativado`
+        );
+      }
+    } else {
+      // Desabilitar filtro
+      this.hourlyFilter = null;
+      console.log(`[RELOAD_CONFIG] Filtro de Horário desabilitado`);
+      
+      await this.logEvent(
+        "CONFIG_RELOADED",
+        `⚙️ Configurações recarregadas | Filtro de Horário: DESATIVADO`
+      );
+      
+      // Se estava em WAITING_NEXT_HOUR, reativar
+      if (this.state === "WAITING_NEXT_HOUR") {
+        this.state = "WAITING_MIDPOINT";
+        await this.updateBotState();
+      }
+    }
+    
+    console.log('[RELOAD_CONFIG] Configurações recarregadas com sucesso');
+  }
+
+  /**
    * Inicia coleta de dados em tempo real
    */
   private async startDataCollection(): Promise<void> {
