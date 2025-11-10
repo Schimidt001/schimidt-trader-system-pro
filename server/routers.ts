@@ -458,7 +458,11 @@ export const appRouter = router({
 
     today: protectedProcedure.query(async ({ ctx }) => {
       const positions = await getTodayPositions(ctx.user.id);
-      return positions;
+      // Garantir que pnl nunca seja null (frontend espera number)
+      return positions.map(pos => ({
+        ...pos,
+        pnl: pos.pnl ?? 0, // Se null, usar 0
+      }));
     }),
   }),
 
