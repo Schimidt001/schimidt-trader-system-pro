@@ -59,6 +59,8 @@ export default function Settings() {
   const [barrierHigh, setBarrierHigh] = useState("3.00");
   const [barrierLow, setBarrierLow] = useState("-3.00");
   const [forexMinDurationMinutes, setForexMinDurationMinutes] = useState("15");
+  const [allowEquals, setAllowEquals] = useState(false); // ✅ NOVO
+  const [useCandleDuration, setUseCandleDuration] = useState(false); // ✅ NOVO
   
   const [hedgeEnabled, setHedgeEnabled] = useState(true);
   
@@ -177,6 +179,8 @@ export default function Settings() {
       setBarrierHigh(config.barrierHigh || "3.00");
       setBarrierLow(config.barrierLow || "-3.00");
       setForexMinDurationMinutes((config.forexMinDurationMinutes || 15).toString());
+      setAllowEquals(config.allowEquals ?? false); // ✅ NOVO
+      setUseCandleDuration(config.useCandleDuration ?? false); // ✅ NOVO
       
       setHedgeEnabled(config.hedgeEnabled ?? true);
       
@@ -416,6 +420,8 @@ export default function Settings() {
       barrierHigh,
       barrierLow,
       forexMinDurationMinutes: forexMinDurationMinutesNum,
+      allowEquals, // ✅ NOVO
+      useCandleDuration, // ✅ NOVO
       hedgeEnabled,
       hedgeConfig: JSON.stringify(hedgeConfigObj),
       hourlyFilterEnabled,
@@ -832,18 +838,51 @@ export default function Settings() {
                 <Label htmlFor="forexMinDurationMinutes" className="text-slate-300">
                   Duração da Operação (minutos)
                 </Label>
-                <Input
-                  id="forexMinDurationMinutes"
-                  type="number"
-                  value={forexMinDurationMinutes}
-                  onChange={(e) => setForexMinDurationMinutes(e.target.value)}
-                  className="bg-slate-800 border-slate-700 text-white"
-                  placeholder="15"
-                  min="1"
-                />
+                <div className="flex items-center gap-3">
+                  <Input
+                    id="forexMinDurationMinutes"
+                    type="number"
+                    value={forexMinDurationMinutes}
+                    onChange={(e) => setForexMinDurationMinutes(e.target.value)}
+                    className="bg-slate-800 border-slate-700 text-white"
+                    placeholder="15"
+                    min="1"
+                    disabled={useCandleDuration}
+                  />
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <Switch
+                      id="useCandleDuration"
+                      checked={useCandleDuration}
+                      onCheckedChange={setUseCandleDuration}
+                    />
+                    <Label htmlFor="useCandleDuration" className="text-slate-300 cursor-pointer text-sm">
+                      Duração Dinâmica
+                    </Label>
+                  </div>
+                </div>
                 <p className="text-xs text-slate-500">
-                  Tempo de duração da operação. Para Forex, este é o tempo fixo do contrato. Para Sintéticos, o tempo segue o candle. (Padrão: 15 minutos)
+                  {useCandleDuration 
+                    ? "⚡ A operação será aberta até o final do candle atual (tempo restante calculado automaticamente)"
+                    : "Tempo de duração da operação. Para Forex, este é o tempo fixo do contrato. Para Sintéticos, o tempo segue o candle. (Padrão: 15 minutos)"
+                  }
                 </p>
+              </div>
+
+              {/* ✅ NOVO: Permitir Empate como Vitória */}
+              <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                <div className="space-y-0.5">
+                  <Label htmlFor="allowEquals" className="text-slate-300">
+                    Permitir Empate como Vitória
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Se o preço de fechamento for igual ao preço de entrada, o trade será marcado como vencido
+                  </p>
+                </div>
+                <Switch
+                  id="allowEquals"
+                  checked={allowEquals}
+                  onCheckedChange={setAllowEquals}
+                />
               </div>
             </CardContent>
           </Card>

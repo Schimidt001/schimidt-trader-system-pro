@@ -91,6 +91,8 @@ export class TradingBot {
   private barrierHigh: string = "3.00"; // barreira superior em pontos
   private barrierLow: string = "-3.00"; // barreira inferior em pontos
   private forexMinDurationMinutes: number = 15; // Duração mínima para Forex em minutos
+  private allowEquals: boolean = false; // Permitir empate como vitória
+  private useCandleDuration: boolean = false; // Usar duração dinâmica do candle
   
   // Configurações do Filtro de Horário
   private hourlyFilter: HourlyFilter | null = null;
@@ -146,8 +148,13 @@ export class TradingBot {
       this.barrierHigh = config.barrierHigh ?? "3.00";
       this.barrierLow = config.barrierLow ?? "-3.00";
       this.forexMinDurationMinutes = config.forexMinDurationMinutes ?? 15;
+      this.allowEquals = config.allowEquals ?? false;
+      this.useCandleDuration = config.useCandleDuration ?? false;
       
       
+      console.log(`[CONTRACT_TYPE] Tipo de contrato: ${this.contractType}`);
+      console.log(`[ALLOW_EQUALS] Permitir empate: ${this.allowEquals ? 'SIM' : 'NÃO'}`);
+      console.log(`[USE_CANDLE_DURATION] Duração dinâmica: ${this.useCandleDuration ? 'SIM' : 'NÃO'}`);
       console.log(`[CONTRACT_TYPE] Tipo de contrato: ${this.contractType}`);
       if (this.contractType !== "RISE_FALL") {
         console.log(`[BARRIERS] Barreira Superior: ${this.barrierHigh} pontos | Barreira Inferior: ${this.barrierLow} pontos`);
@@ -376,6 +383,8 @@ export class TradingBot {
     this.barrierHigh = config.barrierHigh ?? "3.00";
     this.barrierLow = config.barrierLow ?? "-3.00";
     this.forexMinDurationMinutes = config.forexMinDurationMinutes ?? 15;
+    this.allowEquals = config.allowEquals ?? false;
+    this.useCandleDuration = config.useCandleDuration ?? false;
     
     // Atualizar IA Hedge
     this.hedgeEnabled = config.hedgeEnabled ?? true;
@@ -1061,7 +1070,16 @@ export class TradingBot {
 
       // isForex já foi declarado no início da função (linha 985)
 
-      if (isForex) {
+      if (this.useCandleDuration) {
+        // ✅ NOVO: Calcular tempo restante do candle atual para duração dinâmica
+        const currentCandleStartTime = Math.floor(Date.now() / 1000 / this.timeframe) * this.timeframe;
+        const currentTime = Math.floor(Date.now() / 1000);
+        const elapsedInCandle = currentTime - currentCandleStartTime;
+        const remainingSeconds = this.timeframe - elapsedInCandle;
+        // Garantir mínimo de 1 minuto (60 segundos)
+        finalDurationMinutes = Math.max(Math.ceil(remainingSeconds / 60), 1);
+        console.log(`[DURATION_CANDLE] Duração dinâmica ativada. Tempo restante do candle: ${finalDurationMinutes} min (${remainingSeconds}s)`);
+      } else if (isForex) {
         // Para Forex, a duração mínima é fixa (ex: 15 minutos), ignorando o candle
         finalDurationMinutes = this.forexMinDurationMinutes;
         console.log(`[DURATION_FOREX] Ativo Forex detectado. Usando duração mínima de ${finalDurationMinutes} min.`);
@@ -1087,7 +1105,8 @@ export class TradingBot {
         finalStake / 100, // Converter centavos para unidade (com ajuste GOLD se aplicável)
         finalDurationMinutes, // Duração final em minutos
         "m", // Usar minutos para maior compatibilidade
-        barrier // Passar barreira se for TOUCH/NO_TOUCH
+        barrier, // Passar barreira se for TOUCH/NO_TOUCH
+        this.allowEquals // ✅ Permitir empate como vitória
       );
 
       // Salvar posição no banco
@@ -1274,7 +1293,9 @@ export class TradingBot {
         contractType,
         stakeInCents / 100,
         durationMinutes,
-        "m"
+        "m",
+        undefined, // barrier
+        this.allowEquals // ✅ Permitir empate como vitória no hedge também
       );
 
       // Salvar posição de hedge no banco

@@ -338,7 +338,8 @@ export class DerivService {
     stake: number,
     duration: number = 1,
     durationType: string = "m",
-    barrier?: string // Barreira para contratos TOUCH/NO_TOUCH (ex: "+0.30" ou "-0.30")
+    barrier?: string, // Barreira para contratos TOUCH/NO_TOUCH (ex: "+0.30" ou "-0.30")
+    allowEquals?: boolean // Permitir empate como vitória
   ): Promise<DerivContract> {
     return new Promise((resolve, reject) => {
       const handler = (message: any) => {
@@ -372,6 +373,11 @@ export class DerivService {
       // Adicionar barreira se for TOUCH ou NO_TOUCH
       if (barrier && (contractType === "ONETOUCH" || contractType === "NOTOUCH")) {
         parameters.barrier = barrier;
+      }
+      
+      // Adicionar allow_equals se habilitado
+      if (allowEquals) {
+        parameters.allow_equals = 1;
       }
       
       this.send({

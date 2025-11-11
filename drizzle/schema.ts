@@ -46,6 +46,8 @@ export const config = mysqlTable("config", {
   barrierHigh: varchar("barrierHigh", { length: 20 }).default("3.00"), // Barreira superior em pontos (ex: "3.00" = 3 pontos acima)
   barrierLow: varchar("barrierLow", { length: 20 }).default("-3.00"), // Barreira inferior em pontos (ex: "-3.00" = 3 pontos abaixo)
   forexMinDurationMinutes: int("forexMinDurationMinutes").default(15).notNull(), // Duração mínima para Forex em minutos
+  allowEquals: boolean("allowEquals").default(false).notNull(), // Permitir empate como vitória (preço de fechamento igual ao de entrada)
+  useCandleDuration: boolean("useCandleDuration").default(false).notNull(), // Usar duração dinâmica até o final do candle atual
   // Configurações do Filtro de Horário
   hourlyFilterEnabled: boolean("hourlyFilterEnabled").default(false).notNull(), // Habilitar filtro de horário
   hourlyFilterMode: mysqlEnum("hourlyFilterMode", ["IDEAL", "COMPATIBLE", "GOLDEN", "COMBINED", "CUSTOM"]).default("COMBINED").notNull(), // Modo do filtro
