@@ -408,7 +408,7 @@ export class DerivService {
       this.send({
         buy: 1,
         price: stake,
-        parameters,
+        ...parameters,
       });
 
       setTimeout(() => {
