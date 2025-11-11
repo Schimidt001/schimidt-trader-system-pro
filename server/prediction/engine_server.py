@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# Instância global da engine
-engine = PredictionEngine()
-engine_initialized = False
+# Dicionário de engines por símbolo (para suportar multi-bot com ativos diferentes)
+engines_by_symbol = {}
+# engines_by_symbol[symbol] = {'engine': PredictionEngine(), 'initialized': bool}
 
 
 @app.route('/health', methods=['GET'])
@@ -38,7 +38,8 @@ def health_check():
     return jsonify({
         'status': 'ok',
         'engine': 'Fibonacci da Amplitude',
-        'initialized': engine_initialized
+        'active_symbols': list(engines_by_symbol.keys()),
+        'engines_count': len(engines_by_symbol)
     }), 200
 
 
@@ -78,8 +79,6 @@ def predict():
         "confidence": 0.85
     }
     """
-    global engine_initialized
-    
     try:
         data = request.json
         
@@ -101,15 +100,26 @@ def predict():
         if tf not in ['M15', 'M30', 'M60']:
             return jsonify({'error': 'Only M15, M30 and M60 timeframes are supported'}), 400
         
-        # Alimentar engine com histórico (primeira vez)
-        if not engine_initialized:
-            logger.info(f"🔧 Inicializando engine com {len(history)} candles históricos")
+        # Obter ou criar engine específica para este símbolo
+        if symbol not in engines_by_symbol:
+            logger.info(f"🔧 Criando nova engine para símbolo: {symbol}")
+            engines_by_symbol[symbol] = {
+                'engine': PredictionEngine(),
+                'initialized': False
+            }
+        
+        engine_data = engines_by_symbol[symbol]
+        engine = engine_data['engine']
+        
+        # Alimentar engine com histórico (primeira vez para este símbolo)
+        if not engine_data['initialized']:
+            logger.info(f"🔧 Inicializando engine para {symbol} com {len(history)} candles históricos")
             result = engine.alimentar_dados(history)
             if result['sucesso']:
-                engine_initialized = True
-                logger.info(f"✅ Engine inicializada - Fase: {result['fase_detectada']}")
+                engine_data['initialized'] = True
+                logger.info(f"✅ Engine inicializada para {symbol} - Fase: {result['fase_detectada']}")
             else:
-                logger.error(f"❌ Erro ao inicializar engine: {result.get('erro')}")
+                logger.error(f"❌ Erro ao inicializar engine para {symbol}: {result.get('erro')}")
         
         # Fazer predição com candle parcial atual
         abertura = float(partial['abertura'])
@@ -164,16 +174,32 @@ def predict():
 @app.route('/reset', methods=['POST'])
 def reset_engine():
     """Reinicia a engine (útil para testes)"""
-    global engine, engine_initialized
+    global engines_by_symbol
     
     try:
-        engine = PredictionEngine()
-        engine_initialized = False
-        logger.info("🔄 Engine reiniciada")
+        data = request.json or {}
+        symbol = data.get('symbol')
+        
+        if symbol:
+            # Reiniciar engine específica de um símbolo
+            if symbol in engines_by_symbol:
+                engines_by_symbol[symbol] = {
+                    'engine': PredictionEngine(),
+                    'initialized': False
+                }
+                logger.info(f"🔄 Engine reiniciada para símbolo: {symbol}")
+                message = f'Engine reiniciada para {symbol}'
+            else:
+                message = f'Nenhuma engine encontrada para {symbol}'
+        else:
+            # Reiniciar todas as engines
+            engines_by_symbol.clear()
+            logger.info("🔄 Todas as engines reiniciadas")
+            message = 'Todas as engines reiniciadas com sucesso'
         
         return jsonify({
             'success': True,
-            'message': 'Engine reiniciada com sucesso'
+            'message': message
         }), 200
     
     except Exception as e:
