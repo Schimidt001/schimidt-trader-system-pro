@@ -1034,7 +1034,7 @@ export class TradingBot {
       await this.updateBotState();
       
       // Determinar tipo de contrato baseado na configuração
-      let contractType: string;
+      let contractType: "CALL" | "PUT" | "ONETOUCH" | "NOTOUCH";
       let barrier: string | undefined;
       
       if (this.contractType === "RISE_FALL") {

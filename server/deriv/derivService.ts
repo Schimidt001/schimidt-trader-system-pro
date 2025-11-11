@@ -37,7 +37,8 @@ export class DerivService {
   private maxReconnectAttempts: number = Infinity; // Tentar reconectar infinitamente para 24/7
   private reconnectDelay: number = 5000;
   private lastPongTime: number = Date.now(); // Último pong recebido
-      private pingInterval: NodeJS.Timeout | null = null;
+  private pingInterval: NodeJS.Timeout | null = null;
+  private accountCurrency: string = "USD"; // ✅ Moeda da conta (obtida na autorização)
   
   constructor(token: string, isDemo: boolean = true) {
     this.token = token;
@@ -68,6 +69,11 @@ export class DerivService {
             const authHandler = (message: any) => {
               if (message.authorize) {
                 console.log("[DerivService] Authorized successfully");
+                // ✅ Capturar moeda da conta
+                if (message.authorize.currency) {
+                  this.accountCurrency = message.authorize.currency;
+                  console.log(`[DerivService] Moeda da conta: ${this.accountCurrency}`);
+                }
                 this.subscriptions.delete("authorize");
                 authorized = true;
                 resolve();
@@ -367,7 +373,7 @@ export class DerivService {
         duration_unit: durationType,
         basis: "stake",
         amount: stake,
-        currency: "USD",
+        currency: this.accountCurrency, // ✅ Usar moeda da conta
       };
       
       // Adicionar barreira se for TOUCH ou NO_TOUCH
