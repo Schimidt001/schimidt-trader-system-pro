@@ -1098,6 +1098,17 @@ export class TradingBot {
         console.log(`[GOLD_STAKE] Stake ajustado para horário GOLD: ${this.stake / 100} -> ${finalStake / 100} (${multiplier}x)`);
       }
       
+      // Log antes de comprar contrato
+      console.log('[BEFORE_BUY] Chamando buyContract com:', {
+        symbol: this.symbol,
+        contractType,
+        stake: finalStake / 100,
+        duration: finalDurationMinutes,
+        durationType: 'm',
+        barrier,
+        allowEquals: this.allowEquals
+      });
+      
       // Comprar contrato na DERIV usando duração em minutos (mais compatível)
       const contract = await this.derivService.buyContract(
         this.symbol,
@@ -1108,6 +1119,8 @@ export class TradingBot {
         barrier, // Passar barreira se for TOUCH/NO_TOUCH
         this.allowEquals // ✅ Permitir empate como vitória
       );
+      
+      console.log('[AFTER_BUY] Contrato comprado com sucesso:', contract.contract_id);
 
       // Salvar posição no banco
       const positionId = await insertPosition({
