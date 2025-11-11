@@ -271,6 +271,8 @@ export default function Settings() {
         barrierHigh,
         barrierLow,
         forexMinDurationMinutes: forexMinDurationMinutesNum,
+        allowEquals, // ✅ CORREÇÃO
+        useCandleDuration, // ✅ CORREÇÃO
       });
       
       // Depois testar conexão
