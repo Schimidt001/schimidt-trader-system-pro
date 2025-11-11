@@ -9,6 +9,7 @@ import Settings from "./pages/Settings";
 import Logs from "./pages/Logs";
 import { useAuth } from "./_core/hooks/useAuth";
 import { getLoginUrl } from "./const";
+import { CinematicLogin } from "./components/CinematicLogin";
 import { Button } from "./components/ui/button";
 import { BarChart3, Settings as SettingsIcon, FileText, LogOut } from "lucide-react";
 import { trpc } from "./lib/trpc";
@@ -96,17 +97,7 @@ function Router() {
   const oauthConfigured = import.meta.env.VITE_OAUTH_PORTAL_URL && import.meta.env.VITE_APP_ID;
   
   if (!user && oauthConfigured) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold text-white mb-4">Schimidt Trader System PRO</h1>
-          <p className="text-slate-400 mb-8">Sistema de Trading Automatizado 24/7</p>
-          <Button asChild className="bg-green-600 hover:bg-green-700">
-            <a href={getLoginUrl()}>Fazer Login</a>
-          </Button>
-        </div>
-      </div>
-    );
+    return <CinematicLogin />;
   }
   
   // Se OAuth não está configurado, continuar sem usuário (modo mock no backend)
