@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, decimal, bigint } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, decimal, bigint, unique } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -20,10 +20,12 @@ export type InsertUser = typeof users.$inferInsert;
 
 /**
  * Configurações do bot trader
+ * ✅ CORRIGIDO: Adicionado botId
  */
 export const config = mysqlTable("config", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
+  botId: int("botId").notNull().default(1), // ✅ ADICIONADO
   mode: mysqlEnum("mode", ["DEMO", "REAL"]).default("DEMO").notNull(),
   tokenDemo: text("tokenDemo"),
   tokenReal: text("tokenReal"),
@@ -62,6 +64,7 @@ export type InsertConfig = typeof config.$inferInsert;
 
 /**
  * Histórico de candles (M15, M30, M60)
+ * ✅ OK: Não precisa de botId (dados compartilhados)
  */
 export const candles = mysqlTable("candles", {
   id: int("id").autoincrement().primaryKey(),
@@ -80,10 +83,12 @@ export type InsertCandle = typeof candles.$inferInsert;
 
 /**
  * Posições abertas e históricas
+ * ✅ CORRIGIDO: Adicionado botId
  */
 export const positions = mysqlTable("positions", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
+  botId: int("botId").notNull().default(1), // ✅ ADICIONADO
   contractId: varchar("contractId", { length: 100 }).unique(),
   symbol: varchar("symbol", { length: 50 }).notNull(),
   direction: mysqlEnum("direction", ["up", "down"]).notNull(),
@@ -114,10 +119,12 @@ export type InsertPosition = typeof positions.$inferInsert;
 
 /**
  * Métricas diárias e mensais
+ * ✅ CORRIGIDO: Adicionado botId
  */
 export const metrics = mysqlTable("metrics", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
+  botId: int("botId").notNull().default(1), // ✅ ADICIONADO
   date: varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD
   period: mysqlEnum("period", ["daily", "monthly"]).notNull(),
   totalTrades: int("totalTrades").notNull().default(0),
@@ -133,10 +140,12 @@ export type InsertMetric = typeof metrics.$inferInsert;
 
 /**
  * Log de eventos do sistema
+ * ✅ CORRIGIDO: Adicionado botId
  */
 export const eventLogs = mysqlTable("eventLogs", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
+  botId: int("botId").notNull().default(1), // ✅ ADICIONADO
   eventType: varchar("eventType", { length: 50 }).notNull(),
   message: text("message").notNull(),
   data: text("data"), // JSON string
@@ -149,10 +158,12 @@ export type InsertEventLog = typeof eventLogs.$inferInsert;
 
 /**
  * Estado atual do bot
+ * ✅ CORRIGIDO: Adicionado botId + UNIQUE composto
  */
 export const botState = mysqlTable("botState", {
   id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull().unique(),
+  userId: int("userId").notNull(), // ✅ UNIQUE removido
+  botId: int("botId").notNull().default(1), // ✅ ADICIONADO
   state: mysqlEnum("state", [
     "IDLE",
     "COLLECTING",
@@ -172,8 +183,10 @@ export const botState = mysqlTable("botState", {
   currentPositionId: int("currentPositionId"),
   lastError: text("lastError"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  // ✅ UNIQUE composto adicionado
+  userIdBotIdUnique: unique("userId_botId_unique").on(table.userId, table.botId),
+}));
 
 export type BotState = typeof botState.$inferSelect;
 export type InsertBotState = typeof botState.$inferInsert;
-
