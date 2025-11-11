@@ -94,6 +94,9 @@ export const appRouter = router({
           contractType: z.enum(["RISE_FALL", "TOUCH", "NO_TOUCH"]),
           barrierHigh: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal
           barrierLow: z.string().regex(/^-?\d+\.?\d*$/).optional(), // aceita números com sinal
+          forexMinDurationMinutes: z.number().int().min(1).optional(), // Duração mínima para Forex em minutos
+          allowEquals: z.boolean().optional(), // Permitir empate como vitória
+          useCandleDuration: z.boolean().optional(), // Usar duração dinâmica até o final do candle
           hedgeEnabled: z.boolean().optional(),
           hedgeConfig: z.string().optional(),
           // Filtro de Horário
