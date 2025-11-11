@@ -37,8 +37,11 @@ export const appRouter = router({
 
   // Configurações do bot
   config: router({
-    get: protectedProcedure.query(async ({ ctx }) => {
-      const config = await getConfigByUserId(ctx.user.id);
+    get: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      const config = await getConfigByUserId(ctx.user.id, botId);
       
       // Retornar configuração padrão se não existir
       if (!config) {
@@ -71,6 +74,7 @@ export const appRouter = router({
     update: protectedProcedure
       .input(
         z.object({
+          botId: z.number().int().min(1).max(2).optional(),
           mode: z.enum(["DEMO", "REAL"]),
           tokenDemo: z.string().optional(),
           tokenReal: z.string().optional(),
@@ -101,14 +105,16 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        const botId = input.botId ?? 1;
         await upsertConfig({
           userId: ctx.user.id,
+          botId,
           ...input,
         });
         
         // Logar alterações de hedge se houver
         if (input.hedgeEnabled !== undefined) {
-          const bot = getBotForUser(ctx.user.id);
+          const bot = getBotForUser(ctx.user.id, botId);
           if (bot) {
             await bot.logEvent(
               "CONFIG_UPDATED",
@@ -210,9 +216,12 @@ export const appRouter = router({
 
   // Controle do bot
   bot: router({
-    status: protectedProcedure.query(async ({ ctx }) => {
-      const state = await getBotState(ctx.user.id);
-      const bot = getBotForUser(ctx.user.id);
+    status: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      const state = await getBotState(ctx.user.id, botId);
+      const bot = getBotForUser(ctx.user.id, botId);
       const candleStartTime = bot.getCandleStartTime();
       
       // Debug log
@@ -239,31 +248,40 @@ export const appRouter = router({
       };
     }),
 
-    start: protectedProcedure.mutation(async ({ ctx }) => {
+    start: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
       // Garantir que engine está rodando
       if (!engineManager.isEngineRunning()) {
         console.log("[Bot] Iniciando engine de predição...");
         await engineManager.start();
       }
       
-      const bot = getBotForUser(ctx.user.id);
+      const bot = getBotForUser(ctx.user.id, botId);
       await bot.start();
       return { success: true, message: "Bot iniciado" };
     }),
 
-    stop: protectedProcedure.mutation(async ({ ctx }) => {
-      const bot = getBotForUser(ctx.user.id);
+    stop: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      const bot = getBotForUser(ctx.user.id, botId);
       await bot.stop();
-      removeBotForUser(ctx.user.id);
+      removeBotForUser(ctx.user.id, botId);
       return { success: true, message: "Bot parado" };
     }),
 
-    reset: protectedProcedure.mutation(async ({ ctx }) => {
+    reset: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
       // Parar bot se estiver rodando
       try {
-        const bot = getBotForUser(ctx.user.id);
+        const bot = getBotForUser(ctx.user.id, botId);
         await bot.stop();
-        removeBotForUser(ctx.user.id);
+        removeBotForUser(ctx.user.id, botId);
       } catch (error) {
         // Ignorar erro se bot não estiver rodando
       }
@@ -271,6 +289,7 @@ export const appRouter = router({
       // Resetar estado no banco
       await upsertBotState({
         userId: ctx.user.id,
+        botId,
         state: "IDLE",
         isRunning: false,
         currentCandleTimestamp: null,
@@ -281,8 +300,11 @@ export const appRouter = router({
       return { success: true, message: "Estado do bot resetado" };
     }),
 
-    reloadConfig: protectedProcedure.mutation(async ({ ctx }) => {
-      const bot = getBotForUser(ctx.user.id);
+    reloadConfig: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      const bot = getBotForUser(ctx.user.id, botId);
       await bot.reloadConfig();
       return { success: true, message: "Configurações recarregadas" };
     }),
@@ -290,12 +312,15 @@ export const appRouter = router({
 
   // Dashboard e métricas
   dashboard: router({
-    metrics: protectedProcedure.query(async ({ ctx }) => {
+    metrics: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
       const today = new Date().toISOString().split("T")[0];
       const thisMonth = today.substring(0, 7); // YYYY-MM
 
-      const dailyMetric = await getMetric(ctx.user.id, today, "daily");
-      const monthlyMetric = await getMetric(ctx.user.id, thisMonth, "monthly");
+      const dailyMetric = await getMetric(ctx.user.id, today, "daily", botId);
+      const monthlyMetric = await getMetric(ctx.user.id, thisMonth, "monthly", botId);
 
       return {
         daily: dailyMetric || {
@@ -313,9 +338,12 @@ export const appRouter = router({
       };
     }),
 
-    balance: protectedProcedure.query(async ({ ctx }) => {
+    balance: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
       // Buscar configuração do usuário para obter token
-      const config = await getConfigByUserId(ctx.user.id);
+      const config = await getConfigByUserId(ctx.user.id, botId);
       
       if (!config) {
         return {
@@ -356,9 +384,10 @@ export const appRouter = router({
 
     // Buscar candles em tempo real da DERIV API
     liveCandles: protectedProcedure
-      .input(z.object({ symbol: z.string(), limit: z.number().optional().default(50) }))
+      .input(z.object({ symbol: z.string(), limit: z.number().optional().default(50), botId: z.number().int().min(1).max(2).optional() }))
       .query(async ({ ctx, input }) => {
-        const config = await getConfigByUserId(ctx.user.id);
+        const botId = input.botId ?? 1;
+        const config = await getConfigByUserId(ctx.user.id, botId);
         
         if (!config) {
           throw new TRPCError({
@@ -405,9 +434,12 @@ export const appRouter = router({
         }
       }),
 
-    resetDailyData: protectedProcedure.mutation(async ({ ctx }) => {
+    resetDailyData: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
       // Verificar se há posição aberta
-      const botState = await getBotState(ctx.user.id);
+      const botState = await getBotState(ctx.user.id, botId);
       
       if (botState && botState.state === "ENTERED") {
         throw new TRPCError({
@@ -417,10 +449,10 @@ export const appRouter = router({
       }
 
       try {
-        await resetDailyData(ctx.user.id);
+        await resetDailyData(ctx.user.id, botId);
         
         // Apenas resetar PnL diário do bot em memória (sem reiniciar)
-        const bot = getBotForUser(ctx.user.id);
+        const bot = getBotForUser(ctx.user.id, botId);
         if (bot) {
           // Resetar apenas o PnL acumulado, sem parar/iniciar o bot
           // @ts-ignore - acessar propriedade privada para resetar PnL
@@ -449,20 +481,21 @@ export const appRouter = router({
       .input(
         z.object({
           limit: z.number().int().positive().optional().default(50),
+          botId: z.number().int().min(1).max(2).optional(),
         })
       )
       .query(async ({ ctx, input }) => {
-        const positions = await getUserPositions(ctx.user.id, input.limit);
+        const botId = input.botId ?? 1;
+        const positions = await getUserPositions(ctx.user.id, botId, input.limit);
         return positions;
       }),
 
-    today: protectedProcedure.query(async ({ ctx }) => {
-      const positions = await getTodayPositions(ctx.user.id);
-      // Garantir que pnl nunca seja null (frontend espera number)
-      return positions.map(pos => ({
-        ...pos,
-        pnl: pos.pnl ?? 0, // Se null, usar 0
-      }));
+    today: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      const positions = await getTodayPositions(ctx.user.id, botId);
+      return positions;
     }),
   }),
 
@@ -472,10 +505,12 @@ export const appRouter = router({
       .input(
         z.object({
           limit: z.number().int().positive().optional().default(100),
+          botId: z.number().int().min(1).max(2).optional(),
         })
       )
       .query(async ({ ctx, input }) => {
-        const logs = await getRecentEventLogs(ctx.user.id, input.limit);
+        const botId = input.botId ?? 1;
+        const logs = await getRecentEventLogs(ctx.user.id, botId, input.limit);
         return logs;
       }),
   }),

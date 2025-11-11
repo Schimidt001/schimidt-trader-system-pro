@@ -119,10 +119,10 @@ export async function getUserById(id: number) {
 
 // ============= CONFIG QUERIES =============
 
-export async function getConfigByUserId(userId: number): Promise<Config | undefined> {
+export async function getConfigByUserId(userId: number, botId: number = 1): Promise<Config | undefined> {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(config).where(eq(config.userId, userId)).limit(1);
+  const result = await db.select().from(config).where(and(eq(config.userId, userId), eq(config.botId, botId))).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -130,11 +130,12 @@ export async function upsertConfig(data: InsertConfig): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const existing = await getConfigByUserId(data.userId);
+  const botId = data.botId ?? 1;
+  const existing = await getConfigByUserId(data.userId, botId);
   if (existing) {
-    await db.update(config).set(data).where(eq(config.userId, data.userId));
+    await db.update(config).set(data).where(and(eq(config.userId, data.userId), eq(config.botId, botId)));
   } else {
-    await db.insert(config).values(data);
+    await db.insert(config).values({ ...data, botId });
   }
 }
 
@@ -201,18 +202,18 @@ export async function getPositionByContractId(contractId: string): Promise<Posit
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getUserPositions(userId: number, limit: number = 50): Promise<Position[]> {
+export async function getUserPositions(userId: number, botId: number = 1, limit: number = 50): Promise<Position[]> {
   const db = await getDb();
   if (!db) return [];
   return db
     .select()
     .from(positions)
-    .where(eq(positions.userId, userId))
+    .where(and(eq(positions.userId, userId), eq(positions.botId, botId)))
     .orderBy(desc(positions.createdAt))
     .limit(limit);
 }
 
-export async function getTodayPositions(userId: number): Promise<any[]> {
+export async function getTodayPositions(userId: number, botId: number = 1): Promise<any[]> {
   const db = await getDb();
   if (!db) return [];
   
@@ -260,6 +261,7 @@ export async function getTodayPositions(userId: number): Promise<any[]> {
     .where(
       and(
         eq(positions.userId, userId),
+        eq(positions.botId, botId),
         gte(positions.createdAt, today),
         not(eq(positions.status, "CANCELLED"))
       )
@@ -275,12 +277,14 @@ export async function upsertMetric(data: InsertMetric): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const botId = data.botId ?? 1;
   const existing = await db
     .select()
     .from(metrics)
     .where(
       and(
         eq(metrics.userId, data.userId),
+        eq(metrics.botId, botId),
         eq(metrics.date, data.date),
         eq(metrics.period, data.period)
       )
@@ -293,14 +297,15 @@ export async function upsertMetric(data: InsertMetric): Promise<void> {
       .set(data)
       .where(eq(metrics.id, existing[0].id));
   } else {
-    await db.insert(metrics).values(data);
+    await db.insert(metrics).values({ ...data, botId });
   }
 }
 
 export async function getMetric(
   userId: number,
   date: string,
-  period: "daily" | "monthly"
+  period: "daily" | "monthly",
+  botId: number = 1
 ): Promise<Metric | undefined> {
   const db = await getDb();
   if (!db) return undefined;
@@ -311,6 +316,7 @@ export async function getMetric(
     .where(
       and(
         eq(metrics.userId, userId),
+        eq(metrics.botId, botId),
         eq(metrics.date, date),
         eq(metrics.period, period)
       )
@@ -328,23 +334,23 @@ export async function insertEventLog(data: InsertEventLog): Promise<void> {
   await db.insert(eventLogs).values(data);
 }
 
-export async function getRecentEventLogs(userId: number, limit: number = 100): Promise<EventLog[]> {
+export async function getRecentEventLogs(userId: number, botId: number = 1, limit: number = 100): Promise<EventLog[]> {
   const db = await getDb();
   if (!db) return [];
   return db
     .select()
     .from(eventLogs)
-    .where(eq(eventLogs.userId, userId))
+    .where(and(eq(eventLogs.userId, userId), eq(eventLogs.botId, botId)))
     .orderBy(desc(eventLogs.timestampUtc))
     .limit(limit);
 }
 
 // ============= BOT STATE QUERIES =============
 
-export async function getBotState(userId: number): Promise<BotState | undefined> {
+export async function getBotState(userId: number, botId: number = 1): Promise<BotState | undefined> {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(botState).where(eq(botState.userId, userId)).limit(1);
+  const result = await db.select().from(botState).where(and(eq(botState.userId, userId), eq(botState.botId, botId))).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -352,11 +358,12 @@ export async function upsertBotState(data: InsertBotState): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const existing = await getBotState(data.userId);
+  const botId = data.botId ?? 1;
+  const existing = await getBotState(data.userId, botId);
   if (existing) {
-    await db.update(botState).set(data).where(eq(botState.userId, data.userId));
+    await db.update(botState).set(data).where(and(eq(botState.userId, data.userId), eq(botState.botId, botId)));
   } else {
-    await db.insert(botState).values(data);
+    await db.insert(botState).values({ ...data, botId });
   }
 }
 

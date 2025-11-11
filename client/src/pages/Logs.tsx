@@ -3,12 +3,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { trpc } from "@/lib/trpc";
 import { Loader2, Activity, Clock, TrendingUp, AlertCircle } from "lucide-react";
 import { useMemo } from "react";
+import { BotSelector, useBotSelector } from "@/components/BotSelector";
 
 export default function Logs() {
   const { user, loading: authLoading } = useAuth();
+  const { selectedBot, setSelectedBot } = useBotSelector();
 
   const { data: logs, isLoading } = trpc.logs.recent.useQuery(
-    { limit: 200 },
+    { limit: 200, botId: selectedBot },
     {
       enabled: !!user,
       refetchInterval: 3000,
@@ -16,10 +18,13 @@ export default function Logs() {
   );
 
   // Buscar status do bot para obter timestamp do candle atual
-  const { data: botStatus } = trpc.bot.status.useQuery(undefined, {
-    enabled: !!user,
-    refetchInterval: 2000,
-  });
+  const { data: botStatus } = trpc.bot.status.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: !!user,
+      refetchInterval: 2000,
+    }
+  );
 
   // Filtrar logs da operação atual (candle atual)
   const currentOperationLogs = useMemo(() => {
@@ -147,9 +152,12 @@ export default function Logs() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       <div className="container mx-auto p-6 space-y-6">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-white">Log de Eventos</h1>
-          <p className="text-slate-400 mt-1">Monitoramento em tempo real do sistema (UTC)</p>
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-white">Log de Eventos</h1>
+            <p className="text-slate-400 mt-1">Monitoramento em tempo real do sistema (UTC)</p>
+          </div>
+          <BotSelector selectedBot={selectedBot} onBotChange={setSelectedBot} />
         </div>
 
         {/* SEÇÃO NOVA: Operação Atual */}

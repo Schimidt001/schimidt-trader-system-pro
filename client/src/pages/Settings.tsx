@@ -22,9 +22,11 @@ import { DERIV_SYMBOLS } from "@/const";
 import { Loader2, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { BotSelector, useBotSelector } from "@/components/BotSelector";
 
 export default function Settings() {
   const { user, loading: authLoading } = useAuth();
+  const { selectedBot, setSelectedBot } = useBotSelector();
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<{
@@ -89,13 +91,18 @@ export default function Settings() {
   const [analysisEndMinute, setAnalysisEndMinute] = useState("14.0");
 
   // Queries
-  const { data: config, isLoading } = trpc.config.get.useQuery(undefined, {
-    enabled: !!user,
-  });
+  const { data: config, isLoading } = trpc.config.get.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: !!user,
+    }
+  );
 
-  const { data: botStatus } = trpc.bot.status.useQuery(undefined, {
-    enabled: !!user,
-    refetchInterval: false, // Não precisa ficar atualizando
+  const { data: botStatus } = trpc.bot.status.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: !!user,
+      refetchInterval: false, // Não precisa ficar atualizando
   });
 
   // Mutations
@@ -243,6 +250,7 @@ export default function Settings() {
     // Salvar configuração primeiro
     try {
       await updateConfig.mutateAsync({
+        botId: selectedBot,
         mode,
         tokenDemo: tokenDemo || undefined,
         tokenReal: tokenReal || undefined,
@@ -389,6 +397,7 @@ export default function Settings() {
 
     setIsSaving(true);
     updateConfig.mutate({
+      botId: selectedBot,
       mode,
       tokenDemo: tokenDemo || undefined,
       tokenReal: tokenReal || undefined,
@@ -449,9 +458,12 @@ export default function Settings() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       <div className="container mx-auto p-6 max-w-4xl">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-white">Configurações</h1>
-          <p className="text-slate-400 mt-1">Configure os parâmetros do bot trader</p>
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-white">Configurações</h1>
+            <p className="text-slate-400 mt-1">Configure os parâmetros do bot trader</p>
+          </div>
+          <BotSelector selectedBot={selectedBot} onBotChange={setSelectedBot} />
         </div>
 
         <div className="space-y-6">

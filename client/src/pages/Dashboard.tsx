@@ -7,40 +7,57 @@ import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, 
 import { BOT_STATES } from "@/const";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { BotSelector, useBotSelector } from "@/components/BotSelector";
 
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
+  const { selectedBot, setSelectedBot } = useBotSelector();
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // Queries
-  const { data: botStatus, refetch: refetchStatus } = trpc.bot.status.useQuery(undefined, {
-    enabled: !!user,
-    refetchInterval: 2000, // Atualizar a cada 2 segundos
-  });
+  const { data: botStatus, refetch: refetchStatus } = trpc.bot.status.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: !!user,
+      refetchInterval: 2000, // Atualizar a cada 2 segundos
+    }
+  );
 
-  const { data: metrics, refetch: refetchMetrics } = trpc.dashboard.metrics.useQuery(undefined, {
-    enabled: !!user,
-    refetchInterval: 5000,
-  });
+  const { data: metrics, refetch: refetchMetrics } = trpc.dashboard.metrics.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: !!user,
+      refetchInterval: 5000,
+    }
+  );
 
-  const { data: balance } = trpc.dashboard.balance.useQuery(undefined, {
-    enabled: !!user,
-    refetchInterval: 10000,
-  });
+  const { data: balance } = trpc.dashboard.balance.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: !!user,
+      refetchInterval: 10000,
+    }
+  );
 
-  const { data: todayPositions } = trpc.positions.today.useQuery(undefined, {
-    enabled: !!user,
-    refetchInterval: 5000,
-  });
+  const { data: todayPositions } = trpc.positions.today.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: !!user,
+      refetchInterval: 5000,
+    }
+  );
 
-  const { data: config } = trpc.config.get.useQuery(undefined, {
-    enabled: !!user,
-  });
+  const { data: config } = trpc.config.get.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: !!user,
+    }
+  );
 
   const { data: candles } = trpc.dashboard.liveCandles.useQuery(
-    { symbol: config?.symbol || "R_100", limit: 50 },
+    { symbol: config?.symbol || "R_100", limit: 50, botId: selectedBot },
     {
       enabled: !!user && !!config?.symbol,
       refetchInterval: 1000, // Atualizar a cada 1 segundo (tempo real)
@@ -98,19 +115,20 @@ export default function Dashboard() {
 
   const handleStart = () => {
     setIsStarting(true);
-    startBot.mutate();
+    startBot.mutate({ botId: selectedBot });
   };
 
   const handleStop = () => {
     setIsStopping(true);
-    stopBot.mutate();
+    stopBot.mutate({ botId: selectedBot });
   };
 
   const handleReset = () => {
-    resetBot.mutate();
+    resetBot.mutate({ botId: selectedBot });
   };
 
   const handleResetDailyData = () => {
+    resetDailyData.mutate({ botId: selectedBot });
     if (confirm("Tem certeza que deseja resetar todos os dados di\u00e1rios? Esta a\u00e7\u00e3o n\u00e3o pode ser desfeita.")) {
       resetDailyData.mutate();
     }
@@ -188,9 +206,12 @@ export default function Dashboard() {
       <div className="container mx-auto p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white">Schimidt Trader System PRO</h1>
-            <p className="text-slate-400 mt-1">Sistema de Trading Automatizado 24/7</p>
+          <div className="flex items-center gap-6">
+            <div>
+              <h1 className="text-3xl font-bold text-white">Schimidt Trader System PRO</h1>
+              <p className="text-slate-400 mt-1">Sistema de Trading Automatizado 24/7</p>
+            </div>
+            <BotSelector selectedBot={selectedBot} onBotChange={setSelectedBot} />
           </div>
           
           {/* Relógio GMT e Indicador de Horário */}

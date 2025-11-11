@@ -8,7 +8,7 @@ import { eq, and, gte } from "drizzle-orm";
  * - Marca posições de hoje como arquivadas (não deleta)
  * - Limpa logs de hoje (opcional)
  */
-export async function resetDailyData(userId: number): Promise<void> {
+export async function resetDailyData(userId: number, botId: number = 1): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -29,6 +29,7 @@ export async function resetDailyData(userId: number): Promise<void> {
       .where(
         and(
           eq(metrics.userId, userId),
+          eq(metrics.botId, botId),
           eq(metrics.date, today),
           eq(metrics.period, "daily")
         )
@@ -44,6 +45,7 @@ export async function resetDailyData(userId: number): Promise<void> {
       .where(
         and(
           eq(positions.userId, userId),
+          eq(positions.botId, botId),
           gte(positions.createdAt, todayStart)
         )
       );
@@ -61,7 +63,7 @@ export async function resetDailyData(userId: number): Promise<void> {
       );
     */
 
-    console.log(`[RESET] Dados diários resetados para usuário ${userId}`);
+    console.log(`[RESET] Dados diários resetados para usuário ${userId}, bot ${botId}`);
   } catch (error) {
     console.error(`[RESET] Erro ao resetar dados diários:`, error);
     throw error;

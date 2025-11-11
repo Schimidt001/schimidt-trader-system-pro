@@ -32,6 +32,7 @@ import {
 
 export class TradingBot {
   private userId: number;
+  private botId: number;
   private derivService: DerivService | null = null;
   private state: BotStateType = "IDLE";
   private isRunning: boolean = false;
@@ -102,8 +103,9 @@ export class TradingBot {
   private dailyPnL: number = 0;
   private tradesThisCandle: Set<number> = new Set();
 
-  constructor(userId: number) {
+  constructor(userId: number, botId: number = 1) {
     this.userId = userId;
+    this.botId = botId;
   }
 
   /**
@@ -112,7 +114,7 @@ export class TradingBot {
   async start(): Promise<void> {
     try {
       // Carregar configurações
-      const config = await getConfigByUserId(this.userId);
+      const config = await getConfigByUserId(this.userId, this.botId);
       if (!config) {
         throw new Error("Configuração não encontrada");
       }
@@ -1091,6 +1093,7 @@ export class TradingBot {
       // Salvar posição no banco
       const positionId = await insertPosition({
         userId: this.userId,
+        botId: this.botId,
         contractId: contract.contract_id,
         symbol: this.symbol,
         direction: this.prediction.direction,
@@ -1277,6 +1280,7 @@ export class TradingBot {
       // Salvar posição de hedge no banco
       const hedgePositionId = await insertPosition({
         userId: this.userId,
+        botId: this.botId,
         contractId: contract.contract_id,
         symbol: this.symbol,
         direction: contractType === 'CALL' ? 'up' : 'down',
@@ -1342,47 +1346,18 @@ export class TradingBot {
           // Reconsultar após venda
           const finalContractInfo = await this.derivService.getContractInfo(position.contractId);
 
-          // Calcular PnL com lógica melhorada
+          // Calcular PnL
           let finalProfit = 0;
-          
-          if (finalContractInfo.status === 'won') {
-            // Ganhou: payout - buy_price
-            finalProfit = (finalContractInfo.payout || 0) - finalContractInfo.buy_price;
+          if (finalContractInfo.status === 'sold' || finalContractInfo.status === 'won') {
+            const sellPrice = finalContractInfo.sell_price || finalContractInfo.payout || 0;
+            finalProfit = sellPrice - finalContractInfo.buy_price;
           } else if (finalContractInfo.status === 'lost') {
-            // Perdeu: -buy_price
             finalProfit = -finalContractInfo.buy_price;
-          } else if (finalContractInfo.status === 'sold') {
-            // Vendeu: sell_price - buy_price
-            finalProfit = (finalContractInfo.sell_price || 0) - finalContractInfo.buy_price;
           } else {
-            // Aberto: usar profit atual
             finalProfit = finalContractInfo.profit || 0;
           }
 
-          // Validação de NaN
-          if (isNaN(finalProfit)) {
-            console.error(`[PNL_ERROR] PnL inválido para contrato ${position.contractId}:`, {
-              status: finalContractInfo.status,
-              sell_price: finalContractInfo.sell_price,
-              payout: finalContractInfo.payout,
-              buy_price: finalContractInfo.buy_price,
-              profit: finalContractInfo.profit,
-            });
-            finalProfit = 0;
-          }
-
           const pnlInCents = Math.round(finalProfit * 100);
-          
-          // Log detalhado do cálculo
-          console.log(`[PNL_CALC] Contract ${position.contractId}:`, {
-            status: finalContractInfo.status,
-            buy_price: finalContractInfo.buy_price,
-            sell_price: finalContractInfo.sell_price,
-            payout: finalContractInfo.payout,
-            profit: finalContractInfo.profit,
-            calculated_pnl: finalProfit,
-            pnl_in_cents: pnlInCents,
-          });
           totalPnL += pnlInCents;
 
           // Atualizar posição no banco
@@ -1402,14 +1377,7 @@ export class TradingBot {
 
           await this.logEvent(
             position.isHedge ? "HEDGE_POSITION_CLOSED" : "POSITION_CLOSED",
-            `${position.isHedge ? '🛡️ Hedge' : 'Posição'} fechada: ${reason} | PnL: $${(pnlInCents / 100).toFixed(2)} | Contract: ${position.contractId}`,
-            {
-              status: finalContractInfo.status,
-              buy_price: finalContractInfo.buy_price,
-              sell_price: finalContractInfo.sell_price,
-              payout: finalContractInfo.payout,
-              calculated_pnl: pnlInCents,
-            }
+            `${position.isHedge ? '🛡️ Hedge' : 'Posição'} fechada: ${reason} | PnL: $${(pnlInCents / 100).toFixed(2)} | Contract: ${position.contractId}`
           );
         } catch (error) {
           console.error(`[TradingBot] Error closing position ${position.contractId}:`, error);
@@ -1420,7 +1388,6 @@ export class TradingBot {
       // Atualizar PnL diário com total combinado
       this.dailyPnL += totalPnL;
       await this.updateDailyMetrics(totalPnL);
-      await this.updateMonthlyMetrics(totalPnL);
 
       await this.logEvent(
         "ALL_POSITIONS_CLOSED",
@@ -1479,7 +1446,7 @@ export class TradingBot {
    */
   private async loadDailyPnL(): Promise<void> {
     const today = new Date().toISOString().split("T")[0];
-    const metric = await getMetric(this.userId, today, "daily");
+    const metric = await getMetric(this.userId, today, "daily", this.botId);
     this.dailyPnL = metric?.pnl || 0;
   }
 
@@ -1488,7 +1455,7 @@ export class TradingBot {
    */
   private async updateDailyMetrics(pnl: number): Promise<void> {
     const today = new Date().toISOString().split("T")[0];
-    const metric = await getMetric(this.userId, today, "daily");
+    const metric = await getMetric(this.userId, today, "daily", this.botId);
 
     const totalTrades = (metric?.totalTrades || 0) + 1;
     const wins = pnl > 0 ? (metric?.wins || 0) + 1 : metric?.wins || 0;
@@ -1497,6 +1464,7 @@ export class TradingBot {
 
     await upsertMetric({
       userId: this.userId,
+      botId: this.botId,
       date: today,
       period: "daily",
       totalTrades,
@@ -1507,34 +1475,12 @@ export class TradingBot {
   }
 
   /**
-   * Atualiza métricas mensais
-   */
-  private async updateMonthlyMetrics(pnl: number): Promise<void> {
-    const thisMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
-    const metric = await getMetric(this.userId, thisMonth, "monthly");
-
-    const totalTrades = (metric?.totalTrades || 0) + 1;
-    const wins = pnl > 0 ? (metric?.wins || 0) + 1 : metric?.wins || 0;
-    const losses = pnl < 0 ? (metric?.losses || 0) + 1 : metric?.losses || 0;
-    const totalPnL = (metric?.pnl || 0) + pnl;
-
-    await upsertMetric({
-      userId: this.userId,
-      date: thisMonth,
-      period: "monthly",
-      totalTrades,
-      wins,
-      losses,
-      pnl: totalPnL,
-    });
-  }
-
-  /**
    * Registra evento no log
    */
-  private async logEvent(eventType: string, message: string, data?: any): Promise<void> {
+  public async logEvent(eventType: string, message: string, data?: any): Promise<void> {
     await insertEventLog({
       userId: this.userId,
+      botId: this.botId,
       eventType,
       message,
       data: data ? JSON.stringify(data) : null,
@@ -1551,6 +1497,7 @@ export class TradingBot {
     
     await upsertBotState({
       userId: this.userId,
+      botId: this.botId,
       state: this.state,
       isRunning: this.isRunning,
       currentCandleTimestamp: this.currentCandleTimestamp || null,
@@ -1754,17 +1701,23 @@ export class TradingBot {
   }
 }
 
-// Gerenciador de bots (um por usuário)
-const activeBots = new Map<number, TradingBot>();
+// Gerenciador de bots (múltiplos por usuário)
+const activeBots = new Map<string, TradingBot>();
 
-export function getBotForUser(userId: number): TradingBot {
-  if (!activeBots.has(userId)) {
-    activeBots.set(userId, new TradingBot(userId));
-  }
-  return activeBots.get(userId)!;
+function getBotKey(userId: number, botId: number): string {
+  return `${userId}-${botId}`;
 }
 
-export function removeBotForUser(userId: number): void {
-  activeBots.delete(userId);
+export function getBotForUser(userId: number, botId: number = 1): TradingBot {
+  const key = getBotKey(userId, botId);
+  if (!activeBots.has(key)) {
+    activeBots.set(key, new TradingBot(userId, botId));
+  }
+  return activeBots.get(key)!;
+}
+
+export function removeBotForUser(userId: number, botId: number = 1): void {
+  const key = getBotKey(userId, botId);
+  activeBots.delete(key);
 }
 
