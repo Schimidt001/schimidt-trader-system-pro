@@ -375,8 +375,9 @@ export class DerivService {
         parameters.barrier = barrier;
       }
       
-      // Adicionar allow_equals se habilitado
-      if (allowEquals) {
+      // Adicionar allow_equals APENAS para contratos CALL/PUT (RISE/FALL)
+      // TOUCH/NO_TOUCH não suportam allow_equals
+      if (allowEquals && (contractType === "CALL" || contractType === "PUT")) {
         parameters.allow_equals = 1;
       }
       
