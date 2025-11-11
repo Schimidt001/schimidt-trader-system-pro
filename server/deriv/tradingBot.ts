@@ -1157,9 +1157,19 @@ export class TradingBot {
         "POSITION_ENTERED",
         `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${finalDurationMinutes}min | Contract: ${contract.contract_id}`
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error("[TradingBot] Error entering position:", error);
-      await this.logEvent("ERROR", `Erro ao abrir posição: ${error}`);
+      
+      // ✅ Log detalhado do erro para debug
+      const errorDetails = {
+        message: error?.message || String(error),
+        stack: error?.stack,
+        response: error?.response,
+        code: error?.code,
+      };
+      console.error("[ERROR_DETAILS]", JSON.stringify(errorDetails, null, 2));
+      
+      await this.logEvent("ERROR", `Erro ao abrir posição: ${error?.message || error} | Stack: ${error?.stack?.split('\n')[0] || 'N/A'}`);
       this.state = "ERROR_API";
       await this.updateBotState();
     }

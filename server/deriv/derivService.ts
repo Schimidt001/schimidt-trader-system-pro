@@ -359,7 +359,13 @@ export class DerivService {
           });
         } else if (message.error) {
           this.subscriptions.delete("buy");
-          reject(new Error(message.error.message));
+          // ✅ Incluir detalhes completos do erro da API
+          const error: any = new Error(message.error.message);
+          error.code = message.error.code;
+          error.details = message.error.details;
+          error.apiResponse = message.error;
+          console.error('[DERIV_BUY_ERROR]', JSON.stringify(message.error, null, 2));
+          reject(error);
         }
       };
 
