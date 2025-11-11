@@ -336,7 +336,72 @@ export class DerivService {
   }
 
   /**
-   * Compra um contrato
+   * Criar proposta de contrato
+   */
+  async createProposal(
+    symbol: string,
+    contractType: string,
+    stake: number,
+    duration: number,
+    durationType: string,
+    barrier?: string,
+    allowEquals?: boolean
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const handler = (message: any) => {
+        if (message.proposal) {
+          this.subscriptions.delete("proposal");
+          resolve(message.proposal.id);
+        } else if (message.error) {
+          this.subscriptions.delete("proposal");
+          const error: any = new Error(message.error.message);
+          error.code = message.error.code;
+          error.details = message.error.details;
+          error.apiResponse = message.error;
+          console.error('[DERIV_PROPOSAL_ERROR]', JSON.stringify(message.error, null, 2));
+          reject(error);
+        }
+      };
+
+      this.subscriptions.set("proposal", handler);
+      
+      // Construir parâmetros da proposta
+      const proposalParams: any = {
+        proposal: 1,
+        contract_type: contractType,
+        symbol: symbol,
+        duration: duration,
+        duration_unit: durationType,
+        basis: "stake",
+        amount: stake,
+        currency: this.accountCurrency,
+      };
+      
+      // Adicionar barreira se for TOUCH ou NO_TOUCH
+      if (barrier && (contractType === "ONETOUCH" || contractType === "NOTOUCH")) {
+        proposalParams.barrier = barrier;
+      }
+      
+      // Adicionar allow_equals APENAS para contratos CALL/PUT
+      if (allowEquals && (contractType === "CALL" || contractType === "PUT")) {
+        proposalParams.allow_equals = 1;
+      }
+      
+      console.log('[DERIV_PROPOSAL] Criando proposta:', JSON.stringify(proposalParams, null, 2));
+      
+      this.send(proposalParams);
+
+      setTimeout(() => {
+        if (this.subscriptions.has("proposal")) {
+          this.subscriptions.delete("proposal");
+          reject(new Error("Proposal timeout"));
+        }
+      }, 10000);
+    });
+  }
+
+  /**
+   * Comprar contrato usando ID de proposta
    */
   async buyContract(
     symbol: string,
@@ -344,80 +409,67 @@ export class DerivService {
     stake: number,
     duration: number = 1,
     durationType: string = "m",
-    barrier?: string, // Barreira para contratos TOUCH/NO_TOUCH (ex: "+0.30" ou "-0.30")
-    allowEquals?: boolean // Permitir empate como vitória
+    barrier?: string,
+    allowEquals?: boolean
   ): Promise<DerivContract> {
-    return new Promise((resolve, reject) => {
-      const handler = (message: any) => {
-        if (message.buy) {
-          this.subscriptions.delete("buy");
-          resolve({
-            contract_id: message.buy.contract_id,
-            buy_price: message.buy.buy_price,
-            payout: message.buy.payout,
-            longcode: message.buy.longcode,
-          });
-        } else if (message.error) {
-          this.subscriptions.delete("buy");
-          // ✅ Incluir detalhes completos do erro da API
-          const error: any = new Error(message.error.message);
-          error.code = message.error.code;
-          error.details = message.error.details;
-          error.apiResponse = message.error;
-          console.error('[DERIV_BUY_ERROR]', JSON.stringify(message.error, null, 2));
-          reject(error);
-        }
-      };
+    try {
+      // Primeiro, criar uma proposta
+      console.log('[DERIV_BUY] Iniciando compra: criando proposta primeiro...');
+      const proposalId = await this.createProposal(
+        symbol,
+        contractType,
+        stake,
+        duration,
+        durationType,
+        barrier,
+        allowEquals
+      );
+      
+      console.log('[DERIV_BUY] Proposta criada com sucesso. ID:', proposalId);
+      
+      // Agora, comprar usando o ID da proposta
+      return new Promise((resolve, reject) => {
+        const handler = (message: any) => {
+          if (message.buy) {
+            this.subscriptions.delete("buy");
+            console.log('[DERIV_BUY] Contrato comprado com sucesso!');
+            resolve({
+              contract_id: message.buy.contract_id,
+              buy_price: message.buy.buy_price,
+              payout: message.buy.payout,
+              longcode: message.buy.longcode,
+            });
+          } else if (message.error) {
+            this.subscriptions.delete("buy");
+            const error: any = new Error(message.error.message);
+            error.code = message.error.code;
+            error.details = message.error.details;
+            error.apiResponse = message.error;
+            console.error('[DERIV_BUY_ERROR]', JSON.stringify(message.error, null, 2));
+            reject(error);
+          }
+        };
 
-      this.subscriptions.set("buy", handler);
-      
-      // Construir parâmetros do contrato
-      const parameters: any = {
-        contract_type: contractType,
-        symbol: symbol,
-        duration: duration,
-        duration_unit: durationType,
-        basis: "stake",
-        amount: stake,
-        currency: this.accountCurrency, // ✅ Usar moeda da conta
-      };
-      
-      // Adicionar barreira se for TOUCH ou NO_TOUCH
-      if (barrier && (contractType === "ONETOUCH" || contractType === "NOTOUCH")) {
-        parameters.barrier = barrier;
-      }
-      
-      // Adicionar allow_equals APENAS para contratos CALL/PUT (RISE/FALL)
-      // TOUCH/NO_TOUCH não suportam allow_equals
-      if (allowEquals && (contractType === "CALL" || contractType === "PUT")) {
-        parameters.allow_equals = 1;
-      }
-      
-      // Log detalhado dos parâmetros para debug
-      console.log('[DERIV_BUY] Parâmetros enviados:', JSON.stringify({
-        contract_type: contractType,
-        symbol: symbol,
-        duration: duration,
-        duration_unit: durationType,
-        stake: stake,
-        barrier: barrier,
-        allowEquals: allowEquals,
-        parameters: parameters
-      }, null, 2));
-      
-      this.send({
-        buy: 1,
-        price: stake,
-        ...parameters,
+        this.subscriptions.set("buy", handler);
+        
+        console.log('[DERIV_BUY] Comprando contrato com proposal_id:', proposalId);
+        
+        this.send({
+          buy: proposalId,
+          price: stake,
+        });
+
+        setTimeout(() => {
+          if (this.subscriptions.has("buy")) {
+            this.subscriptions.delete("buy");
+            reject(new Error("Buy timeout"));
+          }
+        }, 10000);
       });
-
-      setTimeout(() => {
-        if (this.subscriptions.has("buy")) {
-          this.subscriptions.delete("buy");
-          reject(new Error("Buy contract timeout"));
-        }
-      }, 15000);
-    });
+    } catch (error) {
+      console.error('[DERIV_BUY] Erro ao criar proposta ou comprar:', error);
+      throw error;
+    }
   }
 
   /**
