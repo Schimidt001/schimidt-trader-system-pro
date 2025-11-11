@@ -381,6 +381,18 @@ export class DerivService {
         parameters.allow_equals = 1;
       }
       
+      // Log detalhado dos parâmetros para debug
+      console.log('[DERIV_BUY] Parâmetros enviados:', JSON.stringify({
+        contract_type: contractType,
+        symbol: symbol,
+        duration: duration,
+        duration_unit: durationType,
+        stake: stake,
+        barrier: barrier,
+        allowEquals: allowEquals,
+        parameters: parameters
+      }, null, 2));
+      
       this.send({
         buy: 1,
         price: stake,
