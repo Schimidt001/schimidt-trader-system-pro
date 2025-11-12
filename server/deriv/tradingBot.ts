@@ -1,4 +1,5 @@
 import { DerivService, DerivCandle, DerivTick } from "./derivService";
+import { InactivityWatchdog } from "./inactivityWatchdog";
 import { predictionService } from "../prediction/predictionService";
 import { analyzePositionForHedge, DEFAULT_HEDGE_CONFIG, type HedgeConfig } from "../ai/hedgeStrategy";
 import { HourlyFilter } from "../../filtro-horario/hourlyFilterLogic";
@@ -104,6 +105,9 @@ export class TradingBot {
   // Controle de risco
   private dailyPnL: number = 0;
   private tradesThisCandle: Set<number> = new Set();
+  
+  // Watchdog de inatividade
+  private inactivityWatchdog: InactivityWatchdog | null = null;
 
   constructor(userId: number, botId: number = 1) {
     this.userId = userId;
@@ -291,9 +295,22 @@ export class TradingBot {
       
       // Subscrever ticks para construção de candles e monitoramento
       this.derivService.subscribeTicks(this.symbol, (tick: DerivTick) => {
-        this.handleTick(tick);
+        this.handleTick(tick).catch((error) => {
+          console.error("[TradingBot] Unhandled error in handleTick callback:", error);
+        });
       });
       console.log(`[TradingBot] Subscribed to ticks for ${this.symbol}`);
+      
+      // Iniciar watchdog de inatividade (alerta após 5 minutos sem atividade)
+      this.inactivityWatchdog = new InactivityWatchdog(5, async (inactiveTimeMs) => {
+        const inactiveMinutes = Math.floor(inactiveTimeMs / 60000);
+        await this.logEvent(
+          "WATCHDOG_ALERT",
+          `⚠️ ALERTA: Bot inativo por ${inactiveMinutes} minutos - possível falha silenciosa`
+        );
+      });
+      this.inactivityWatchdog.start();
+      console.log('[TradingBot] Inactivity watchdog started');
       
       // Se estado for COLLECTING, iniciar coleta de dados
       if (this.state === "IDLE" || this.state === "COLLECTING") {
@@ -341,6 +358,12 @@ export class TradingBot {
     if (this.derivService) {
       this.derivService.disconnect();
       this.derivService = null;
+    }
+    
+    // Parar watchdog
+    if (this.inactivityWatchdog) {
+      this.inactivityWatchdog.stop();
+      this.inactivityWatchdog = null;
     }
 
     this.state = "IDLE";
@@ -559,7 +582,8 @@ export class TradingBot {
    * Trata cada tick recebido e constrói candle em tempo real
    */
   private async handleTick(tick: DerivTick): Promise<void> {
-    if (!this.isRunning) return;
+    try {
+      if (!this.isRunning) return;
 
     // VERIFICAÇÃO CONTÍNUA DO FILTRO - A CADA TICK
     if (this.hourlyFilter) {
@@ -728,6 +752,44 @@ export class TradingBot {
     // Se em posição, gerenciar saída
     if (this.state === "ENTERED" && this.currentPositions.length > 0) {
       await this.managePosition(tick.quote, elapsedSeconds);
+    }
+    
+    // Registrar atividade no watchdog (tick processado com sucesso)
+    if (this.inactivityWatchdog) {
+      this.inactivityWatchdog.recordActivity();
+    }
+    } catch (error: any) {
+      console.error("[TradingBot] CRITICAL ERROR in handleTick:", error);
+      
+      // Log detalhado do erro
+      const errorDetails = {
+        message: error?.message || String(error),
+        stack: error?.stack,
+        tickEpoch: tick.epoch,
+        tickQuote: tick.quote,
+        currentState: this.state,
+        currentCandleTimestamp: this.currentCandleTimestamp,
+        timestamp: new Date().toISOString(),
+      };
+      console.error("[HANDLE_TICK_ERROR_DETAILS]", JSON.stringify(errorDetails, null, 2));
+      
+      // Tentar logar no banco (se possível)
+      try {
+        await this.logEvent(
+          "CRITICAL_ERROR",
+          `⚠️ ERRO CRÍTICO no processamento de tick: ${error?.message || error} | Estado: ${this.state}`
+        );
+      } catch (logError) {
+        console.error("[TradingBot] Failed to log error to database:", logError);
+      }
+      
+      // Mudar para estado de erro para alertar o usuário
+      this.state = "ERROR_API";
+      try {
+        await this.updateBotState();
+      } catch (stateError) {
+        console.error("[TradingBot] Failed to update bot state:", stateError);
+      }
     }
   }
 
