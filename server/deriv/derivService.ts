@@ -382,10 +382,8 @@ export class DerivService {
         proposalParams.barrier = barrier;
       }
       
-      // Adicionar allow_equals APENAS para contratos CALL/PUT
-      if (allowEquals && (contractType === "CALL" || contractType === "PUT")) {
-        proposalParams.allow_equals = 1;
-      }
+      // NOTA: allow_equals NÃO é suportado pela API Deriv
+      // Removido para evitar erro "Properties not allowed"
       
       console.log('[DERIV_PROPOSAL] Criando proposta:', JSON.stringify(proposalParams, null, 2));
       
