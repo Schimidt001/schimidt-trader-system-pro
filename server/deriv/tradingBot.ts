@@ -930,8 +930,9 @@ export class TradingBot {
         return;
       }
 
-      // Buscar histórico
-      const history = await getCandleHistory(this.symbol, this.lookback);
+      // Buscar histórico com filtro de timeframe correto
+      const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
+      const history = await getCandleHistory(this.symbol, this.lookback, timeframeLabel);
       
       const historyData: CandleData[] = history.reverse().map((c) => ({
         abertura: parseFloat(c.open),
