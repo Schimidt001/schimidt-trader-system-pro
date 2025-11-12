@@ -1034,12 +1034,17 @@ export class TradingBot {
       await this.updateBotState();
       
       // Determinar tipo de contrato baseado na configuração
-      let contractType: "CALL" | "PUT" | "ONETOUCH" | "NOTOUCH";
+      let contractType: "CALL" | "PUT" | "CALLE" | "PUTE" | "ONETOUCH" | "NOTOUCH";
       let barrier: string | undefined;
       
       if (this.contractType === "RISE_FALL") {
         // RISE/FALL tradicional (CALL/PUT)
-        contractType = this.prediction.direction === "up" ? "CALL" : "PUT";
+        // Se allowEquals estiver ativado, usar CALLE/PUTE ao invés de CALL/PUT
+        if (this.allowEquals) {
+          contractType = this.prediction.direction === "up" ? "CALLE" : "PUTE";
+        } else {
+          contractType = this.prediction.direction === "up" ? "CALL" : "PUT";
+        }
       } else if (this.contractType === "TOUCH") {
         // TOUCH: usar barreira baseada na direção da predição
         contractType = "ONETOUCH";

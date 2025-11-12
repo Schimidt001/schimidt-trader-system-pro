@@ -340,7 +340,7 @@ export class DerivService {
    */
   async createProposal(
     symbol: string,
-    contractType: string,
+    contractType: "CALL" | "PUT" | "CALLE" | "PUTE" | "ONETOUCH" | "NOTOUCH",
     stake: number,
     duration: number,
     durationType: string,
@@ -403,7 +403,7 @@ export class DerivService {
    */
   async buyContract(
     symbol: string,
-    contractType: "CALL" | "PUT" | "ONETOUCH" | "NOTOUCH",
+    contractType: "CALL" | "PUT" | "CALLE" | "PUTE" | "ONETOUCH" | "NOTOUCH",
     stake: number,
     duration: number = 1,
     durationType: string = "m",
