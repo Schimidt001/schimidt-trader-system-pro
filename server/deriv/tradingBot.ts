@@ -1502,12 +1502,39 @@ export class TradingBot {
           // Tentar vender se possível
           if (contractInfo.sell_price && contractInfo.sell_price > 0) {
             await this.derivService.sellContract(position.contractId, contractInfo.sell_price);
+            
+            // ⚠️ AGUARDAR 2 segundos para DERIV processar a venda
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
 
-          // Reconsultar após venda
-          const finalContractInfo = await this.derivService.getContractInfo(position.contractId);
+          // 🔄 AGUARDAR LIQUIDAÇÃO COMPLETA: Tentar até 5 vezes com intervalo de 2s
+          let finalContractInfo = null;
+          let attempts = 0;
+          const maxAttempts = 5;
+          
+          while (attempts < maxAttempts) {
+            finalContractInfo = await this.derivService.getContractInfo(position.contractId);
+            
+            // Verificar se o contrato está em estado final
+            const isFinalState = ['sold', 'won', 'lost', 'cancelled'].includes(finalContractInfo.status);
+            
+            if (isFinalState) {
+              console.log(`[CLOSE_POSITION] Contrato ${position.contractId} em estado final: ${finalContractInfo.status}`);
+              break;
+            }
+            
+            attempts++;
+            if (attempts < maxAttempts) {
+              console.log(`[CLOSE_POSITION] Contrato ${position.contractId} ainda em estado ${finalContractInfo.status}, aguardando... (tentativa ${attempts}/${maxAttempts})`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          }
+          
+          if (!finalContractInfo) {
+            throw new Error(`Não foi possível obter informações finais do contrato ${position.contractId}`);
+          }
 
-          // Calcular PnL
+          // Calcular PnL com dados finais garantidos
           let finalProfit = 0;
           if (finalContractInfo.status === 'sold' || finalContractInfo.status === 'won') {
             const sellPrice = finalContractInfo.sell_price || finalContractInfo.payout || 0;
@@ -1515,13 +1542,15 @@ export class TradingBot {
           } else if (finalContractInfo.status === 'lost') {
             finalProfit = -finalContractInfo.buy_price;
           } else {
+            // Se ainda não está em estado final, usar profit atual como fallback
+            console.warn(`[CLOSE_POSITION] AVISO: Contrato ${position.contractId} não está em estado final (${finalContractInfo.status}), usando profit atual`);
             finalProfit = finalContractInfo.profit || 0;
           }
 
           const pnlInCents = Math.round(finalProfit * 100);
           totalPnL += pnlInCents;
 
-          // Atualizar posição no banco
+          // Atualizar posição no banco com dados finais
           const exitPrice = finalContractInfo.exit_tick || finalContractInfo.current_spot || 0;
           await updatePosition(position.positionId, {
             exitPrice: exitPrice.toString(),
