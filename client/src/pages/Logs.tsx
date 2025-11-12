@@ -31,9 +31,10 @@ export default function Logs() {
     if (!logs || !botStatus?.currentCandleTimestamp) return [];
     
     // Logs que pertencem ao candle atual
-    // Um candle M15 dura 900 segundos (15 minutos)
+    // Usar timeframe dinâmico do bot (900=M15, 1800=M30, 3600=M60)
     const candleStart = botStatus.currentCandleTimestamp;
-    const candleEnd = candleStart + 900;
+    const timeframe = botStatus.timeframe || 900; // Default M15 se não especificado
+    const candleEnd = candleStart + timeframe;
     
     // Eventos de fechamento do candle anterior que devem ser excluídos
     const closingEventTypes = [
