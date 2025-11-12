@@ -943,7 +943,6 @@ export class TradingBot {
       }));
 
       // Montar request de predição
-      const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
       const request: PredictionRequest = {
         symbol: this.symbol,
         tf: timeframeLabel,
