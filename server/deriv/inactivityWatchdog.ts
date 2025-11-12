@@ -10,6 +10,7 @@ export class InactivityWatchdog {
   private watchdogInterval: NodeJS.Timeout | null = null;
   private inactivityThresholdMs: number;
   private onInactivityDetected: (inactiveTimeMs: number) => void;
+  private isPaused: boolean = false;
 
   /**
    * Cria um novo watchdog
@@ -38,6 +39,11 @@ export class InactivityWatchdog {
     
     // Verificar a cada minuto
     this.watchdogInterval = setInterval(() => {
+      // Não alertar se estiver pausado (ex: standby por filtro de horário)
+      if (this.isPaused) {
+        return;
+      }
+      
       const now = Date.now();
       const inactiveTime = now - this.lastActivityTime;
       
@@ -82,5 +88,29 @@ export class InactivityWatchdog {
    */
   isInactive(): boolean {
     return this.getTimeSinceLastActivity() > this.inactivityThresholdMs;
+  }
+
+  /**
+   * Pausa o monitoramento (para estados de standby programados)
+   */
+  pause(): void {
+    this.isPaused = true;
+    console.log('[InactivityWatchdog] Pausado - standby programado');
+  }
+
+  /**
+   * Retoma o monitoramento
+   */
+  resume(): void {
+    this.isPaused = false;
+    this.lastActivityTime = Date.now(); // Resetar timer ao retomar
+    console.log('[InactivityWatchdog] Retomado - bot ativo novamente');
+  }
+
+  /**
+   * Verifica se está pausado
+   */
+  isPausedState(): boolean {
+    return this.isPaused;
   }
 }

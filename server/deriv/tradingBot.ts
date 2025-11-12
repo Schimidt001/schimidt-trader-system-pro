@@ -483,6 +483,12 @@ export class TradingBot {
         this.state = "WAITING_NEXT_HOUR";
         await this.updateBotState();
         const nextHour = this.hourlyFilter.getNextAllowedHour();
+        
+        // Pausar watchdog durante standby programado
+        if (this.inactivityWatchdog) {
+          this.inactivityWatchdog.pause();
+        }
+        
         await this.logEvent(
           "HOURLY_FILTER_BLOCKED",
           `⚠️ Horário ${new Date().getUTCHours()}h GMT não permitido. Bot em STAND BY até ${nextHour}h GMT`
@@ -490,6 +496,12 @@ export class TradingBot {
       } else if (isAllowed && this.state === "WAITING_NEXT_HOUR") {
         this.state = "WAITING_MIDPOINT";
         await this.updateBotState();
+        
+        // Retomar watchdog ao sair do standby
+        if (this.inactivityWatchdog) {
+          this.inactivityWatchdog.resume();
+        }
+        
         await this.logEvent(
           "HOURLY_FILTER_ACTIVATED",
           `✅ Horário ${new Date().getUTCHours()}h GMT permitido! Bot reativado`
@@ -599,6 +611,12 @@ export class TradingBot {
           this.state = "WAITING_NEXT_HOUR";
           await this.updateBotState();
           const nextHour = this.hourlyFilter.getNextAllowedHour();
+          
+          // Pausar watchdog durante standby programado
+          if (this.inactivityWatchdog) {
+            this.inactivityWatchdog.pause();
+          }
+          
           await this.logEvent(
             "HOURLY_FILTER_BLOCKED",
             `⚠️ Horário ${new Date().getUTCHours()}h GMT não permitido. Bot em STAND BY até ${nextHour}h GMT`
@@ -612,6 +630,12 @@ export class TradingBot {
       if (isAllowed && this.state === "WAITING_NEXT_HOUR") {
         this.state = "WAITING_MIDPOINT";
         await this.updateBotState();
+        
+        // Retomar watchdog ao sair do standby
+        if (this.inactivityWatchdog) {
+          this.inactivityWatchdog.resume();
+        }
+        
         await this.logEvent(
           "HOURLY_FILTER_ACTIVATED",
           `✅ Horário ${new Date().getUTCHours()}h GMT permitido! Bot reativado automaticamente`
@@ -657,6 +681,12 @@ export class TradingBot {
         this.state = "WAITING_NEXT_HOUR";
         await this.updateBotState();
         const nextHour = this.hourlyFilter.getNextAllowedHour();
+        
+        // Pausar watchdog durante standby programado
+        if (this.inactivityWatchdog) {
+          this.inactivityWatchdog.pause();
+        }
+        
         await this.logEvent(
           "HOURLY_FILTER_BLOCKED",
           `Horário ${new Date().getUTCHours()}h GMT não permitido. Aguardando próximo horário: ${nextHour}h GMT`
@@ -700,6 +730,12 @@ export class TradingBot {
         this.state = "WAITING_NEXT_HOUR";
         await this.updateBotState();
         const nextHour = this.hourlyFilter.getNextAllowedHour();
+        
+        // Pausar watchdog durante standby programado
+        if (this.inactivityWatchdog) {
+          this.inactivityWatchdog.pause();
+        }
+        
         await this.logEvent(
           "HOURLY_FILTER_BLOCKED",
           `⚠️ Horário ${new Date().getUTCHours()}h GMT não permitido. Bot em STAND BY até ${nextHour}h GMT`
@@ -713,6 +749,12 @@ export class TradingBot {
     if (this.state === "WAITING_NEXT_HOUR" && this.hourlyFilter && this.hourlyFilter.isAllowedHour()) {
       this.state = "WAITING_MIDPOINT";
       await this.updateBotState();
+      
+      // Retomar watchdog ao sair do standby
+      if (this.inactivityWatchdog) {
+        this.inactivityWatchdog.resume();
+      }
+      
       await this.logEvent(
         "HOURLY_FILTER_ACTIVATED",
         `✅ Horário ${new Date().getUTCHours()}h GMT permitido! Bot reativado automaticamente`
