@@ -108,6 +108,9 @@ export class TradingBot {
   
   // Watchdog de inatividade
   private inactivityWatchdog: InactivityWatchdog | null = null;
+  
+  // Controle de logs (evitar spam)
+  private predictionSkippedLogged: boolean = false;
 
   constructor(userId: number, botId: number = 1) {
     this.userId = userId;
@@ -647,6 +650,7 @@ export class TradingBot {
       
       this.currentCandleStartTime = new Date(candleTimestamp * 1000);
       this.tradesThisCandle.clear();
+      this.predictionSkippedLogged = false; // Resetar flag para o novo candle
 
       // Verificar filtro de horário antes de processar o candle
       if (this.hourlyFilter && !this.hourlyFilter.isAllowedHour()) {
@@ -733,11 +737,15 @@ export class TradingBot {
       const minForexDuration = 15 * 60; // 15 minutos em segundos
       
       if (isForex && timeRemaining < minForexDuration) {
-        await this.logEvent(
-          "PREDICTION_SKIPPED",
-          `[FOREX] Predição ignorada - Tempo restante (${Math.floor(timeRemaining / 60)} min) menor que mínimo Forex (15 min). Aguardando próximo candle.`
-        );
-        console.log(`[FOREX_SKIP] Predição ignorada - Tempo restante: ${timeRemaining}s (${Math.floor(timeRemaining / 60)} min) < Mínimo Forex: ${minForexDuration}s (15 min)`);
+        // Logar apenas uma vez por candle para evitar spam
+        if (!this.predictionSkippedLogged) {
+          await this.logEvent(
+            "PREDICTION_SKIPPED",
+            `[FOREX] Predição ignorada - Tempo restante (${Math.floor(timeRemaining / 60)} min) menor que mínimo Forex (15 min). Aguardando próximo candle.`
+          );
+          console.log(`[FOREX_SKIP] Predição ignorada - Tempo restante: ${timeRemaining}s (${Math.floor(timeRemaining / 60)} min) < Mínimo Forex: ${minForexDuration}s (15 min)`);
+          this.predictionSkippedLogged = true;
+        }
         return;
       }
       
