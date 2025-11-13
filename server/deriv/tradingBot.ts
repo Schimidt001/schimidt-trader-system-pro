@@ -534,10 +534,19 @@ export class TradingBot {
     if (!this.derivService) return;
 
     // Buscar histórico de candles com timeframe configurado
+    const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
+    console.log(`[DATA_COLLECTION] Buscando ${this.lookback} candles de ${this.symbol} no timeframe ${timeframeLabel} (${this.timeframe}s)`);
+    
     const history = await this.derivService.getCandleHistory(this.symbol, this.timeframe, this.lookback);
     
+    console.log(`[DATA_COLLECTION] Recebidos ${history.length} candles da DERIV`);
+    if (history.length > 0) {
+      const firstCandle = history[0];
+      const lastCandle = history[history.length - 1];
+      console.log(`[DATA_COLLECTION] Primeiro candle: ${new Date(firstCandle.epoch * 1000).toISOString()} | Último candle: ${new Date(lastCandle.epoch * 1000).toISOString()}`);
+    }
+    
     // Salvar histórico no banco
-    const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
     for (const candle of history) {
       await insertCandle({
         symbol: this.symbol,
@@ -554,16 +563,23 @@ export class TradingBot {
 
     // Fazer análise inicial para descobrir fase e estratégia
     try {
-      const historyData: CandleData[] = history.reverse().map((c) => ({
+      // ⚠️ IMPORTANTE: history vem em ordem crescente (antigo → recente)
+      // NÃO usar .reverse() que modifica o array original!
+      
+      // Pegar o último candle (mais recente) ANTES de qualquer transformação
+      const lastCandle = history[history.length - 1];
+      console.log(`[PHASE_DISCOVERY] Usando último candle para análise: ${new Date(lastCandle.epoch * 1000).toISOString()} | O=${lastCandle.open} H=${lastCandle.high} L=${lastCandle.low} C=${lastCandle.close}`);
+      
+      // Criar historyData em ordem DECRESCENTE (recente → antigo) para a IA
+      const historyData: CandleData[] = [...history].reverse().map((c) => ({
         abertura: c.open,
         minima: c.low,
         maxima: c.high,
         fechamento: c.close,
         timestamp: c.epoch,
       }));
-
-      // Usar último candle como "parcial" para análise inicial
-      const lastCandle = history[0];
+      
+      console.log(`[PHASE_DISCOVERY] Enviando para IA: ${historyData.length} candles | Timeframe: ${timeframeLabel} | Symbol: ${this.symbol}`);
       const initialPrediction = await predictionService.predict({
         symbol: this.symbol,
         tf: timeframeLabel,
