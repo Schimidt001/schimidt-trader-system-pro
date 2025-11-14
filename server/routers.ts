@@ -14,10 +14,8 @@ import {
   getTodayPositions,
   getMetric,
   getCandleHistory,
-  getLatestMarketCondition,
-  getMarketConditionHistory,
-  getMarketConditionsByDate,
 } from "./db";
+import { getLatestMarketCondition, getMarketConditionHistory, getMarketConditionsByDate, getUpcomingMarketEvents, getRecentMarketEvents, getMarketEventsByDate } from "./db";
 import { resetDailyData } from "./db_reset";
 import { getBotForUser, removeBotForUser } from "./deriv/tradingBot";
 import { DerivService } from "./deriv/derivService";
@@ -644,6 +642,60 @@ export const appRouter = router({
           symbol: c.symbol,
           details: c.details ? JSON.parse(c.details) : null,
         }));
+      }),
+  }),
+  
+  // Market Events (Notícias Macroeconômicas)
+  marketEvents: router({
+    // Obtém eventos futuros (próximas N horas)
+    upcoming: protectedProcedure
+      .input(
+        z.object({
+          currencies: z.array(z.string()).optional(),
+          hoursAhead: z.number().int().positive().optional().default(24),
+        }).optional()
+      )
+      .query(async ({ input }) => {
+        const currencies = input?.currencies ?? ["USD", "JPY"];
+        const hoursAhead = input?.hoursAhead ?? 24;
+        
+        const events = await getUpcomingMarketEvents(currencies, hoursAhead);
+        
+        return events;
+      }),
+    
+    // Obtém eventos recentes (últimas N horas)
+    recent: protectedProcedure
+      .input(
+        z.object({
+          currencies: z.array(z.string()).optional(),
+          hoursBack: z.number().int().positive().optional().default(12),
+        }).optional()
+      )
+      .query(async ({ input }) => {
+        const currencies = input?.currencies ?? ["USD", "JPY"];
+        const hoursBack = input?.hoursBack ?? 12;
+        
+        const events = await getRecentMarketEvents(currencies, hoursBack);
+        
+        return events;
+      }),
+    
+    // Obtém eventos para uma data específica
+    byDate: protectedProcedure
+      .input(
+        z.object({
+          currencies: z.array(z.string()).optional(),
+          date: z.string(), // ISO date string
+        })
+      )
+      .query(async ({ input }) => {
+        const currencies = input.currencies ?? ["USD", "JPY"];
+        const date = new Date(input.date);
+        
+        const events = await getMarketEventsByDate(currencies, date);
+        
+        return events;
       }),
   }),
 });

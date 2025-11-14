@@ -1,4 +1,4 @@
-import { eq, and, desc, gte, lte, sql, not } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql, not, inArray, asc, lt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -24,6 +24,9 @@ import {
   marketConditions,
   MarketCondition,
   InsertMarketCondition,
+  marketEvents,
+  MarketEvent,
+  InsertMarketEvent,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -483,4 +486,115 @@ export async function getMarketConditionsByDate(
     .orderBy(desc(marketConditions.candleTimestamp));
 
   return results;
+}
+
+// ============================================================================
+// MARKET EVENTS
+// ============================================================================
+
+/**
+ * Insere um evento macroeconômico
+ */
+export async function insertMarketEvent(data: InsertMarketEvent): Promise<void> {
+  await db.insert(marketEvents).values(data);
+}
+
+/**
+ * Insere múltiplos eventos macroeconômicos
+ */
+export async function insertMarketEvents(events: InsertMarketEvent[]): Promise<void> {
+  if (events.length === 0) return;
+  await db.insert(marketEvents).values(events);
+}
+
+/**
+ * Obtém eventos futuros (próximas N horas)
+ */
+export async function getUpcomingMarketEvents(
+  currencies: string[],
+  hoursAhead: number = 24
+): Promise<MarketEvent[]> {
+  const now = Math.floor(Date.now() / 1000);
+  const futureLimit = now + (hoursAhead * 3600);
+  
+  const results = await db
+    .select()
+    .from(marketEvents)
+    .where(
+      and(
+        inArray(marketEvents.currency, currencies),
+        gte(marketEvents.timestamp, now),
+        lte(marketEvents.timestamp, futureLimit)
+      )
+    )
+    .orderBy(asc(marketEvents.timestamp));
+  
+  return results;
+}
+
+/**
+ * Obtém eventos recentes (últimas N horas)
+ */
+export async function getRecentMarketEvents(
+  currencies: string[],
+  hoursBack: number = 12
+): Promise<MarketEvent[]> {
+  const now = Math.floor(Date.now() / 1000);
+  const pastLimit = now - (hoursBack * 3600);
+  
+  const results = await db
+    .select()
+    .from(marketEvents)
+    .where(
+      and(
+        inArray(marketEvents.currency, currencies),
+        gte(marketEvents.timestamp, pastLimit),
+        lte(marketEvents.timestamp, now)
+      )
+    )
+    .orderBy(desc(marketEvents.timestamp));
+  
+  return results;
+}
+
+/**
+ * Obtém eventos para uma data específica
+ */
+export async function getMarketEventsByDate(
+  currencies: string[],
+  date: Date
+): Promise<MarketEvent[]> {
+  const startOfDay = new Date(date);
+  startOfDay.setHours(0, 0, 0, 0);
+  
+  const endOfDay = new Date(date);
+  endOfDay.setHours(23, 59, 59, 999);
+  
+  const startTimestamp = Math.floor(startOfDay.getTime() / 1000);
+  const endTimestamp = Math.floor(endOfDay.getTime() / 1000);
+  
+  const results = await db
+    .select()
+    .from(marketEvents)
+    .where(
+      and(
+        inArray(marketEvents.currency, currencies),
+        gte(marketEvents.timestamp, startTimestamp),
+        lte(marketEvents.timestamp, endTimestamp)
+      )
+    )
+    .orderBy(asc(marketEvents.timestamp));
+  
+  return results;
+}
+
+/**
+ * Remove eventos antigos (mais de N dias)
+ */
+export async function cleanupOldMarketEvents(daysToKeep: number = 7): Promise<void> {
+  const cutoffTimestamp = Math.floor(Date.now() / 1000) - (daysToKeep * 24 * 3600);
+  
+  await db
+    .delete(marketEvents)
+    .where(lt(marketEvents.timestamp, cutoffTimestamp));
 }

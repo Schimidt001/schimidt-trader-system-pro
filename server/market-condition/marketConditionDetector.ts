@@ -130,15 +130,37 @@ export class MarketConditionDetector {
             this.config.newsApiTimeout
           );
           
-          details.newsEvents = newsEvents;
+          // Salvar eventos no banco de dados
+          if (newsEvents.length > 0) {
+            const { insertMarketEvents } = await import("../db");
+            await insertMarketEvents(newsEvents.map(e => ({
+              timestamp: e.timestamp,
+              currency: e.currency,
+              impact: e.impact,
+              title: e.title,
+              description: e.description,
+              source: e.source,
+              actual: e.actual,
+              forecast: e.forecast,
+              previous: e.previous,
+            })));
+            console.log(`[MarketConditionDetector] Salvos ${newsEvents.length} eventos no banco`);
+          }
           
-          if (hasHighImpactNewsAtTime(newsEvents, candleDate, 60)) {
+          details.newsEvents = newsEvents.length;
+          details.newsEventsDetails = newsEvents.slice(0, 3); // Primeiros 3 para detalhes
+          
+          // Verificar se há evento HIGH na janela de tempo
+          const hasHighImpact = hasHighImpactNewsAtTime(newsEvents, candleDate, 60);
+          
+          if (hasHighImpact) {
             score += this.config.newsScore;
             reasons.push("HIGH_IMPACT_NEWS");
+            console.log(`[MarketConditionDetector] Evento HIGH detectado! Score +${this.config.newsScore}`);
           }
         } catch (error) {
           console.error("[MarketConditionDetector] Error fetching news:", error);
-          // Não adicionar pontos se a API falhar
+          // Não adicionar pontos se a API falhar (fallback robusto)
           reasons.push("NEWS_API_FAILED");
         }
       }

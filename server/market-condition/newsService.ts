@@ -1,181 +1,262 @@
 /**
- * Market Condition Detector v1.0 - News Service
+ * News Service - Coleta real de notícias macroeconômicas
  * 
- * Serviço para buscar notícias econômicas de alto impacto
- * Utiliza APIs gratuitas (ForexFactory, TradingEconomics, etc.)
+ * Fontes:
+ * 1. ForexFactory (scraping)
+ * 2. TradingEconomics API (free tier)
  */
 
-import type { NewsEvent } from "./types";
+import axios from "axios";
+import * as cheerio from "cheerio";
+
+export interface NewsEvent {
+  timestamp: number;        // Unix timestamp do evento
+  currency: string;         // Moeda afetada (USD, JPY, EUR, etc)
+  impact: "HIGH" | "MEDIUM" | "LOW";
+  title: string;            // Título do evento
+  description?: string;     // Descrição detalhada
+  source: string;           // Fonte (ForexFactory, TradingEconomics, etc)
+  actual?: string;          // Valor atual (se disponível)
+  forecast?: string;        // Valor previsto
+  previous?: string;        // Valor anterior
+}
 
 /**
- * Busca eventos econômicos de alto impacto para uma data específica
+ * Coleta eventos do ForexFactory (scraping)
+ */
+async function fetchForexFactoryEvents(
+  date: Date,
+  currencies: string[],
+  timeout: number
+): Promise<NewsEvent[]> {
+  try {
+    const dateStr = date.toISOString().split('T')[0].replace(/-/g, ''); // YYYYMMDD
+    const url = `https://nfs.faireconomy.media/ff_calendar_thisweek.json`;
+    
+    const response = await axios.get(url, {
+      timeout,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+    
+    const data = response.data;
+    const events: NewsEvent[] = [];
+    
+    if (!Array.isArray(data)) return events;
+    
+    const targetDate = date.toISOString().split('T')[0];
+    
+    for (const item of data) {
+      // Filtrar por data
+      const itemDate = item.date?.split('T')[0];
+      if (itemDate !== targetDate) continue;
+      
+      // Filtrar por moeda
+      const currency = item.country || '';
+      if (!currencies.includes(currency)) continue;
+      
+      // Determinar impacto
+      const impact = item.impact;
+      if (impact !== 'High' && impact !== 'Medium') continue;
+      
+      // Parsear timestamp
+      const eventDate = new Date(item.date);
+      
+      events.push({
+        timestamp: Math.floor(eventDate.getTime() / 1000),
+        currency,
+        impact: impact === 'High' ? 'HIGH' : 'MEDIUM',
+        title: item.title || 'Unknown Event',
+        source: 'ForexFactory',
+        actual: item.actual,
+        forecast: item.forecast,
+        previous: item.previous,
+      });
+    }
+    
+    return events;
+  } catch (error) {
+    console.error('[NewsService] Erro ao buscar ForexFactory:', error);
+    return [];
+  }
+}
+
+/**
+ * Coleta eventos do TradingEconomics (API free tier)
+ */
+async function fetchTradingEconomicsEvents(
+  date: Date,
+  currencies: string[],
+  timeout: number
+): Promise<NewsEvent[]> {
+  try {
+    const dateStr = date.toISOString().split('T')[0];
+    const url = `https://api.tradingeconomics.com/calendar?c=guest:guest&d1=${dateStr}&d2=${dateStr}`;
+    
+    const response = await axios.get(url, { timeout });
+    const data = response.data;
+    
+    if (!Array.isArray(data)) return [];
+    
+    const events: NewsEvent[] = [];
+    
+    // Mapear país para moeda
+    const currencyMap: Record<string, string> = {
+      'United States': 'USD',
+      'Japan': 'JPY',
+      'Euro Zone': 'EUR',
+      'United Kingdom': 'GBP',
+      'Canada': 'CAD',
+      'Australia': 'AUD',
+      'New Zealand': 'NZD',
+      'Switzerland': 'CHF',
+    };
+    
+    for (const item of data) {
+      const country = item.Country || '';
+      const mappedCurrency = currencyMap[country] || country;
+      
+      // Filtrar por moeda
+      if (!currencies.includes(mappedCurrency)) continue;
+      
+      // Determinar impacto
+      const importance = item.Importance || 1;
+      let impact: "HIGH" | "MEDIUM" | "LOW" = "LOW";
+      if (importance >= 3) impact = "HIGH";
+      else if (importance >= 2) impact = "MEDIUM";
+      
+      // Apenas HIGH e MEDIUM
+      if (impact === "LOW") continue;
+      
+      // Parsear timestamp
+      const eventDate = new Date(item.Date);
+      
+      events.push({
+        timestamp: Math.floor(eventDate.getTime() / 1000),
+        currency: mappedCurrency,
+        impact,
+        title: item.Event || 'Unknown Event',
+        source: "TradingEconomics",
+        actual: item.Actual?.toString(),
+        forecast: item.Forecast?.toString(),
+        previous: item.Previous?.toString(),
+      });
+    }
+    
+    return events;
+  } catch (error) {
+    console.error('[NewsService] Erro ao buscar TradingEconomics:', error);
+    return [];
+  }
+}
+
+/**
+ * Busca eventos de alto impacto para uma data e moedas específicas
  * 
  * @param date Data para buscar eventos
- * @param currencies Moedas relevantes (ex: ["USD", "JPY"])
+ * @param currencies Lista de moedas (ex: ["USD", "JPY"])
  * @param timeout Timeout em ms
- * @returns Lista de eventos de alto impacto
+ * @returns Lista de eventos encontrados
  */
 export async function fetchHighImpactNews(
   date: Date,
   currencies: string[],
   timeout: number = 5000
 ): Promise<NewsEvent[]> {
+  console.log(`[NewsService] Buscando notícias para ${currencies.join(', ')} em ${date.toISOString()}`);
+  
   try {
-    // Implementar busca de notícias
-    // Por enquanto, vamos usar uma abordagem simples com retry
+    // Tentar ambas as fontes em paralelo
+    const [forexFactoryEvents, tradingEconomicsEvents] = await Promise.allSettled([
+      fetchForexFactoryEvents(date, currencies, timeout),
+      fetchTradingEconomicsEvents(date, currencies, timeout),
+    ]);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const events: NewsEvent[] = [];
     
-    try {
-      // Tentar buscar de múltiplas fontes
-      const events = await fetchFromForexFactory(date, currencies, controller.signal);
-      clearTimeout(timeoutId);
-      return events;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      
-      // Se falhar, tentar fonte alternativa
-      console.warn("[NewsService] Forex Factory failed, trying alternative source:", error);
-      
-      // Retornar array vazio em caso de falha (não bloquear o sistema)
-      return [];
+    // Adicionar eventos do ForexFactory
+    if (forexFactoryEvents.status === 'fulfilled') {
+      events.push(...forexFactoryEvents.value);
+      console.log(`[NewsService] ForexFactory: ${forexFactoryEvents.value.length} eventos`);
+    } else {
+      console.warn('[NewsService] ForexFactory falhou:', forexFactoryEvents.reason);
     }
+    
+    // Adicionar eventos do TradingEconomics
+    if (tradingEconomicsEvents.status === 'fulfilled') {
+      events.push(...tradingEconomicsEvents.value);
+      console.log(`[NewsService] TradingEconomics: ${tradingEconomicsEvents.value.length} eventos`);
+    } else {
+      console.warn('[NewsService] TradingEconomics falhou:', tradingEconomicsEvents.reason);
+    }
+    
+    // Remover duplicatas (mesmo título e timestamp próximo)
+    const uniqueEvents = events.filter((event, index, self) =>
+      index === self.findIndex((e) =>
+        e.title === event.title &&
+        Math.abs(e.timestamp - event.timestamp) < 300 // 5 minutos
+      )
+    );
+    
+    // Ordenar por timestamp
+    uniqueEvents.sort((a, b) => a.timestamp - b.timestamp);
+    
+    console.log(`[NewsService] Total de eventos únicos: ${uniqueEvents.length}`);
+    
+    return uniqueEvents;
   } catch (error) {
-    console.error("[NewsService] Error fetching news:", error);
+    console.error('[NewsService] Erro geral ao buscar notícias:', error);
     return [];
   }
 }
 
 /**
- * Busca eventos do Forex Factory (via scraping simplificado)
- */
-async function fetchFromForexFactory(
-  date: Date,
-  currencies: string[],
-  signal: AbortSignal
-): Promise<NewsEvent[]> {
-  // Forex Factory não possui API oficial, mas tem um calendário público
-  // Vamos usar uma abordagem simplificada
-  
-  // Formato de data: YYYY-MM-DD
-  const dateStr = date.toISOString().split('T')[0];
-  
-  try {
-    // URL do calendário do Forex Factory
-    const url = `https://www.forexfactory.com/calendar?day=${dateStr}`;
-    
-    const response = await fetch(url, {
-      signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    
-    const html = await response.text();
-    
-    // Parse simplificado do HTML
-    const events = parseForexFactoryHTML(html, currencies);
-    
-    return events;
-  } catch (error) {
-    console.error("[NewsService] Forex Factory fetch failed:", error);
-    throw error;
-  }
-}
-
-/**
- * Parse simplificado do HTML do Forex Factory
- */
-function parseForexFactoryHTML(html: string, currencies: string[]): NewsEvent[] {
-  const events: NewsEvent[] = [];
-  
-  try {
-    // Buscar eventos de alto impacto (marcados com classe "high" ou ícone vermelho)
-    // Esta é uma implementação simplificada - em produção, usar um parser HTML adequado
-    
-    // Regex para encontrar eventos de alto impacto
-    const highImpactRegex = /class="calendar__impact.*?high.*?"[\s\S]*?class="calendar__currency".*?>(\w+)<[\s\S]*?class="calendar__event".*?>(.*?)<[\s\S]*?class="calendar__time".*?>(\d+:\d+[ap]m)/gi;
-    
-    let match;
-    while ((match = highImpactRegex.exec(html)) !== null) {
-      const currency = match[1];
-      const description = match[2].replace(/<[^>]*>/g, '').trim();
-      const time = match[3];
-      
-      // Filtrar por moedas relevantes
-      if (currencies.includes(currency)) {
-        events.push({
-          time,
-          currency,
-          impact: "HIGH",
-          description,
-          source: "ForexFactory",
-        });
-      }
-    }
-  } catch (error) {
-    console.error("[NewsService] Error parsing HTML:", error);
-  }
-  
-  return events;
-}
-
-/**
- * Verifica se há eventos de alto impacto em um horário específico
+ * Verifica se há eventos de alto impacto em uma janela de tempo
+ * 
+ * @param events Lista de eventos
+ * @param targetTime Data/hora alvo
+ * @param windowMinutes Janela de tempo em minutos (antes e depois)
+ * @returns true se houver evento HIGH na janela
  */
 export function hasHighImpactNewsAtTime(
   events: NewsEvent[],
   targetTime: Date,
   windowMinutes: number = 60
 ): boolean {
-  if (events.length === 0) return false;
+  const targetTimestamp = Math.floor(targetTime.getTime() / 1000);
+  const windowSeconds = windowMinutes * 60;
   
-  const targetHour = targetTime.getUTCHours();
-  
-  // Verificar se algum evento está próximo do horário alvo
-  for (const event of events) {
-    if (event.impact === "HIGH") {
-      // Parse do horário do evento (formato: "HH:MMam/pm")
-      const eventHour = parseEventTime(event.time);
-      
-      if (eventHour !== null) {
-        // Verificar se está dentro da janela de tempo
-        const hourDiff = Math.abs(targetHour - eventHour);
-        if (hourDiff <= Math.floor(windowMinutes / 60)) {
-          return true;
-        }
-      }
-    }
-  }
-  
-  return false;
+  return events.some(event => {
+    if (event.impact !== "HIGH") return false;
+    
+    const diff = Math.abs(event.timestamp - targetTimestamp);
+    return diff <= windowSeconds;
+  });
 }
 
 /**
- * Parse do horário do evento (formato: "HH:MMam/pm")
+ * Filtra eventos futuros (próximas N horas)
  */
-function parseEventTime(timeStr: string): number | null {
-  try {
-    const match = timeStr.match(/(\d+):(\d+)(am|pm)/i);
-    if (!match) return null;
-    
-    let hour = parseInt(match[1]);
-    const period = match[3].toLowerCase();
-    
-    // Converter para formato 24h
-    if (period === "pm" && hour !== 12) {
-      hour += 12;
-    } else if (period === "am" && hour === 12) {
-      hour = 0;
-    }
-    
-    return hour;
-  } catch (error) {
-    return null;
-  }
+export function getUpcomingEvents(
+  events: NewsEvent[],
+  hoursAhead: number = 24
+): NewsEvent[] {
+  const now = Math.floor(Date.now() / 1000);
+  const futureLimit = now + (hoursAhead * 3600);
+  
+  return events.filter(e => e.timestamp >= now && e.timestamp <= futureLimit);
+}
+
+/**
+ * Filtra eventos recentes (últimas N horas)
+ */
+export function getRecentEvents(
+  events: NewsEvent[],
+  hoursBack: number = 12
+): NewsEvent[] {
+  const now = Math.floor(Date.now() / 1000);
+  const pastLimit = now - (hoursBack * 3600);
+  
+  return events.filter(e => e.timestamp >= pastLimit && e.timestamp <= now);
 }

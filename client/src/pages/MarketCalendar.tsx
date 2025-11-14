@@ -1,294 +1,396 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Loader2, Calendar, TrendingUp, AlertTriangle } from "lucide-react";
+import { Loader2, Calendar, TrendingUp, AlertTriangle, Clock, Info } from "lucide-react";
 import { useBotSelector } from "@/components/BotSelector";
 
 export default function MarketCalendar() {
   const { user, loading: authLoading } = useAuth();
   const { selectedBot } = useBotSelector();
 
-  // Queries
-  const { data: marketHistory, isLoading } = trpc.marketCondition.history.useQuery(
-    { botId: selectedBot, limit: 24 },
+  // Queries para condições de mercado
+  const { data: currentCondition, isLoading: loadingCondition } = trpc.marketCondition.current.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: !!user,
+      refetchInterval: 5000, // Atualizar a cada 5 segundos
+    }
+  );
+
+  const { data: conditionHistory, isLoading: loadingHistory } = trpc.marketCondition.history.useQuery(
+    { botId: selectedBot, limit: 10 },
     {
       enabled: !!user,
       refetchInterval: 10000, // Atualizar a cada 10 segundos
     }
   );
 
-  const { data: currentCondition } = trpc.marketCondition.current.useQuery(
-    { botId: selectedBot },
+  // Queries para eventos macroeconômicos
+  const { data: upcomingEvents, isLoading: loadingUpcoming } = trpc.marketEvents.upcoming.useQuery(
+    { currencies: ["USD", "JPY"], hoursAhead: 24 },
     {
       enabled: !!user,
-      refetchInterval: 5000,
+      refetchInterval: 15 * 60 * 1000, // Atualizar a cada 15 minutos
+    }
+  );
+
+  const { data: recentEvents, isLoading: loadingRecent } = trpc.marketEvents.recent.useQuery(
+    { currencies: ["USD", "JPY"], hoursBack: 12 },
+    {
+      enabled: !!user,
+      refetchInterval: 15 * 60 * 1000, // Atualizar a cada 15 minutos
     }
   );
 
   if (authLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin" />
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Card>
-          <CardHeader>
-            <CardTitle>Acesso Negado</CardTitle>
-            <CardDescription>Você precisa estar autenticado para acessar esta página</CardDescription>
-          </CardHeader>
-        </Card>
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-muted-foreground">Por favor, faça login para acessar esta página.</p>
       </div>
     );
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "GREEN":
-        return "text-green-400";
-      case "YELLOW":
-        return "text-yellow-400";
-      case "RED":
-        return "text-red-400";
-      default:
-        return "text-slate-400";
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "GREEN":
-        return "🟢";
-      case "YELLOW":
-        return "🟡";
-      case "RED":
-        return "🔴";
-      default:
-        return "⚪";
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case "GREEN":
-        return "Modo Operar";
-      case "YELLOW":
-        return "Modo Cautela";
-      case "RED":
-        return "Modo Parar";
-      default:
-        return "Desconhecido";
-    }
-  };
-
-  const formatDate = (date: Date) => {
-    return new Date(date).toLocaleString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
+  const formatTime = (timestamp: number) => {
+    return new Date(timestamp * 1000).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   };
 
-  const formatReasons = (reasons: string[]) => {
-    const reasonLabels: Record<string, string> = {
-      ATR_HIGH: "ATR Alto",
-      LONG_WICKS: "Sombras Longas",
-      FRACTAL_VOLATILITY: "Volatilidade Fractal",
-      HIGH_IMPACT_NEWS: "Notícia de Alto Impacto",
-      NEWS_API_FAILED: "Falha na API de Notícias",
-      DETECTOR_DISABLED: "Detector Desabilitado",
-      EVALUATION_ERROR: "Erro na Avaliação",
-    };
+  const getImpactColor = (impact: string) => {
+    switch (impact) {
+      case 'HIGH':
+        return 'text-red-500 font-bold';
+      case 'MEDIUM':
+        return 'text-yellow-500 font-semibold';
+      default:
+        return 'text-gray-400';
+    }
+  };
 
-    return reasons.map((r) => reasonLabels[r] || r).join(", ");
+  const getImpactBadge = (impact: string) => {
+    switch (impact) {
+      case 'HIGH':
+        return <span className="px-2 py-1 text-xs font-bold bg-red-500/20 text-red-400 rounded">ALTO</span>;
+      case 'MEDIUM':
+        return <span className="px-2 py-1 text-xs font-semibold bg-yellow-500/20 text-yellow-400 rounded">MÉDIO</span>;
+      default:
+        return <span className="px-2 py-1 text-xs bg-gray-500/20 text-gray-400 rounded">BAIXO</span>;
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-      <div className="container mx-auto p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-              <Calendar className="w-8 h-8" />
-              Calendário & Mercado
-            </h1>
-            <p className="text-slate-400 mt-1">Análise de Condições de Mercado em Tempo Real</p>
-          </div>
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex items-center gap-3 mb-6">
+        <Calendar className="h-8 w-8 text-primary" />
+        <div>
+          <h1 className="text-3xl font-bold">Calendário & Mercado</h1>
+          <p className="text-muted-foreground">
+            Análise de condições de mercado e eventos macroeconômicos
+          </p>
         </div>
+      </div>
 
-        {/* Condição Atual */}
-        {currentCondition && (
-          <Card className="bg-slate-900/50 border-slate-800">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <TrendingUp className="w-5 h-5" />
-                Condição Atual do Mercado
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="flex items-center gap-4">
-                  <span className="text-4xl">{getStatusIcon(currentCondition.status)}</span>
-                  <div>
-                    <div className="text-xs text-slate-400">Status</div>
-                    <div className={`text-xl font-bold ${getStatusColor(currentCondition.status)}`}>
-                      {getStatusLabel(currentCondition.status)}
+      {/* Condição Atual */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5" />
+            Condição de Mercado Atual
+          </CardTitle>
+          <CardDescription>
+            Última avaliação do Market Condition Detector
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingCondition ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : currentCondition ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="text-6xl">
+                  {currentCondition.status === "GREEN" ? "🟢" : 
+                   currentCondition.status === "YELLOW" ? "🟡" : "🔴"}
+                </div>
+                <div>
+                  <div className={`text-2xl font-bold ${
+                    currentCondition.status === "GREEN" ? "text-green-400" : 
+                    currentCondition.status === "YELLOW" ? "text-yellow-400" : "text-red-400"
+                  }`}>
+                    {currentCondition.status === "GREEN" ? "MODO OPERAR" : 
+                     currentCondition.status === "YELLOW" ? "MODO CAUTELA" : "MODO PARAR"}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Score: {currentCondition.score}/10
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Atualizado: {new Date(currentCondition.computedAt).toLocaleString('pt-BR')}
+                  </div>
+                </div>
+              </div>
+
+              {currentCondition.reasons && currentCondition.reasons.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">Motivos:</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {currentCondition.reasons.map((reason: string, i: number) => (
+                      <span
+                        key={i}
+                        className="px-3 py-1 text-xs bg-slate-700 text-slate-200 rounded-full"
+                      >
+                        {reason === "ATR_HIGH" ? "ATR Alto" :
+                         reason === "LONG_WICKS" ? "Sombras Longas" :
+                         reason === "FRACTAL_VOLATILITY" ? "Volatilidade Fractal" :
+                         reason === "HIGH_IMPACT_NEWS" ? "Notícia Alto Impacto" :
+                         reason === "NEWS_API_FAILED" ? "API de Notícias Falhou" :
+                         reason}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {currentCondition.details && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-slate-700">
+                  {currentCondition.details.atr && (
+                    <div>
+                      <div className="text-xs text-muted-foreground">ATR</div>
+                      <div className="text-sm font-mono">{currentCondition.details.atr.toFixed(5)}</div>
+                    </div>
+                  )}
+                  {currentCondition.details.amplitude && (
+                    <div>
+                      <div className="text-xs text-muted-foreground">Amplitude</div>
+                      <div className="text-sm font-mono">{currentCondition.details.amplitude.toFixed(5)}</div>
+                    </div>
+                  )}
+                  {currentCondition.details.corpo !== undefined && (
+                    <div>
+                      <div className="text-xs text-muted-foreground">Corpo</div>
+                      <div className="text-sm font-mono">{currentCondition.details.corpo.toFixed(5)}</div>
+                    </div>
+                  )}
+                  {currentCondition.details.newsEvents !== undefined && (
+                    <div>
+                      <div className="text-xs text-muted-foreground">Eventos Detectados</div>
+                      <div className="text-sm font-mono">{currentCondition.details.newsEvents}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              Nenhuma avaliação disponível ainda
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Próximas Notícias */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            Próximas Notícias Relevantes (USD/JPY)
+          </CardTitle>
+          <CardDescription>
+            Eventos macroeconômicos nas próximas 24 horas
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingUpcoming ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : upcomingEvents && upcomingEvents.length > 0 ? (
+            <div className="space-y-3">
+              {upcomingEvents.map((event: any, i: number) => (
+                <div
+                  key={i}
+                  className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700"
+                >
+                  <div className="flex-shrink-0 w-20 text-xs text-muted-foreground">
+                    {formatTime(event.timestamp)}
+                  </div>
+                  <div className="flex-shrink-0">
+                    {getImpactBadge(event.impact)}
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-semibold text-sm">{event.title}</div>
+                    <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                      <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">
+                        {event.currency}
+                      </span>
+                      <span>{event.source}</span>
+                    </div>
+                    {(event.forecast || event.previous) && (
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {event.forecast && <span>Previsão: {event.forecast}</span>}
+                        {event.forecast && event.previous && <span> | </span>}
+                        {event.previous && <span>Anterior: {event.previous}</span>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              Nenhum evento relevante nas próximas 24 horas
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Notícias Recentes */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5" />
+            Notícias Recentes (Últimas 12h)
+          </CardTitle>
+          <CardDescription>
+            Eventos que já ocorreram
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingRecent ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : recentEvents && recentEvents.length > 0 ? (
+            <div className="space-y-3">
+              {recentEvents.map((event: any, i: number) => (
+                <div
+                  key={i}
+                  className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700 opacity-75"
+                >
+                  <div className="flex-shrink-0 w-20 text-xs text-muted-foreground">
+                    {formatTime(event.timestamp)}
+                  </div>
+                  <div className="flex-shrink-0">
+                    {getImpactBadge(event.impact)}
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-semibold text-sm">{event.title}</div>
+                    <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                      <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">
+                        {event.currency}
+                      </span>
+                      <span>{event.source}</span>
+                    </div>
+                    {(event.actual || event.forecast || event.previous) && (
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {event.actual && <span>Atual: {event.actual}</span>}
+                        {event.actual && event.forecast && <span> | </span>}
+                        {event.forecast && <span>Previsão: {event.forecast}</span>}
+                        {(event.actual || event.forecast) && event.previous && <span> | </span>}
+                        {event.previous && <span>Anterior: {event.previous}</span>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              Nenhum evento nas últimas 12 horas
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Histórico de Avaliações */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Info className="h-5 w-5" />
+            Logs da Análise Macroeconômica
+          </CardTitle>
+          <CardDescription>
+            Últimas 10 avaliações do Market Condition Detector
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingHistory ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : conditionHistory && conditionHistory.length > 0 ? (
+            <div className="space-y-2">
+              {conditionHistory.map((condition: any, i: number) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 p-3 bg-slate-800/30 rounded-lg border border-slate-700/50"
+                >
+                  <div className="text-2xl">
+                    {condition.status === "GREEN" ? "🟢" : 
+                     condition.status === "YELLOW" ? "🟡" : "🔴"}
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold">
+                      {new Date(condition.computedAt).toLocaleString('pt-BR')}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Score: {condition.score}/10 | {condition.reasons.join(", ")}
                     </div>
                   </div>
                 </div>
-                <div>
-                  <div className="text-xs text-slate-400">Score de Risco</div>
-                  <div className="text-2xl font-bold text-white">
-                    {currentCondition.score}/10
-                  </div>
-                  <div className="w-full bg-slate-700 rounded-full h-2 mt-2">
-                    <div
-                      className={`h-2 rounded-full ${
-                        currentCondition.score <= 3
-                          ? "bg-green-500"
-                          : currentCondition.score <= 6
-                          ? "bg-yellow-500"
-                          : "bg-red-500"
-                      }`}
-                      style={{ width: `${(currentCondition.score / 10) * 100}%` }}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-400">Última Avaliação</div>
-                  <div className="text-sm text-white">
-                    {formatDate(currentCondition.computedAt)}
-                  </div>
-                  <div className="text-xs text-slate-400 mt-2">
-                    {formatReasons(currentCondition.reasons)}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Histórico de Condições */}
-        <Card className="bg-slate-900/50 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5" />
-              Histórico de Condições (Últimas 24h)
-            </CardTitle>
-            <CardDescription className="text-slate-400">
-              Registro de todas as avaliações de condições de mercado
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
-              </div>
-            ) : marketHistory && marketHistory.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-800">
-                      <th className="text-left py-3 px-4 text-sm font-medium text-slate-400">
-                        Data/Hora
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-slate-400">
-                        Status
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-slate-400">
-                        Score
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-slate-400">
-                        Motivos
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {marketHistory.map((condition, index) => (
-                      <tr
-                        key={index}
-                        className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
-                      >
-                        <td className="py-3 px-4 text-sm text-slate-300">
-                          {formatDate(condition.computedAt)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <span className="text-lg">{getStatusIcon(condition.status)}</span>
-                            <span className={`text-sm font-semibold ${getStatusColor(condition.status)}`}>
-                              {getStatusLabel(condition.status)}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-white font-mono">
-                              {condition.score}/10
-                            </span>
-                            <div className="w-20 bg-slate-700 rounded-full h-1.5">
-                              <div
-                                className={`h-1.5 rounded-full ${
-                                  condition.score <= 3
-                                    ? "bg-green-500"
-                                    : condition.score <= 6
-                                    ? "bg-yellow-500"
-                                    : "bg-red-500"
-                                }`}
-                                style={{ width: `${(condition.score / 10) * 100}%` }}
-                              />
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-sm text-slate-400">
-                          {formatReasons(condition.reasons)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-slate-400">
-                Nenhuma condição de mercado registrada ainda
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Legenda */}
-        <Card className="bg-slate-900/50 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-white text-lg">Legenda dos Critérios</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <div className="font-semibold text-slate-300 mb-2">Critérios de Análise:</div>
-                <ul className="space-y-1 text-slate-400">
-                  <li>• <span className="text-slate-300">ATR Alto:</span> Amplitude anormal do candle</li>
-                  <li>• <span className="text-slate-300">Sombras Longas:</span> Wicks exagerados</li>
-                  <li>• <span className="text-slate-300">Volatilidade Fractal:</span> Comportamento caótico</li>
-                  <li>• <span className="text-slate-300">Notícia de Alto Impacto:</span> Evento macroeconômico</li>
-                </ul>
-              </div>
-              <div>
-                <div className="font-semibold text-slate-300 mb-2">Classificação:</div>
-                <ul className="space-y-1 text-slate-400">
-                  <li>• <span className="text-green-400">🟢 Modo Operar (0-3):</span> Mercado normal</li>
-                  <li>• <span className="text-yellow-400">🟡 Modo Cautela (4-6):</span> Mercado instável</li>
-                  <li>• <span className="text-red-400">🔴 Modo Parar (7-10):</span> Mercado anormal</li>
-                </ul>
-              </div>
+              ))}
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              Nenhuma avaliação disponível
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Legenda */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Legenda dos Critérios</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <h4 className="font-semibold mb-2">Critérios Técnicos:</h4>
+              <ul className="space-y-1 text-muted-foreground">
+                <li>• <strong>ATR Alto (2pts):</strong> Amplitude &gt; ATR × 2</li>
+                <li>• <strong>Sombras Longas (2pts):</strong> Wick &gt; Corpo × 2</li>
+                <li>• <strong>Volatilidade Fractal (2pts):</strong> Corpo/Amplitude &lt; 0.3</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-2">Critérios Fundamentais:</h4>
+              <ul className="space-y-1 text-muted-foreground">
+                <li>• <strong>Notícia Alto Impacto (3pts):</strong> Evento macroeconômico HIGH</li>
+              </ul>
+            </div>
+            <div className="col-span-full">
+              <h4 className="font-semibold mb-2">Classificação:</h4>
+              <ul className="space-y-1 text-muted-foreground">
+                <li>• 🟢 <strong>GREEN (0-3):</strong> Mercado normal, pode operar</li>
+                <li>• 🟡 <strong>YELLOW (4-6):</strong> Mercado instável, operar com cautela</li>
+                <li>• 🔴 <strong>RED (7-10):</strong> Mercado anormal, NÃO operar</li>
+              </ul>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

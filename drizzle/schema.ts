@@ -216,3 +216,27 @@ export const marketConditions = mysqlTable("marketConditions", {
 
 export type MarketCondition = typeof marketConditions.$inferSelect;
 export type InsertMarketCondition = typeof marketConditions.$inferInsert;
+
+/**
+ * Eventos macroeconômicos coletados de fontes externas
+ */
+export const marketEvents = mysqlTable("marketEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  timestamp: bigint("timestamp", { mode: "number" }).notNull(), // Unix timestamp do evento
+  currency: varchar("currency", { length: 10 }).notNull(), // Moeda afetada (USD, JPY, EUR, etc)
+  impact: mysqlEnum("impact", ["HIGH", "MEDIUM", "LOW"]).notNull(),
+  title: varchar("title", { length: 255 }).notNull(), // Título do evento
+  description: text("description"), // Descrição detalhada
+  source: varchar("source", { length: 50 }).notNull(), // Fonte (ForexFactory, TradingEconomics, etc)
+  actual: varchar("actual", { length: 50 }), // Valor atual
+  forecast: varchar("forecast", { length: 50 }), // Valor previsto
+  previous: varchar("previous", { length: 50 }), // Valor anterior
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  timestampIdx: index("timestamp_idx").on(table.timestamp),
+  currencyIdx: index("currency_idx").on(table.currency),
+  impactIdx: index("impact_idx").on(table.impact),
+}));
+
+export type MarketEvent = typeof marketEvents.$inferSelect;
+export type InsertMarketEvent = typeof marketEvents.$inferInsert;
