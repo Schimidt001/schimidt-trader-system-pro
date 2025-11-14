@@ -166,7 +166,6 @@ export class MarketConditionDetector {
         computedAt: new Date(),
         candleTimestamp: previousCandle.timestamp,
         symbol,
-        details: { error: String(error) },
       };
     }
   }

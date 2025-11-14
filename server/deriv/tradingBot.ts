@@ -1211,7 +1211,7 @@ export class TradingBot {
         // Voltar para estado WAITING_MIDPOINT para aguardar próximo candle
         this.state = "WAITING_MIDPOINT";
         this.prediction = null;
-        this.trigger = null;
+        this.trigger = 0;
         await this.updateBotState();
         return;
       }
