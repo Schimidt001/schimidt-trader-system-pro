@@ -723,20 +723,24 @@ export const appRouter = router({
     // Força coleta manual de notícias (não-bloqueante)
     collectNews: protectedProcedure
       .mutation(async () => {
+        console.log("[MarketDetector] 🔴 ENDPOINT collectNews CHAMADO!");
         try {
+          console.log("[MarketDetector] Importando newsCollectorService...");
           const { newsCollectorService } = await import("./market-condition-v2/newsCollectorService");
           
+          console.log("[MarketDetector] Iniciando coleta em background...");
           // Executar em background para não bloquear a resposta
           newsCollectorService.collectNews().catch(error => {
-            console.error("[MarketDetector] Erro na coleta em background:", error);
+            console.error("[MarketDetector] ❌ Erro na coleta em background:", error);
           });
           
+          console.log("[MarketDetector] ✅ Coleta iniciada com sucesso!");
           return { 
             success: true, 
             message: "Coleta de notícias iniciada em background. Aguarde alguns segundos e recarregue a página." 
           };
         } catch (error) {
-          console.error("[MarketDetector] Erro ao iniciar coleta:", error);
+          console.error("[MarketDetector] ❌ Erro ao iniciar coleta:", error);
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: "Erro ao iniciar coleta de notícias",

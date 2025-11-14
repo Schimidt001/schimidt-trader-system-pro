@@ -48,7 +48,9 @@ export default function MarketCalendar() {
   });
   
   const handleCollectNews = () => {
+    console.log("🔴 [Frontend] Botão Atualizar Notícias clicado!");
     setIsCollecting(true);
+    console.log("🔴 [Frontend] Chamando mutation collectNews...");
     collectNewsMutation.mutate();
   };
   
