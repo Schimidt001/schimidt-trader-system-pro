@@ -42,6 +42,16 @@ async function startServer() {
     console.warn("⚠️ Engine de predição não iniciou, mas continuando...", error);
   }
 
+  // Iniciar News Scheduler (Market Condition Detector v2)
+  console.log("📰 Iniciando News Scheduler (coleta automática de notícias)...");
+  try {
+    const { newsScheduler } = await import("../market-condition-v2/newsScheduler");
+    newsScheduler.start();
+    console.log("✅ News Scheduler iniciado com sucesso");
+  } catch (error) {
+    console.warn("⚠️ News Scheduler não iniciou, mas continuando...", error);
+  }
+
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads

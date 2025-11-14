@@ -27,6 +27,9 @@ import {
   marketEvents,
   MarketEvent,
   InsertMarketEvent,
+  marketDetectorConfig,
+  MarketDetectorConfig,
+  InsertMarketDetectorConfig,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -496,6 +499,8 @@ export async function getMarketConditionsByDate(
  * Insere um evento macroeconômico
  */
 export async function insertMarketEvent(data: InsertMarketEvent): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
   await db.insert(marketEvents).values(data);
 }
 
@@ -504,6 +509,8 @@ export async function insertMarketEvent(data: InsertMarketEvent): Promise<void> 
  */
 export async function insertMarketEvents(events: InsertMarketEvent[]): Promise<void> {
   if (events.length === 0) return;
+  const db = await getDb();
+  if (!db) return;
   await db.insert(marketEvents).values(events);
 }
 
@@ -514,6 +521,9 @@ export async function getUpcomingMarketEvents(
   currencies: string[],
   hoursAhead: number = 24
 ): Promise<MarketEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
   const now = Math.floor(Date.now() / 1000);
   const futureLimit = now + (hoursAhead * 3600);
   
@@ -539,6 +549,9 @@ export async function getRecentMarketEvents(
   currencies: string[],
   hoursBack: number = 12
 ): Promise<MarketEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
   const now = Math.floor(Date.now() / 1000);
   const pastLimit = now - (hoursBack * 3600);
   
@@ -564,6 +577,9 @@ export async function getMarketEventsByDate(
   currencies: string[],
   date: Date
 ): Promise<MarketEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
   const startOfDay = new Date(date);
   startOfDay.setHours(0, 0, 0, 0);
   
@@ -592,9 +608,95 @@ export async function getMarketEventsByDate(
  * Remove eventos antigos (mais de N dias)
  */
 export async function cleanupOldMarketEvents(daysToKeep: number = 7): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  
   const cutoffTimestamp = Math.floor(Date.now() / 1000) - (daysToKeep * 24 * 3600);
   
   await db
     .delete(marketEvents)
     .where(lt(marketEvents.timestamp, cutoffTimestamp));
+}
+
+// ============= MARKET DETECTOR CONFIG QUERIES =============
+
+/**
+ * Obtém a configuração do Market Detector para um usuário
+ */
+export async function getMarketDetectorConfig(userId: number): Promise<MarketDetectorConfig | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const results = await db
+    .select()
+    .from(marketDetectorConfig)
+    .where(eq(marketDetectorConfig.userId, userId))
+    .limit(1);
+
+  return results[0] || null;
+}
+
+/**
+ * Cria ou atualiza a configuração do Market Detector
+ */
+export async function upsertMarketDetectorConfig(config: InsertMarketDetectorConfig): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db
+    .insert(marketDetectorConfig)
+    .values(config)
+    .onDuplicateKeyUpdate({
+      set: {
+        enabled: config.enabled,
+        atrWindow: config.atrWindow,
+        atrMultiplier: config.atrMultiplier,
+        atrScore: config.atrScore,
+        wickMultiplier: config.wickMultiplier,
+        wickScore: config.wickScore,
+        fractalThreshold: config.fractalThreshold,
+        fractalScore: config.fractalScore,
+        spreadMultiplier: config.spreadMultiplier,
+        spreadScore: config.spreadScore,
+        weightHigh: config.weightHigh,
+        weightMedium: config.weightMedium,
+        weightHighPast: config.weightHighPast,
+        windowNextNews: config.windowNextNews,
+        windowPastNews: config.windowPastNews,
+        greenThreshold: config.greenThreshold,
+        yellowThreshold: config.yellowThreshold,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+/**
+ * Restaura as configurações padrão do Market Detector para um usuário
+ */
+export async function resetMarketDetectorConfig(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const defaultConfig: InsertMarketDetectorConfig = {
+    userId,
+    enabled: true,
+    atrWindow: 14,
+    atrMultiplier: "2.50",
+    atrScore: 2,
+    wickMultiplier: "2.00",
+    wickScore: 1,
+    fractalThreshold: "1.80",
+    fractalScore: 1,
+    spreadMultiplier: "2.00",
+    spreadScore: 1,
+    weightHigh: 3,
+    weightMedium: 1,
+    weightHighPast: 2,
+    windowNextNews: 60,
+    windowPastNews: 30,
+    greenThreshold: 3,
+    yellowThreshold: 6,
+  };
+
+  await upsertMarketDetectorConfig(defaultConfig);
 }

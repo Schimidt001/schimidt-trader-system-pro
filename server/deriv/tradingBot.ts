@@ -5,8 +5,8 @@ import { analyzePositionForHedge, DEFAULT_HEDGE_CONFIG, type HedgeConfig } from 
 import { HourlyFilter } from "../../filtro-horario/hourlyFilterLogic";
 import type { HourlyFilterConfig } from "../../filtro-horario/types";
 import { validateHedgeConfig } from "../ai/hedgeConfigSchema";
-import { marketConditionDetector } from "../market-condition/marketConditionDetector";
-import type { MarketConditionResult } from "../market-condition/types";
+import { marketConditionDetector } from "../market-condition-v2/marketConditionDetector";
+import type { MarketConditionResult } from "../market-condition-v2/types";
 import type {
   PredictionRequest,
   PredictionResponse,
@@ -2024,11 +2024,12 @@ export class TradingBot {
       // O último candle é o que acabou de fechar (H-1)
       const previousCandle = candlesData[candlesData.length - 1];
       
-      // Avaliar condições
+      // Avaliar condições (passa userId para buscar configuração personalizada)
       const result = await marketConditionDetector.evaluate(
         previousCandle,
         candlesData,
-        this.symbol
+        this.symbol,
+        this.userId
       );
       
       // Armazenar resultado

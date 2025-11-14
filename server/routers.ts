@@ -15,7 +15,7 @@ import {
   getMetric,
   getCandleHistory,
 } from "./db";
-import { getLatestMarketCondition, getMarketConditionHistory, getMarketConditionsByDate, getUpcomingMarketEvents, getRecentMarketEvents, getMarketEventsByDate } from "./db";
+import { getLatestMarketCondition, getMarketConditionHistory, getMarketConditionsByDate, getUpcomingMarketEvents, getRecentMarketEvents, getMarketEventsByDate, getMarketDetectorConfig, upsertMarketDetectorConfig, resetMarketDetectorConfig } from "./db";
 import { resetDailyData } from "./db_reset";
 import { getBotForUser, removeBotForUser } from "./deriv/tradingBot";
 import { DerivService } from "./deriv/derivService";
@@ -648,6 +648,79 @@ export const appRouter = router({
   }),
   
   // Market Events (Notícias Macroeconômicas)
+  // Market Detector Config
+  marketDetector: router({
+    // Obtém a configuração do Market Detector
+    getConfig: protectedProcedure
+      .query(async ({ ctx }) => {
+        const config = await getMarketDetectorConfig(ctx.user.id);
+        
+        // Retornar configuração padrão se não existir
+        if (!config) {
+          return {
+            enabled: true,
+            atrWindow: 14,
+            atrMultiplier: "2.50",
+            atrScore: 2,
+            wickMultiplier: "2.00",
+            wickScore: 1,
+            fractalThreshold: "1.80",
+            fractalScore: 1,
+            spreadMultiplier: "2.00",
+            spreadScore: 1,
+            weightHigh: 3,
+            weightMedium: 1,
+            weightHighPast: 2,
+            windowNextNews: 60,
+            windowPastNews: 30,
+            greenThreshold: 3,
+            yellowThreshold: 6,
+          };
+        }
+        
+        return config;
+      }),
+    
+    // Atualiza a configuração do Market Detector
+    updateConfig: protectedProcedure
+      .input(
+        z.object({
+          enabled: z.boolean(),
+          atrWindow: z.number().int().min(1).max(50),
+          atrMultiplier: z.string().regex(/^\d+\.?\d*$/),
+          atrScore: z.number().int().min(0).max(10),
+          wickMultiplier: z.string().regex(/^\d+\.?\d*$/),
+          wickScore: z.number().int().min(0).max(10),
+          fractalThreshold: z.string().regex(/^\d+\.?\d*$/),
+          fractalScore: z.number().int().min(0).max(10),
+          spreadMultiplier: z.string().regex(/^\d+\.?\d*$/),
+          spreadScore: z.number().int().min(0).max(10),
+          weightHigh: z.number().int().min(0).max(10),
+          weightMedium: z.number().int().min(0).max(10),
+          weightHighPast: z.number().int().min(0).max(10),
+          windowNextNews: z.number().int().min(1).max(180),
+          windowPastNews: z.number().int().min(1).max(180),
+          greenThreshold: z.number().int().min(0).max(10),
+          yellowThreshold: z.number().int().min(0).max(10),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await upsertMarketDetectorConfig({
+          userId: ctx.user.id,
+          ...input,
+        });
+        
+        return { success: true };
+      }),
+    
+    // Restaura as configurações padrão
+    resetConfig: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        await resetMarketDetectorConfig(ctx.user.id);
+        return { success: true };
+      }),
+  }),
+
   marketEvents: router({
     // Obtém eventos futuros (próximas N horas)
     upcoming: protectedProcedure

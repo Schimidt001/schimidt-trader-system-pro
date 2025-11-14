@@ -23,6 +23,7 @@ import { Loader2, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { BotSelector, useBotSelector } from "@/components/BotSelector";
+import { MarketDetectorSettings } from "@/components/MarketDetectorSettings";
 
 export default function Settings() {
   const { user, loading: authLoading } = useAuth();
@@ -1469,6 +1470,11 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+
+          {/* Market Detector - Configurações Avançadas */}
+          {marketConditionEnabled && (
+            <MarketDetectorSettings />
+          )}
 
           {/* Botão Salvar */}
           <div className="flex justify-end">

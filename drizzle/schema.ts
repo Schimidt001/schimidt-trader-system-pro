@@ -240,3 +240,45 @@ export const marketEvents = mysqlTable("marketEvents", {
 
 export type MarketEvent = typeof marketEvents.$inferSelect;
 export type InsertMarketEvent = typeof marketEvents.$inferInsert;
+
+/**
+ * Configurações do Market Condition Detector por usuário
+ */
+export const marketDetectorConfig = mysqlTable("marketDetectorConfig", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  
+  // Habilitação
+  enabled: boolean("enabled").default(true).notNull(),
+  
+  // Critérios internos
+  atrWindow: int("atrWindow").default(14).notNull(),
+  atrMultiplier: decimal("atrMultiplier", { precision: 4, scale: 2 }).default("2.50").notNull(),
+  atrScore: int("atrScore").default(2).notNull(),
+  
+  wickMultiplier: decimal("wickMultiplier", { precision: 4, scale: 2 }).default("2.00").notNull(),
+  wickScore: int("wickScore").default(1).notNull(),
+  
+  fractalThreshold: decimal("fractalThreshold", { precision: 4, scale: 2 }).default("1.80").notNull(),
+  fractalScore: int("fractalScore").default(1).notNull(),
+  
+  spreadMultiplier: decimal("spreadMultiplier", { precision: 4, scale: 2 }).default("2.00").notNull(),
+  spreadScore: int("spreadScore").default(1).notNull(),
+  
+  // Critérios externos (notícias)
+  weightHigh: int("weightHigh").default(3).notNull(),
+  weightMedium: int("weightMedium").default(1).notNull(),
+  weightHighPast: int("weightHighPast").default(2).notNull(),
+  windowNextNews: int("windowNextNews").default(60).notNull(), // minutos
+  windowPastNews: int("windowPastNews").default(30).notNull(), // minutos
+  
+  // Thresholds de classificação
+  greenThreshold: int("greenThreshold").default(3).notNull(),
+  yellowThreshold: int("yellowThreshold").default(6).notNull(),
+  
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MarketDetectorConfig = typeof marketDetectorConfig.$inferSelect;
+export type InsertMarketDetectorConfig = typeof marketDetectorConfig.$inferInsert;
