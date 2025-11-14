@@ -3,6 +3,8 @@
  * 
  * CICLO A: Coleta de notícias independente do candle
  * Executa periodicamente (a cada 6 horas) para popular o banco de dados
+ * 
+ * IMPORTANTE: Mock data APENAS em desenvolvimento (NODE_ENV !== 'production')
  */
 
 import axios from "axios";
@@ -37,21 +39,30 @@ export class NewsCollectorService {
         events.push(...apiEvents);
         console.log(`[NewsCollector] API Pública: ${apiEvents.length} eventos coletados`);
       } catch (error) {
-        console.warn("[NewsCollector] API Pública falhou:", error);
+        console.error("[NewsCollector] ❌ Falha na API Pública:", error);
+        
+        // Log estruturado de falha
+        console.warn("[NewsCollector] ⚠️ Falha na coleta de notícias externas. Detector operará apenas com critérios internos.");
       }
       
-      // Fallback para mock data (desenvolvimento/teste)
-      if (events.length === 0) {
+      // Mock data APENAS em desenvolvimento/teste
+      if (events.length === 0 && process.env.NODE_ENV !== 'production') {
+        console.log("[NewsCollector] 🔧 Modo desenvolvimento detectado - Gerando mock data");
         try {
           const mockEvents = await this.generateMockEvents();
           events.push(...mockEvents);
-          console.log(`[NewsCollector] Mock Data: ${mockEvents.length} eventos gerados`);
+          console.log(`[NewsCollector] Mock Data: ${mockEvents.length} eventos gerados (DEV ONLY)`);
         } catch (error) {
-          console.error("[NewsCollector] Mock Data falhou:", error);
+          console.error("[NewsCollector] Erro ao gerar mock data:", error);
         }
       }
       
-      // Salvar eventos no banco
+      // Em produção, se não houver eventos, apenas logar
+      if (events.length === 0 && process.env.NODE_ENV === 'production') {
+        console.warn("[NewsCollector] ⚠️ PRODUÇÃO: Nenhum evento coletado. Detector operará apenas com critérios internos (ATR, Wicks, Spread, Fractal).");
+      }
+      
+      // Salvar eventos no banco (se houver)
       if (events.length > 0) {
         await insertMarketEvents(events.map(e => ({
           timestamp: e.timestamp,
@@ -66,15 +77,14 @@ export class NewsCollectorService {
         })));
         
         console.log(`[NewsCollector] ✅ ${events.length} eventos salvos no banco`);
-      } else {
-        console.warn("[NewsCollector] ⚠️ Nenhum evento coletado");
       }
       
       // Limpar eventos antigos (mais de 7 dias)
       await cleanupOldMarketEvents(7);
       
     } catch (error) {
-      console.error("[NewsCollector] Erro durante coleta:", error);
+      console.error("[NewsCollector] ❌ Erro crítico durante coleta:", error);
+      console.warn("[NewsCollector] ⚠️ Detector continuará operando apenas com critérios internos");
     } finally {
       this.isCollecting = false;
     }
@@ -142,8 +152,17 @@ export class NewsCollectorService {
   
   /**
    * Gera eventos mock realistas para desenvolvimento/teste
+   * 
+   * ⚠️ IMPORTANTE: Esta função NUNCA deve ser chamada em produção
+   * Mock data pode criar decisões baseadas em eventos que não aconteceram
    */
   private async generateMockEvents(): Promise<NewsEvent[]> {
+    // Garantia adicional: nunca executar em produção
+    if (process.env.NODE_ENV === 'production') {
+      console.error("[NewsCollector] ❌ ERRO CRÍTICO: generateMockEvents() chamado em PRODUÇÃO!");
+      return [];
+    }
+    
     const events: NewsEvent[] = [];
     const now = Date.now() / 1000;
     
@@ -247,7 +266,7 @@ export class NewsCollectorService {
         impact: event.impact,
         title: event.title,
         description: event.title,
-        source: "MockData",
+        source: "MockData_DEV",
         actual: event.actual,
         forecast: event.forecast,
         previous: event.previous,
@@ -262,7 +281,7 @@ export class NewsCollectorService {
         impact: event.impact,
         title: event.title,
         description: event.title,
-        source: "MockData",
+        source: "MockData_DEV",
         actual: event.actual,
         forecast: event.forecast,
         previous: event.previous,
@@ -277,7 +296,7 @@ export class NewsCollectorService {
         impact: event.impact,
         title: event.title,
         description: event.title,
-        source: "MockData",
+        source: "MockData_DEV",
         actual: event.actual,
         forecast: event.forecast,
         previous: event.previous,
