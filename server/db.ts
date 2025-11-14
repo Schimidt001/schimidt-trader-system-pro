@@ -618,6 +618,27 @@ export async function cleanupOldMarketEvents(daysToKeep: number = 7): Promise<vo
     .where(lt(marketEvents.timestamp, cutoffTimestamp));
 }
 
+/**
+ * Remove todos os eventos de mercado
+ * Usado para limpar dados mock ou resetar o banco
+ */
+export async function clearAllMarketEvents(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  
+  // Contar eventos antes de deletar
+  const countResult = await db
+    .select()
+    .from(marketEvents);
+  
+  const totalEvents = countResult.length;
+  
+  // Deletar todos os eventos
+  await db.delete(marketEvents);
+  
+  return totalEvents;
+}
+
 // ============= MARKET DETECTOR CONFIG QUERIES =============
 
 /**

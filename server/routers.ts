@@ -757,6 +757,26 @@ export const appRouter = router({
           };
         }
       }),
+    
+    // Limpa todos os eventos de mercado
+    clearMarketEvents: protectedProcedure
+      .mutation(async () => {
+        try {
+          const { clearAllMarketEvents } = await import("./db");
+          const deletedCount = await clearAllMarketEvents();
+          return { 
+            success: true, 
+            message: `${deletedCount} eventos removidos com sucesso`,
+            deletedCount 
+          };
+        } catch (error) {
+          console.error("[MarketDetector] Erro ao limpar eventos:", error);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro ao limpar eventos de mercado",
+          });
+        }
+      }),
   }),
 
   marketEvents: router({

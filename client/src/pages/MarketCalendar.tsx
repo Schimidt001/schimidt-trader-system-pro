@@ -11,6 +11,7 @@ export default function MarketCalendar() {
   const { user, loading: authLoading } = useAuth();
   const { selectedBot } = useBotSelector();
   const [isCollecting, setIsCollecting] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   
   // Mutation para forçar coleta de notícias
   const collectNewsMutation = trpc.marketDetector.collectNews.useMutation({
@@ -26,9 +27,31 @@ export default function MarketCalendar() {
     },
   });
   
+  // Mutation para limpar eventos
+  const clearEventsMutation = trpc.marketDetector.clearMarketEvents.useMutation({
+    onSuccess: (data) => {
+      // Refetch das queries de eventos
+      trpc.useContext().marketEvents.upcoming.invalidate();
+      trpc.useContext().marketEvents.recent.invalidate();
+      setIsClearing(false);
+      console.log(data.message);
+    },
+    onError: (error) => {
+      console.error("Erro ao limpar eventos:", error);
+      setIsClearing(false);
+    },
+  });
+  
   const handleCollectNews = () => {
     setIsCollecting(true);
     collectNewsMutation.mutate();
+  };
+  
+  const handleClearEvents = () => {
+    if (confirm('Tem certeza que deseja limpar todos os eventos de mercado? Esta ação é irreversível.')) {
+      setIsClearing(true);
+      clearEventsMutation.mutate();
+    }
   };
 
   // Queries para condições de mercado
@@ -151,24 +174,44 @@ export default function MarketCalendar() {
             Análise de condições de mercado e eventos macroeconômicos USD/JPY
           </p>
         </div>
-        <Button
-          onClick={handleCollectNews}
-          disabled={isCollecting}
-          variant="outline"
-          size="sm"
-        >
-          {isCollecting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Coletando...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Atualizar Notícias
-            </>
-          )}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={handleClearEvents}
+            disabled={isClearing}
+            variant="destructive"
+            size="sm"
+          >
+            {isClearing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Limpando...
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="mr-2 h-4 w-4" />
+                Limpar Eventos
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={handleCollectNews}
+            disabled={isCollecting}
+            variant="outline"
+            size="sm"
+          >
+            {isCollecting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Coletando...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Atualizar Notícias
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Condição de Mercado Atual */}
