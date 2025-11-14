@@ -70,6 +70,8 @@ export class NewsCollectorService {
       }
       
       // Se não houver eventos, apenas logar
+      console.log(`[NewsCollector] Total de eventos brutos coletados: ${events.length}`);
+      
       if (events.length === 0) {
         console.warn("[NewsCollector] ⚠️ Nenhum evento coletado. Detector operará apenas com critérios internos (ATR, Wicks, Spread, Fractal).");
       } else {
@@ -128,13 +130,14 @@ export class NewsCollectorService {
       if (!Array.isArray(data)) return events;
       
       const now = new Date();
-      const today = now.toISOString().split('T')[0];
-      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      
+      console.log(`[ForexFactory] Buscando eventos de ${now.toISOString()} até ${sevenDaysFromNow.toISOString()}`);
       
       for (const item of data) {
-        // Filtrar por data (hoje e próximas 24h)
-        const itemDate = item.date?.split('T')[0];
-        if (itemDate !== today && itemDate !== tomorrow) continue;
+        // Filtrar por data (próximos 7 dias)
+        const itemDate = new Date(item.date);
+        if (itemDate < now || itemDate > sevenDaysFromNow) continue;
         
         // Filtrar por moeda
         const countryCode = item.country || '';
@@ -175,9 +178,11 @@ export class NewsCollectorService {
     try {
       const now = new Date();
       const today = now.toISOString().split('T')[0];
-      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       
-      const url = `https://api.tradingeconomics.com/calendar?c=guest:guest&d1=${today}&d2=${tomorrow}`;
+      console.log(`[TradingEconomics] Buscando eventos de ${today} até ${sevenDaysLater}`);
+      
+      const url = `https://api.tradingeconomics.com/calendar?c=guest:guest&d1=${today}&d2=${sevenDaysLater}`;
       
       const response = await axios.get(url, { timeout: 10000 });
       const data = response.data;
