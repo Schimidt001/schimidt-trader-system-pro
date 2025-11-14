@@ -720,18 +720,26 @@ export const appRouter = router({
         return { success: true };
       }),
     
-    // Força coleta manual de notícias
+    // Força coleta manual de notícias (não-bloqueante)
     collectNews: protectedProcedure
       .mutation(async () => {
         try {
           const { newsCollectorService } = await import("./market-condition-v2/newsCollectorService");
-          await newsCollectorService.collectNews();
-          return { success: true, message: "Coleta de notícias iniciada" };
+          
+          // Executar em background para não bloquear a resposta
+          newsCollectorService.collectNews().catch(error => {
+            console.error("[MarketDetector] Erro na coleta em background:", error);
+          });
+          
+          return { 
+            success: true, 
+            message: "Coleta de notícias iniciada em background. Aguarde alguns segundos e recarregue a página." 
+          };
         } catch (error) {
-          console.error("[MarketDetector] Erro ao forçar coleta:", error);
+          console.error("[MarketDetector] Erro ao iniciar coleta:", error);
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
-            message: "Erro ao coletar notícias",
+            message: "Erro ao iniciar coleta de notícias",
           });
         }
       }),

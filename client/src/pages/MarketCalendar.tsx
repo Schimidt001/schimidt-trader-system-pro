@@ -15,14 +15,19 @@ export default function MarketCalendar() {
   
   // Mutation para forçar coleta de notícias
   const collectNewsMutation = trpc.marketDetector.collectNews.useMutation({
-    onSuccess: () => {
-      // Refetch das queries de eventos
-      trpc.useContext().marketEvents.upcoming.invalidate();
-      trpc.useContext().marketEvents.recent.invalidate();
+    onSuccess: (data) => {
+      console.log(data.message);
       setIsCollecting(false);
+      
+      // Aguardar 3 segundos e recarregar os dados
+      setTimeout(() => {
+        trpc.useContext().marketEvents.upcoming.invalidate();
+        trpc.useContext().marketEvents.recent.invalidate();
+      }, 3000);
     },
     onError: (error) => {
       console.error("Erro ao coletar notícias:", error);
+      alert("Erro ao coletar notícias: " + error.message);
       setIsCollecting(false);
     },
   });
