@@ -67,6 +67,9 @@ export default function Settings() {
   
   // Estados para Filtro de Horário
   const [hourlyFilterEnabled, setHourlyFilterEnabled] = useState(false);
+  
+  // Estado para Market Condition Detector
+  const [marketConditionEnabled, setMarketConditionEnabled] = useState(false);
   const [hourlyFilterCustomHours, setHourlyFilterCustomHours] = useState<number[]>([]);
   const [hourlyFilterGoldHours, setHourlyFilterGoldHours] = useState<number[]>([]);
   const [hourlyFilterGoldMultiplier, setHourlyFilterGoldMultiplier] = useState("200");
@@ -188,6 +191,9 @@ export default function Settings() {
       
       // Carregar configurações do Filtro de Horário
       setHourlyFilterEnabled(config.hourlyFilterEnabled ?? false);
+      
+      // Carregar configuração do Market Condition Detector
+      setMarketConditionEnabled(config.marketConditionEnabled ?? false);
       if (config.hourlyFilterCustomHours) {
         try {
           setHourlyFilterCustomHours(JSON.parse(config.hourlyFilterCustomHours));
@@ -434,6 +440,7 @@ export default function Settings() {
       hourlyFilterCustomHours: JSON.stringify(hourlyFilterCustomHours),
       hourlyFilterGoldHours: JSON.stringify(hourlyFilterGoldHours),
       hourlyFilterGoldMultiplier: parseInt(hourlyFilterGoldMultiplier) || 200, // Fallback para 200 (2x) se vazio
+      marketConditionEnabled, // Market Condition Detector
     });
     
     console.log('[FILTRO] Salvando configurações:', {
@@ -1398,6 +1405,66 @@ export default function Settings() {
                       </p>
                     </div>
                   )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Market Condition Detector */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-white">🌐 Market Condition Detector</CardTitle>
+              <CardDescription>Analisa condições de mercado e bloqueia operações em momentos de alto risco</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="marketConditionEnabled" className="text-slate-300">
+                    Ativar Market Condition Detector
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Analisa volatilidade, ATR, sombras e notícias macroeconômicas (USD/JPY)
+                  </p>
+                </div>
+                <Switch
+                  id="marketConditionEnabled"
+                  checked={marketConditionEnabled}
+                  onCheckedChange={setMarketConditionEnabled}
+                />
+              </div>
+
+              {marketConditionEnabled && (
+                <div className="space-y-3 pt-4 border-t border-slate-700">
+                  <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3">
+                    <p className="text-sm text-slate-300">
+                      📊 <strong>Como funciona:</strong>
+                    </p>
+                    <ul className="text-xs text-slate-400 mt-2 space-y-1 ml-4">
+                      <li>• Avalia cada candle (M60) após fechamento</li>
+                      <li>• Calcula score de 0-10 baseado em critérios técnicos e fundamentais</li>
+                      <li>• 🟢 <strong>Verde (0-3):</strong> Mercado normal - opera normalmente</li>
+                      <li>• 🟡 <strong>Amarelo (4-6):</strong> Mercado instável - opera com cautela</li>
+                      <li>• 🔴 <strong>Vermelho (7-10):</strong> Mercado anormal - <strong>NÃO opera</strong></li>
+                    </ul>
+                  </div>
+                  
+                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                    <p className="text-sm text-slate-300 mb-2">
+                      🔍 <strong>Critérios analisados:</strong>
+                    </p>
+                    <ul className="text-xs text-slate-400 space-y-1 ml-4">
+                      <li>• <strong>ATR Alto (+2 pts):</strong> Amplitude do candle > ATR × 2</li>
+                      <li>• <strong>Sombras Longas (+2 pts):</strong> Wick > Corpo × 2</li>
+                      <li>• <strong>Volatilidade Fractal (+2 pts):</strong> Corpo/Amplitude < 0.3</li>
+                      <li>• <strong>Notícias Alto Impacto (+3 pts):</strong> Eventos HIGH (USD/JPY)</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3">
+                    <p className="text-xs text-green-400">
+                      ✅ <strong>Dica:</strong> Acesse a aba "Mercado" para ver a análise em tempo real, próximas notícias e logs do detector.
+                    </p>
+                  </div>
                 </div>
               )}
             </CardContent>

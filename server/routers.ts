@@ -107,6 +107,8 @@ export const appRouter = router({
           hourlyFilterCustomHours: z.string().optional(),
           hourlyFilterGoldHours: z.string().optional(),
           hourlyFilterGoldMultiplier: z.number().int().min(100).optional(),
+          // Market Condition Detector
+          marketConditionEnabled: z.boolean().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {

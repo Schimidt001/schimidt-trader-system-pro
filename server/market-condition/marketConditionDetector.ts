@@ -102,9 +102,23 @@ export class MarketConditionDetector {
       }
       
       // Critério 3: Spread anormal
-      // Nota: Para implementar corretamente, precisaríamos de dados de spread em tempo real
-      // Por enquanto, vamos pular este critério ou usar uma aproximação
-      // TODO: Implementar quando houver dados de spread disponíveis
+      // Aproximação: spread = high - low do candle
+      // Compara com média dos spreads dos últimos N candles
+      const spreadCurrent = amplitude; // spread atual = high - low
+      const spreadHistory = historicalCandles.slice(-this.config.spreadLookbackHours).map(c => {
+        return calculateAmplitude(c);
+      });
+      
+      if (spreadHistory.length >= 3) {
+        const spreadMean = spreadHistory.reduce((sum, s) => sum + s, 0) / spreadHistory.length;
+        details.spreadCurrent = spreadCurrent;
+        details.spreadMean = spreadMean;
+        
+        if (spreadCurrent > spreadMean * this.config.spreadMultiplier) {
+          score += this.config.spreadScore;
+          reasons.push("SPREAD_ANORMAL");
+        }
+      }
       
       // Critério 4: Volatilidade fractal
       const isFractal = hasFractalVolatility(
