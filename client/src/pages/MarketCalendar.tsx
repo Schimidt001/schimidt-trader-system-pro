@@ -1,13 +1,35 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
-import { Loader2, Calendar, TrendingUp, AlertTriangle, Clock, Info, Activity } from "lucide-react";
+import { Loader2, Calendar, TrendingUp, AlertTriangle, Clock, Info, Activity, RefreshCw } from "lucide-react";
 import { useBotSelector } from "@/components/BotSelector";
+import { useState } from "react";
 
 export default function MarketCalendar() {
   const { user, loading: authLoading } = useAuth();
   const { selectedBot } = useBotSelector();
+  const [isCollecting, setIsCollecting] = useState(false);
+  
+  // Mutation para forçar coleta de notícias
+  const collectNewsMutation = trpc.marketDetector.collectNews.useMutation({
+    onSuccess: () => {
+      // Refetch das queries de eventos
+      trpc.useContext().marketEvents.upcoming.invalidate();
+      trpc.useContext().marketEvents.recent.invalidate();
+      setIsCollecting(false);
+    },
+    onError: (error) => {
+      console.error("Erro ao coletar notícias:", error);
+      setIsCollecting(false);
+    },
+  });
+  
+  const handleCollectNews = () => {
+    setIsCollecting(true);
+    collectNewsMutation.mutate();
+  };
 
   // Queries para condições de mercado
   const { data: currentCondition, isLoading: loadingCondition } = trpc.marketCondition.current.useQuery(
@@ -129,6 +151,24 @@ export default function MarketCalendar() {
             Análise de condições de mercado e eventos macroeconômicos USD/JPY
           </p>
         </div>
+        <Button
+          onClick={handleCollectNews}
+          disabled={isCollecting}
+          variant="outline"
+          size="sm"
+        >
+          {isCollecting ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Coletando...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Atualizar Notícias
+            </>
+          )}
+        </Button>
       </div>
 
       {/* Condição de Mercado Atual */}

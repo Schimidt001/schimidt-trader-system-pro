@@ -719,6 +719,22 @@ export const appRouter = router({
         await resetMarketDetectorConfig(ctx.user.id);
         return { success: true };
       }),
+    
+    // Força coleta manual de notícias
+    collectNews: protectedProcedure
+      .mutation(async () => {
+        try {
+          const { newsCollectorService } = await import("./market-condition-v2/newsCollectorService");
+          await newsCollectorService.collectNews();
+          return { success: true, message: "Coleta de notícias iniciada" };
+        } catch (error) {
+          console.error("[MarketDetector] Erro ao forçar coleta:", error);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Erro ao coletar notícias",
+          });
+        }
+      }),
   }),
 
   marketEvents: router({
