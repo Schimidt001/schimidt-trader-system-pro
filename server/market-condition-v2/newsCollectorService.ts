@@ -139,10 +139,9 @@ export class NewsCollectorService {
         const itemDate = new Date(item.date);
         if (itemDate < now || itemDate > sevenDaysFromNow) continue;
         
-        // Filtrar por moeda
-        const countryCode = item.country || '';
-        const currencyCode = mapCountryToCurrency(countryCode);
-        if (currencyCode !== 'USD' && currencyCode !== 'JPY') continue;
+        // Filtrar por moeda (ForexFactory já retorna códigos de moeda, não país)
+        const currency = item.country || ''; // Na verdade é o código da moeda
+        if (currency !== 'USD' && currency !== 'JPY') continue;
         
         // Determinar impacto
         const impact = item.impact;
@@ -153,7 +152,7 @@ export class NewsCollectorService {
         
         events.push({
           timestamp: Math.floor(eventDate.getTime() / 1000),
-          currency: currencyCode,
+          currency: currency,
           impact: impact === 'High' ? 'HIGH' : 'MEDIUM',
           title: item.title || 'Unknown Event',
           description: item.title || 'Unknown Event',
