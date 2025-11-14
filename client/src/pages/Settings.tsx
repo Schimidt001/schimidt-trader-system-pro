@@ -1453,9 +1453,9 @@ export default function Settings() {
                       🔍 <strong>Critérios analisados:</strong>
                     </p>
                     <ul className="text-xs text-slate-400 space-y-1 ml-4">
-                      <li>• <strong>ATR Alto (+2 pts):</strong> Amplitude do candle > ATR × 2</li>
-                      <li>• <strong>Sombras Longas (+2 pts):</strong> Wick > Corpo × 2</li>
-                      <li>• <strong>Volatilidade Fractal (+2 pts):</strong> Corpo/Amplitude < 0.3</li>
+                      <li>• <strong>ATR Alto (+2 pts):</strong> Amplitude do candle &gt; ATR × 2</li>
+                      <li>• <strong>Sombras Longas (+2 pts):</strong> Wick &gt; Corpo × 2</li>
+                      <li>• <strong>Volatilidade Fractal (+2 pts):</strong> Corpo/Amplitude &lt; 0.3</li>
                       <li>• <strong>Notícias Alto Impacto (+3 pts):</strong> Eventos HIGH (USD/JPY)</li>
                     </ul>
                   </div>
