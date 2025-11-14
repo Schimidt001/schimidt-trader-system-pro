@@ -57,6 +57,8 @@ export const config = mysqlTable("config", {
   // Configurações da IA Hedge Inteligente
   hedgeEnabled: boolean("hedgeEnabled").default(true).notNull(), // Toggle para ativar/desativar IA Hedge
   hedgeConfig: text("hedgeConfig"), // Configurações de hedge armazenadas como JSON
+  // Configurações de conexão DERIV
+  derivAppId: varchar("derivAppId", { length: 20 }).default("1089"), // App ID personalizado da DERIV (padrão: 1089 para testes)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

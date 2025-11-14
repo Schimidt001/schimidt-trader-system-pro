@@ -29,7 +29,7 @@ export interface DerivContract {
 export class DerivService {
   private ws: WebSocket | null = null;
   private token: string;
-  private appId: string = "1089"; // DERIV demo app ID
+  private appId: string; // DERIV app ID (padrão: 1089 para testes)
   private wsUrl: string = "wss://ws.derivws.com/websockets/v3";
   private subscriptions: Map<string, (data: any) => void> = new Map();
   private activeSubscriptions: Map<string, any> = new Map(); // Guardar subscrições para refazer após reconeexão
@@ -40,11 +40,13 @@ export class DerivService {
   private pingInterval: NodeJS.Timeout | null = null;
   private accountCurrency: string = "USD"; // ✅ Moeda da conta (obtida na autorização)
   
-  constructor(token: string, isDemo: boolean = true) {
+  constructor(token: string, isDemo: boolean = true, appId: string = "1089") {
     this.token = token;
+    this.appId = appId; // Usar App ID fornecido ou padrão 1089
     if (!isDemo) {
       this.wsUrl = "wss://ws.derivws.com/websockets/v3";
     }
+    console.log(`[DerivService] Inicializado com App ID: ${this.appId}`);
   }
 
   /**
@@ -53,10 +55,9 @@ export class DerivService {
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        console.log(`[DerivService] Conectando a ${this.wsUrl}?app_id=${this.appId}`);
         this.ws = new WebSocket(`${this.wsUrl}?app_id=${this.appId}`);
         let authorized = false;
-
-                  
         
         this.ws.on("open", () => {
           console.log("[DerivService] WebSocket connected");
@@ -109,7 +110,16 @@ export class DerivService {
 
         this.ws.on("error", (error: Error) => {
           console.error("[DerivService] WebSocket error:", error);
-          reject(error);
+          
+          // Verificar se é erro 503
+          const errorMessage = error.message || error.toString();
+          if (errorMessage.includes('503')) {
+            console.error("[DerivService] Erro 503 detectado - Servidor indisponível");
+            console.error("[DerivService] Possíveis causas: Rate limiting, App ID bloqueado, ou manutenção");
+            console.error("[DerivService] Solução: Aguarde alguns minutos ou crie um App ID personalizado em api.deriv.com");
+          }
+          
+          reject(new Error(`Erro ao conectar: ${errorMessage}`));
         });
 
         this.ws.on("close", () => {

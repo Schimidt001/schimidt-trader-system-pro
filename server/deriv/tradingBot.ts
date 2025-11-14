@@ -268,8 +268,12 @@ export class TradingBot {
         throw new Error(`Token ${this.mode} não configurado`);
       }
 
+      // Obter App ID personalizado ou usar padrão
+      const derivAppId = config.derivAppId || "1089";
+      console.log(`[TradingBot] Usando DERIV App ID: ${derivAppId}`);
+
       // Conectar ao DERIV
-      this.derivService = new DerivService(token, this.mode === "DEMO");
+      this.derivService = new DerivService(token, this.mode === "DEMO", derivAppId);
       await this.derivService.connect();
 
       // Obter pip_size do símbolo
@@ -992,7 +996,8 @@ export class TradingBot {
       const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
       const history = await getCandleHistory(this.symbol, this.lookback, timeframeLabel);
       
-      const historyData: CandleData[] = history.reverse().map((c) => ({
+      // ⚠️ Criar cópia antes de reverter para não modificar array original
+      const historyData: CandleData[] = [...history].reverse().map((c) => ({
         abertura: parseFloat(c.open),
         minima: parseFloat(c.low),
         maxima: parseFloat(c.high),
@@ -1828,7 +1833,10 @@ export class TradingBot {
       
       // Buscar histórico para predição
       const history = await this.derivService.getCandleHistory(this.symbol, this.timeframe, this.lookback);
-      const historyData = history.map((c) => ({
+      
+      // ⚠️ IMPORTANTE: history vem da DERIV em ordem crescente (antigo → recente)
+      // A IA espera ordem DECRESCENTE (recente → antigo)
+      const historyData = [...history].reverse().map((c) => ({
         timestamp: c.epoch,
         abertura: c.open,
         maxima: c.high,
