@@ -71,7 +71,7 @@ export const DEFAULT_MARKET_CONDITION_CONFIG: MarketConditionConfig = {
   
   // Critério 1: Amplitude anormal
   atrPeriod: 14,
-  atrMultiplier: 2.0,
+  atrMultiplier: 2.5, // Aumentado de 2.0 para 2.5 para reduzir falsos positivos
   atrScore: 2,
   
   // Critério 2: Sombras exageradas

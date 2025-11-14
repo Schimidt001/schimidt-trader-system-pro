@@ -9,6 +9,24 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
+/**
+ * Mapeia código de país para código de moeda
+ */
+function mapCountryToCurrency(countryCode: string): string {
+  const mapping: Record<string, string> = {
+    'US': 'USD',
+    'JP': 'JPY',
+    'EU': 'EUR',
+    'GB': 'GBP',
+    'CH': 'CHF',
+    'CA': 'CAD',
+    'AU': 'AUD',
+    'NZ': 'NZD',
+    'CN': 'CNY',
+  };
+  return mapping[countryCode] || countryCode;
+}
+
 export interface NewsEvent {
   timestamp: number;        // Unix timestamp do evento
   currency: string;         // Moeda afetada (USD, JPY, EUR, etc)
@@ -53,8 +71,10 @@ async function fetchForexFactoryEvents(
       if (itemDate !== targetDate) continue;
       
       // Filtrar por moeda
-      const currency = item.country || '';
-      if (!currencies.includes(currency)) continue;
+      // ForexFactory usa códigos de país (US, JP) ao invés de moedas (USD, JPY)
+      const countryCode = item.country || '';
+      const currencyCode = mapCountryToCurrency(countryCode);
+      if (!currencies.includes(currencyCode)) continue;
       
       // Determinar impacto
       const impact = item.impact;
@@ -65,7 +85,7 @@ async function fetchForexFactoryEvents(
       
       events.push({
         timestamp: Math.floor(eventDate.getTime() / 1000),
-        currency,
+        currency: currencyCode,
         impact: impact === 'High' ? 'HIGH' : 'MEDIUM',
         title: item.title || 'Unknown Event',
         source: 'ForexFactory',

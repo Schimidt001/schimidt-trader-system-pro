@@ -119,6 +119,7 @@ export class TradingBot {
   // Market Condition Detector
   private currentMarketCondition: MarketConditionResult | null = null;
   private marketConditionEnabled: boolean = false;
+  private lastEvaluatedCandleTimestamp: number = 0; // Timestamp do último candle avaliado
 
   constructor(userId: number, botId: number = 1) {
     this.userId = userId;
@@ -1992,6 +1993,12 @@ export class TradingBot {
    */
   private async evaluateMarketConditions(): Promise<void> {
     try {
+      // Evitar avaliações duplicadas do mesmo candle
+      if (this.currentCandleTimestamp === this.lastEvaluatedCandleTimestamp) {
+        console.log(`[MARKET_CONDITION] Candle ${this.currentCandleTimestamp} já foi avaliado. Pulando...`);
+        return;
+      }
+      
       console.log("[MARKET_CONDITION] Iniciando avaliação de condições de mercado...");
       
       // Buscar histórico de candles para cálculos
@@ -2047,6 +2054,9 @@ export class TradingBot {
       );
       
       console.log(`[MARKET_CONDITION] Avaliação concluída - Status: ${result.status} | Score: ${result.score}`);
+      
+      // Marcar candle como avaliado
+      this.lastEvaluatedCandleTimestamp = this.currentCandleTimestamp;
     } catch (error) {
       console.error("[MARKET_CONDITION] Erro ao avaliar condições de mercado:", error);
       await this.logEvent(
