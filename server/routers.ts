@@ -720,6 +720,13 @@ export const appRouter = router({
         return { success: true };
       }),
     
+    // Endpoint de teste simples
+    testEndpoint: protectedProcedure
+      .mutation(async () => {
+        console.log("[MarketDetector] 🔴🔴🔴 TESTE ENDPOINT CHAMADO! 🔴🔴🔴");
+        return { success: true, message: "Endpoint de teste funcionando!" };
+      }),
+    
     // Força coleta manual de notícias (não-bloqueante)
     collectNews: protectedProcedure
       .mutation(async () => {
