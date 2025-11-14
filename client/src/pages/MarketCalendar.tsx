@@ -26,21 +26,35 @@ export default function MarketCalendar() {
   );
 
   // Queries para eventos macroeconômicos
-  const { data: upcomingEvents, isLoading: loadingUpcoming } = trpc.marketEvents.upcoming.useQuery(
+  const { data: upcomingEvents, isLoading: loadingUpcoming, error: errorUpcoming } = trpc.marketEvents.upcoming.useQuery(
     { currencies: ["USD", "JPY"], hoursAhead: 24 },
     {
       enabled: !!user,
       refetchInterval: 15 * 60 * 1000, // Atualizar a cada 15 minutos
+      retry: 2,
+      retryDelay: 1000,
     }
   );
+  
+  // Log de erro para debug
+  if (errorUpcoming) {
+    console.error('[MarketCalendar] Erro ao buscar próximas notícias:', errorUpcoming);
+  }
 
-  const { data: recentEvents, isLoading: loadingRecent } = trpc.marketEvents.recent.useQuery(
+  const { data: recentEvents, isLoading: loadingRecent, error: errorRecent } = trpc.marketEvents.recent.useQuery(
     { currencies: ["USD", "JPY"], hoursBack: 12 },
     {
       enabled: !!user,
       refetchInterval: 15 * 60 * 1000, // Atualizar a cada 15 minutos
+      retry: 2,
+      retryDelay: 1000,
     }
   );
+  
+  // Log de erro para debug
+  if (errorRecent) {
+    console.error('[MarketCalendar] Erro ao buscar notícias recentes:', errorRecent);
+  }
 
   if (authLoading) {
     return (
@@ -211,11 +225,11 @@ export default function MarketCalendar() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loadingUpcoming ? (
+          {loadingUpcoming && !errorUpcoming ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
-          ) : upcomingEvents && upcomingEvents.length > 0 ? (
+          ) : (upcomingEvents && upcomingEvents.length > 0) ? (
             <div className="space-y-3">
               {upcomingEvents.map((event: any, i: number) => (
                 <div
@@ -267,11 +281,11 @@ export default function MarketCalendar() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loadingRecent ? (
+          {loadingRecent && !errorRecent ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
-          ) : recentEvents && recentEvents.length > 0 ? (
+          ) : (recentEvents && recentEvents.length > 0) ? (
             <div className="space-y-3">
               {recentEvents.map((event: any, i: number) => (
                 <div

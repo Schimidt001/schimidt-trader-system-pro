@@ -943,7 +943,8 @@ export class TradingBot {
     
     // Avaliar condições de mercado para o próximo candle (apenas para Forex em M60)
     if (this.marketConditionEnabled && this.timeframe === 3600) {
-      await this.evaluateMarketConditions();
+      const closedCandleTimestamp = this.currentCandleTimestamp;
+      await this.evaluateMarketConditions(closedCandleTimestamp);
     }
   }
 
@@ -1991,11 +1992,11 @@ export class TradingBot {
    * Avalia as condições de mercado para o próximo candle
    * Deve ser chamado após o fechamento de um candle (H-1)
    */
-  private async evaluateMarketConditions(): Promise<void> {
+  private async evaluateMarketConditions(candleTimestamp: number): Promise<void> {
     try {
       // Evitar avaliações duplicadas do mesmo candle
-      if (this.currentCandleTimestamp === this.lastEvaluatedCandleTimestamp) {
-        console.log(`[MARKET_CONDITION] Candle ${this.currentCandleTimestamp} já foi avaliado. Pulando...`);
+      if (candleTimestamp === this.lastEvaluatedCandleTimestamp) {
+        console.log(`[MARKET_CONDITION] Candle ${candleTimestamp} já foi avaliado. Pulando...`);
         return;
       }
       
@@ -2056,7 +2057,7 @@ export class TradingBot {
       console.log(`[MARKET_CONDITION] Avaliação concluída - Status: ${result.status} | Score: ${result.score}`);
       
       // Marcar candle como avaliado
-      this.lastEvaluatedCandleTimestamp = this.currentCandleTimestamp;
+      this.lastEvaluatedCandleTimestamp = candleTimestamp;
     } catch (error) {
       console.error("[MARKET_CONDITION] Erro ao avaliar condições de mercado:", error);
       await this.logEvent(
