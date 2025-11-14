@@ -14,6 +14,9 @@ import {
   getTodayPositions,
   getMetric,
   getCandleHistory,
+  getLatestMarketCondition,
+  getMarketConditionHistory,
+  getMarketConditionsByDate,
 } from "./db";
 import { resetDailyData } from "./db_reset";
 import { getBotForUser, removeBotForUser } from "./deriv/tradingBot";
@@ -249,10 +252,19 @@ export const appRouter = router({
         };
       }
       
+      // Obter condição de mercado atual
+      const marketCondition = bot.getMarketCondition();
+      
       return {
         ...state,
         candleStartTime: candleStartTime || null,
         timeframe: config?.timeframe || 900, // Retornar timeframe da configuração
+        marketCondition: marketCondition ? {
+          status: marketCondition.status,
+          score: marketCondition.score,
+          reasons: marketCondition.reasons,
+          computedAt: marketCondition.computedAt,
+        } : null,
       };
     }),
 
@@ -544,6 +556,95 @@ export const appRouter = router({
       const isHealthy = await predictionService.healthCheck();
       return { healthy: isHealthy };
     }),
+  }),
+  
+  // Market Condition Detector
+  marketCondition: router({
+    // Obtém a última condição de mercado
+    current: protectedProcedure
+      .input(
+        z.object({
+          botId: z.number().int().min(1).max(2).optional(),
+          symbol: z.string().optional(),
+        }).optional()
+      )
+      .query(async ({ ctx, input }) => {
+        const botId = input?.botId ?? 1;
+        const config = await getConfigByUserId(ctx.user.id, botId);
+        const symbol = input?.symbol ?? config?.symbol ?? "R_100";
+        
+        const condition = await getLatestMarketCondition(ctx.user.id, botId, symbol);
+        
+        if (!condition) {
+          return null;
+        }
+        
+        return {
+          status: condition.status,
+          score: condition.score,
+          reasons: JSON.parse(condition.reasons),
+          computedAt: condition.computedAt,
+          candleTimestamp: condition.candleTimestamp,
+          symbol: condition.symbol,
+          details: condition.details ? JSON.parse(condition.details) : null,
+        };
+      }),
+    
+    // Obtém o histórico de condições de mercado
+    history: protectedProcedure
+      .input(
+        z.object({
+          botId: z.number().int().min(1).max(2).optional(),
+          symbol: z.string().optional(),
+          limit: z.number().int().positive().optional().default(24),
+        }).optional()
+      )
+      .query(async ({ ctx, input }) => {
+        const botId = input?.botId ?? 1;
+        const config = await getConfigByUserId(ctx.user.id, botId);
+        const symbol = input?.symbol ?? config?.symbol ?? "R_100";
+        const limit = input?.limit ?? 24;
+        
+        const conditions = await getMarketConditionHistory(ctx.user.id, botId, symbol, limit);
+        
+        return conditions.map(c => ({
+          status: c.status,
+          score: c.score,
+          reasons: JSON.parse(c.reasons),
+          computedAt: c.computedAt,
+          candleTimestamp: c.candleTimestamp,
+          symbol: c.symbol,
+          details: c.details ? JSON.parse(c.details) : null,
+        }));
+      }),
+    
+    // Obtém condições de mercado para uma data específica
+    byDate: protectedProcedure
+      .input(
+        z.object({
+          botId: z.number().int().min(1).max(2).optional(),
+          symbol: z.string().optional(),
+          date: z.string(), // ISO date string
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const botId = input.botId ?? 1;
+        const config = await getConfigByUserId(ctx.user.id, botId);
+        const symbol = input.symbol ?? config?.symbol ?? "R_100";
+        const date = new Date(input.date);
+        
+        const conditions = await getMarketConditionsByDate(ctx.user.id, botId, symbol, date);
+        
+        return conditions.map(c => ({
+          status: c.status,
+          score: c.score,
+          reasons: JSON.parse(c.reasons),
+          computedAt: c.computedAt,
+          candleTimestamp: c.candleTimestamp,
+          symbol: c.symbol,
+          details: c.details ? JSON.parse(c.details) : null,
+        }));
+      }),
   }),
 });
 

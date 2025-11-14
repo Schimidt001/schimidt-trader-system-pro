@@ -258,6 +258,29 @@ export default function Dashboard() {
               />
               <span className="text-sm text-slate-300">{stateLabel}</span>
             </div>
+            
+            {/* Indicador de Condições de Mercado */}
+            {botStatus?.marketCondition && (
+              <div className="flex items-center gap-2 border-l border-slate-700 pl-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">
+                    {botStatus.marketCondition.status === "GREEN" ? "🟢" : 
+                     botStatus.marketCondition.status === "YELLOW" ? "🟡" : "🔴"}
+                  </span>
+                  <div>
+                    <div className="text-xs text-slate-400">Condições de Mercado</div>
+                    <div className={`text-sm font-semibold ${
+                      botStatus.marketCondition.status === "GREEN" ? "text-green-400" : 
+                      botStatus.marketCondition.status === "YELLOW" ? "text-yellow-400" : "text-red-400"
+                    }`}>
+                      {botStatus.marketCondition.status === "GREEN" ? "Modo Operar" : 
+                       botStatus.marketCondition.status === "YELLOW" ? "Modo Cautela" : "Modo Parar"}
+                      <span className="text-slate-400 ml-1">({botStatus.marketCondition.score}/10)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             {currentState === "ERROR_API" && (
               <Button
                 onClick={handleReset}

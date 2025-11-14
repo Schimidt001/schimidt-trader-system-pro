@@ -5,6 +5,8 @@ import { analyzePositionForHedge, DEFAULT_HEDGE_CONFIG, type HedgeConfig } from 
 import { HourlyFilter } from "../../filtro-horario/hourlyFilterLogic";
 import type { HourlyFilterConfig } from "../../filtro-horario/types";
 import { validateHedgeConfig } from "../ai/hedgeConfigSchema";
+import { marketConditionDetector } from "../market-condition/marketConditionDetector";
+import type { MarketConditionResult } from "../market-condition/types";
 import type {
   PredictionRequest,
   PredictionResponse,
@@ -24,6 +26,8 @@ import {
   insertEventLog,
   upsertMetric,
   getMetric,
+  insertMarketCondition,
+  getLatestMarketCondition,
 } from "../db";
 
 /**
@@ -111,6 +115,10 @@ export class TradingBot {
   
   // Controle de logs (evitar spam)
   private predictionSkippedLogged: boolean = false;
+  
+  // Market Condition Detector
+  private currentMarketCondition: MarketConditionResult | null = null;
+  private marketConditionEnabled: boolean = false;
 
   constructor(userId: number, botId: number = 1) {
     this.userId = userId;
@@ -261,6 +269,33 @@ export class TradingBot {
           "HOURLY_FILTER_CONFIG",
           `🕒 Filtro de Horário: DESATIVADO (bot operará em todos os horários)`
         );
+      }
+      
+      // Carregar configurações do Market Condition Detector
+      this.marketConditionEnabled = config.marketConditionEnabled ?? false;
+      if (this.marketConditionEnabled) {
+        console.log(`[MARKET_CONDITION] Market Condition Detector Habilitado`);
+        await this.logEvent(
+          "MARKET_CONDITION_CONFIG",
+          `🌐 MARKET CONDITION DETECTOR ATIVADO | Análise de condições de mercado habilitada`
+        );
+        
+        // Carregar última condição de mercado do banco
+        const lastCondition = await getLatestMarketCondition(this.userId, this.botId, this.symbol);
+        if (lastCondition) {
+          this.currentMarketCondition = {
+            status: lastCondition.status,
+            score: lastCondition.score,
+            reasons: JSON.parse(lastCondition.reasons),
+            computedAt: lastCondition.computedAt,
+            candleTimestamp: lastCondition.candleTimestamp,
+            symbol: lastCondition.symbol,
+            details: lastCondition.details ? JSON.parse(lastCondition.details) : undefined,
+          };
+          console.log(`[MARKET_CONDITION] Última condição carregada: ${lastCondition.status} (Score: ${lastCondition.score})`);
+        }
+      } else {
+        console.log(`[MARKET_CONDITION] Market Condition Detector Desabilitado`);
       }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -904,6 +939,11 @@ export class TradingBot {
       this.repredictionTimer = null;
     }
     this.hasRepredicted = false;
+    
+    // Avaliar condições de mercado para o próximo candle (apenas para Forex em M60)
+    if (this.marketConditionEnabled && this.timeframe === 3600) {
+      await this.evaluateMarketConditions();
+    }
   }
 
   /**
@@ -1129,6 +1169,31 @@ export class TradingBot {
       console.log(`[IDEMPOTENCY] Entrada ignorada - Bot já está em posição (estado: ${this.state})`);
       return;
     }
+    
+    // Verificar condições de mercado antes de entrar
+    if (this.marketConditionEnabled && this.currentMarketCondition) {
+      if (this.currentMarketCondition.status === "RED") {
+        await this.logEvent(
+          "ENTRY_BLOCKED_MARKET_CONDITION",
+          `🔴 Entrada bloqueada por condições de mercado | Status: RED | Score: ${this.currentMarketCondition.score}/10 | Motivos: ${this.currentMarketCondition.reasons.join(", ")}`
+        );
+        console.log(`[MARKET_CONDITION] Entrada bloqueada - Status: RED | Score: ${this.currentMarketCondition.score}`);
+        
+        // Voltar para estado WAITING_MIDPOINT para aguardar próximo candle
+        this.state = "WAITING_MIDPOINT";
+        this.prediction = null;
+        this.trigger = 0;
+        await this.updateBotState();
+        return;
+      }
+      
+      // Log de condições de mercado (GREEN ou YELLOW)
+      const statusEmoji = this.currentMarketCondition.status === "GREEN" ? "🟢" : "🟡";
+      await this.logEvent(
+        "MARKET_CONDITION_CHECK",
+        `${statusEmoji} Condições de mercado verificadas | Status: ${this.currentMarketCondition.status} | Score: ${this.currentMarketCondition.score}/10`
+      );
+    }
 
     try {
       // Verificar se é Forex e se há tempo suficiente para entrar
@@ -1146,7 +1211,7 @@ export class TradingBot {
         // Voltar para estado WAITING_MIDPOINT para aguardar próximo candle
         this.state = "WAITING_MIDPOINT";
         this.prediction = null;
-        this.trigger = null;
+        this.trigger = 0;
         await this.updateBotState();
         return;
       }
@@ -1912,6 +1977,83 @@ export class TradingBot {
    */
   getCandleStartTime(): number {
     return this.currentCandleTimestamp;
+  }
+  
+  /**
+   * Obtém o status atual das condições de mercado
+   */
+  getMarketCondition(): MarketConditionResult | null {
+    return this.currentMarketCondition;
+  }
+  
+  /**
+   * Avalia as condições de mercado para o próximo candle
+   * Deve ser chamado após o fechamento de um candle (H-1)
+   */
+  private async evaluateMarketConditions(): Promise<void> {
+    try {
+      console.log("[MARKET_CONDITION] Iniciando avaliação de condições de mercado...");
+      
+      // Buscar histórico de candles para cálculos
+      const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
+      const lookbackForATR = 20; // Precisamos de pelo menos atrPeriod + 1 candles
+      const history = await getCandleHistory(this.symbol, lookbackForATR, timeframeLabel);
+      
+      if (history.length < 15) {
+        console.warn(`[MARKET_CONDITION] Histórico insuficiente (${history.length} candles). Pulando avaliação.`);
+        return;
+      }
+      
+      // Converter para formato CandleData
+      const candlesData = history.map(c => ({
+        open: parseFloat(c.open),
+        high: parseFloat(c.high),
+        low: parseFloat(c.low),
+        close: parseFloat(c.close),
+        timestamp: c.timestampUtc,
+      }));
+      
+      // O último candle é o que acabou de fechar (H-1)
+      const previousCandle = candlesData[candlesData.length - 1];
+      
+      // Avaliar condições
+      const result = await marketConditionDetector.evaluate(
+        previousCandle,
+        candlesData,
+        this.symbol
+      );
+      
+      // Armazenar resultado
+      this.currentMarketCondition = result;
+      
+      // Salvar no banco de dados
+      await insertMarketCondition({
+        userId: this.userId,
+        botId: this.botId,
+        candleTimestamp: result.candleTimestamp,
+        symbol: result.symbol,
+        status: result.status,
+        score: result.score,
+        reasons: JSON.stringify(result.reasons),
+        details: result.details ? JSON.stringify(result.details) : null,
+        computedAt: result.computedAt,
+      });
+      
+      // Log do resultado
+      const statusEmoji = result.status === "GREEN" ? "🟢" : result.status === "YELLOW" ? "🟡" : "🔴";
+      await this.logEvent(
+        "MARKET_CONDITION_EVALUATED",
+        `${statusEmoji} Condições de mercado avaliadas | Status: ${result.status} | Score: ${result.score}/10 | Motivos: ${result.reasons.join(", ")}`
+      );
+      
+      console.log(`[MARKET_CONDITION] Avaliação concluída - Status: ${result.status} | Score: ${result.score}`);
+    } catch (error) {
+      console.error("[MARKET_CONDITION] Erro ao avaliar condições de mercado:", error);
+      await this.logEvent(
+        "MARKET_CONDITION_ERROR",
+        `Erro ao avaliar condições de mercado: ${error}`
+      );
+    }
   }
 }
 

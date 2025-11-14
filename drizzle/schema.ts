@@ -59,6 +59,8 @@ export const config = mysqlTable("config", {
   hedgeConfig: text("hedgeConfig"), // Configurações de hedge armazenadas como JSON
   // Configurações de conexão DERIV
   derivAppId: varchar("derivAppId", { length: 20 }).default("1089"), // App ID personalizado da DERIV (padrão: 1089 para testes)
+  // Configurações do Market Condition Detector
+  marketConditionEnabled: boolean("marketConditionEnabled").default(false).notNull(), // Habilitar detector de condições de mercado
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -194,3 +196,23 @@ export const botState = mysqlTable("botState", {
 
 export type BotState = typeof botState.$inferSelect;
 export type InsertBotState = typeof botState.$inferInsert;
+
+/**
+ * Condições de mercado avaliadas pelo Market Condition Detector
+ */
+export const marketConditions = mysqlTable("marketConditions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  botId: int("botId").notNull().default(1),
+  candleTimestamp: bigint("candleTimestamp", { mode: "number" }).notNull(), // timestamp do candle avaliado
+  symbol: varchar("symbol", { length: 50 }).notNull(),
+  status: mysqlEnum("status", ["GREEN", "YELLOW", "RED"]).notNull(),
+  score: int("score").notNull(), // 0-10
+  reasons: text("reasons").notNull(), // JSON array de strings
+  details: text("details"), // JSON com detalhes opcionais (ATR, amplitude, etc.)
+  computedAt: timestamp("computedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type MarketCondition = typeof marketConditions.$inferSelect;
+export type InsertMarketCondition = typeof marketConditions.$inferInsert;
