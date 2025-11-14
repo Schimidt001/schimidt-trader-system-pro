@@ -21,6 +21,9 @@ import {
   botState,
   BotState,
   InsertBotState,
+  marketConditions,
+  MarketCondition,
+  InsertMarketCondition,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -380,3 +383,104 @@ export async function upsertBotState(data: InsertBotState): Promise<void> {
   }
 }
 
+// ============= MARKET CONDITIONS QUERIES =============
+
+/**
+ * Insere uma nova condição de mercado
+ */
+export async function insertMarketCondition(data: InsertMarketCondition): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.insert(marketConditions).values(data);
+}
+
+/**
+ * Busca a última condição de mercado para um usuário/bot/símbolo
+ */
+export async function getLatestMarketCondition(
+  userId: number,
+  botId: number,
+  symbol: string
+): Promise<MarketCondition | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const results = await db
+    .select()
+    .from(marketConditions)
+    .where(
+      and(
+        eq(marketConditions.userId, userId),
+        eq(marketConditions.botId, botId),
+        eq(marketConditions.symbol, symbol)
+      )
+    )
+    .orderBy(desc(marketConditions.candleTimestamp))
+    .limit(1);
+
+  return results[0] || null;
+}
+
+/**
+ * Busca o histórico de condições de mercado (últimas N horas ou X registros)
+ */
+export async function getMarketConditionHistory(
+  userId: number,
+  botId: number,
+  symbol: string,
+  limit: number = 24
+): Promise<MarketCondition[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const results = await db
+    .select()
+    .from(marketConditions)
+    .where(
+      and(
+        eq(marketConditions.userId, userId),
+        eq(marketConditions.botId, botId),
+        eq(marketConditions.symbol, symbol)
+      )
+    )
+    .orderBy(desc(marketConditions.candleTimestamp))
+    .limit(limit);
+
+  return results;
+}
+
+/**
+ * Busca condições de mercado para uma data específica
+ */
+export async function getMarketConditionsByDate(
+  userId: number,
+  botId: number,
+  symbol: string,
+  date: Date
+): Promise<MarketCondition[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const startOfDay = new Date(date);
+  startOfDay.setUTCHours(0, 0, 0, 0);
+  
+  const endOfDay = new Date(date);
+  endOfDay.setUTCHours(23, 59, 59, 999);
+
+  const results = await db
+    .select()
+    .from(marketConditions)
+    .where(
+      and(
+        eq(marketConditions.userId, userId),
+        eq(marketConditions.botId, botId),
+        eq(marketConditions.symbol, symbol),
+        gte(marketConditions.computedAt, startOfDay),
+        lte(marketConditions.computedAt, endOfDay)
+      )
+    )
+    .orderBy(desc(marketConditions.candleTimestamp));
+
+  return results;
+}

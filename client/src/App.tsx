@@ -7,11 +7,12 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Logs from "./pages/Logs";
+import MarketCalendar from "./pages/MarketCalendar";
 import { useAuth } from "./_core/hooks/useAuth";
 import { getLoginUrl } from "./const";
 import { CinematicLogin } from "./components/CinematicLogin";
 import { Button } from "./components/ui/button";
-import { BarChart3, Settings as SettingsIcon, FileText, LogOut } from "lucide-react";
+import { BarChart3, Settings as SettingsIcon, FileText, LogOut, Calendar } from "lucide-react";
 import { trpc } from "./lib/trpc";
 
 function Navigation() {
@@ -30,6 +31,7 @@ function Navigation() {
 
   const navItems = [
     { path: "/", label: "Dashboard", icon: BarChart3 },
+    { path: "/market", label: "Mercado", icon: Calendar },
     { path: "/settings", label: "Configurações", icon: SettingsIcon },
     { path: "/logs", label: "Logs", icon: FileText },
   ];
@@ -110,6 +112,7 @@ function Router() {
       <Navigation />
       <Switch>
         <Route path="/" component={Dashboard} />
+        <Route path="/market" component={MarketCalendar} />
         <Route path="/settings" component={Settings} />
         <Route path="/logs" component={Logs} />
         <Route path="/404" component={NotFound} />
