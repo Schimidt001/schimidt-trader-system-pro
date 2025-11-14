@@ -78,6 +78,7 @@ export const appRouter = router({
           mode: z.enum(["DEMO", "REAL"]),
           tokenDemo: z.string().optional(),
           tokenReal: z.string().optional(),
+          derivAppId: z.string().optional(), // App ID personalizado da DERIV
           symbol: z.string(),
           stake: z.number().int().positive(),
           stopDaily: z.number().int().positive(),
@@ -149,7 +150,8 @@ export const appRouter = router({
       }
 
       try {
-        const derivService = new DerivService(token, config.mode === "DEMO");
+        const derivAppId = config.derivAppId || "1089";
+        const derivService = new DerivService(token, config.mode === "DEMO", derivAppId);
         await derivService.connect();
         
         // Buscar informa\u00e7\u00f5es da conta

@@ -40,6 +40,7 @@ export default function Settings() {
   const [mode, setMode] = useState<"DEMO" | "REAL">("DEMO");
   const [tokenDemo, setTokenDemo] = useState("");
   const [tokenReal, setTokenReal] = useState("");
+  const [derivAppId, setDerivAppId] = useState("1089"); // App ID da DERIV
   const [symbol, setSymbol] = useState("R_100");
   const [stake, setStake] = useState("10");
   const [stopDaily, setStopDaily] = useState("100");
@@ -160,6 +161,7 @@ export default function Settings() {
       setMode(config.mode);
       setTokenDemo(config.tokenDemo || "");
       setTokenReal(config.tokenReal || "");
+      setDerivAppId(config.derivAppId || "1089"); // Carregar App ID ou usar padrão
       setSymbol(config.symbol);
       setStake((config.stake / 100).toString());
       setStopDaily((config.stopDaily / 100).toString());
@@ -407,6 +409,7 @@ export default function Settings() {
       mode,
       tokenDemo: tokenDemo || undefined,
       tokenReal: tokenReal || undefined,
+      derivAppId: derivAppId || "1089", // App ID da DERIV
       symbol,
       stake: Math.round(stakeNum * 100), // Converter para centavos
       stopDaily: Math.round(stopDailyNum * 100),
@@ -525,6 +528,32 @@ export default function Settings() {
                   placeholder="Insira seu token de API REAL"
                   className="bg-slate-800 border-slate-700 text-white"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="derivAppId" className="text-slate-300">
+                  App ID da DERIV
+                </Label>
+                <Input
+                  id="derivAppId"
+                  type="text"
+                  value={derivAppId}
+                  onChange={(e) => setDerivAppId(e.target.value)}
+                  placeholder="1089 (padrão) ou seu App ID personalizado"
+                  className="bg-slate-800 border-slate-700 text-white"
+                />
+                <p className="text-xs text-slate-500">
+                  Crie seu próprio App ID em{" "}
+                  <a
+                    href="https://api.deriv.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300 underline"
+                  >
+                    api.deriv.com
+                  </a>
+                  {" "}para evitar problemas de conexão
+                </p>
               </div>
 
               {/* Botão de Teste de Conexão */}
