@@ -61,22 +61,6 @@ export default function MarketCalendar() {
     }
   };
   
-  // TESTE: Mutation para testar endpoint
-  const testMutation = trpc.marketDetector.testEndpoint.useMutation({
-    onSuccess: (data) => {
-      console.log("✅ [Frontend] Teste bem-sucedido:", data.message);
-      alert("Teste OK: " + data.message);
-    },
-    onError: (error) => {
-      console.error("❌ [Frontend] Erro no teste:", error);
-      alert("Erro no teste: " + error.message);
-    },
-  });
-  
-  const handleTest = () => {
-    console.log("🟠 [Frontend] Testando endpoint...");
-    testMutation.mutate();
-  };
 
   // Queries para condições de mercado
   const { data: currentCondition, isLoading: loadingCondition } = trpc.marketCondition.current.useQuery(
@@ -199,13 +183,6 @@ export default function MarketCalendar() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            onClick={handleTest}
-            variant="secondary"
-            size="sm"
-          >
-            🟠 Teste
-          </Button>
           <Button
             onClick={handleClearEvents}
             disabled={isClearing}

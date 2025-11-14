@@ -34,6 +34,8 @@ function mapCountryToCurrency(countryCode: string): string {
  */
 export class NewsCollectorService {
   private isCollecting: boolean = false;
+  private lastCollectionTime: number = 0;
+  private cooldownMinutes: number = 5; // Cooldown de 5 minutos entre coletas
   
   /**
    * Coleta notícias de todas as fontes disponíveis
@@ -42,6 +44,16 @@ export class NewsCollectorService {
     if (this.isCollecting) {
       console.log("[NewsCollector] Coleta já em andamento, pulando...");
       return;
+    }
+    
+    // Verificar cooldown
+    const now = Date.now();
+    const timeSinceLastCollection = (now - this.lastCollectionTime) / 1000 / 60; // em minutos
+    
+    if (this.lastCollectionTime > 0 && timeSinceLastCollection < this.cooldownMinutes) {
+      const remainingMinutes = Math.ceil(this.cooldownMinutes - timeSinceLastCollection);
+      console.warn(`[NewsCollector] ⚠️ Cooldown ativo. Aguarde ${remainingMinutes} minuto(s) antes de coletar novamente.`);
+      throw new Error(`Aguarde ${remainingMinutes} minuto(s) antes de coletar novamente para evitar rate limit.`);
     }
     
     this.isCollecting = true;
@@ -101,6 +113,9 @@ export class NewsCollectorService {
       
       // Limpar eventos antigos (mais de 7 dias)
       await cleanupOldMarketEvents(7);
+      
+      // Atualizar timestamp da última coleta
+      this.lastCollectionTime = Date.now();
       
     } catch (error) {
       console.error("[NewsCollector] ❌ Erro crítico durante coleta:", error);
@@ -164,9 +179,13 @@ export class NewsCollectorService {
       }
       
       return events;
-    } catch (error) {
-      console.error('[NewsCollector] Erro ao buscar ForexFactory:', error);
-      throw error;
+    } catch (error: any) {
+      if (error.response?.status === 429) {
+        console.error("[NewsCollector] ❌ ForexFactory: Rate limit atingido (429). Aguarde alguns minutos antes de tentar novamente.");
+      } else {
+        console.error("[NewsCollector] Erro ao buscar ForexFactory:", error.message || error);
+      }
+      return [];
     }
   }
   
