@@ -735,6 +735,28 @@ export const appRouter = router({
           });
         }
       }),
+    
+    // Obtém status do scheduler
+    schedulerStatus: protectedProcedure
+      .query(async () => {
+        try {
+          const { newsScheduler } = await import("./market-condition-v2/newsScheduler");
+          const nextExecution = newsScheduler.getNextExecutionTime();
+          
+          return {
+            isActive: newsScheduler.isActive(),
+            nextExecution: nextExecution ? nextExecution.toISOString() : null,
+            scheduledHours: [9, 15, 21],
+          };
+        } catch (error) {
+          console.error("[MarketDetector] Erro ao obter status do scheduler:", error);
+          return {
+            isActive: false,
+            nextExecution: null,
+            scheduledHours: [9, 15, 21],
+          };
+        }
+      }),
   }),
 
   marketEvents: router({

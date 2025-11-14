@@ -256,6 +256,12 @@ export default function MarketCalendar() {
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
+          ) : errorUpcoming ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-red-500" />
+              <p className="font-semibold">Falha ao carregar notícias</p>
+              <p className="text-sm">Detector operando apenas com critérios internos (ATR, Wicks, Spread, Fractal)</p>
+            </div>
           ) : (upcomingEvents && upcomingEvents.length > 0) ? (
             <div className="space-y-3">
               {upcomingEvents.map((event: any, i: number) => (
@@ -286,7 +292,8 @@ export default function MarketCalendar() {
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Calendar className="h-8 w-8 mx-auto mb-2" />
-              <p>Nenhum evento relevante nas próximas 24h</p>
+              <p className="font-semibold">Nenhum evento real encontrado</p>
+              <p className="text-sm">Sem eventos macroeconômicos relevantes (USD/JPY) nas próximas 24h</p>
             </div>
           )}
         </CardContent>
@@ -307,6 +314,12 @@ export default function MarketCalendar() {
           {loadingRecent && !errorRecent ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : errorRecent ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-red-500" />
+              <p className="font-semibold">Falha ao carregar notícias</p>
+              <p className="text-sm">Detector operando apenas com critérios internos (ATR, Wicks, Spread, Fractal)</p>
             </div>
           ) : (recentEvents && recentEvents.length > 0) ? (
             <div className="space-y-3">
@@ -342,7 +355,8 @@ export default function MarketCalendar() {
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <TrendingUp className="h-8 w-8 mx-auto mb-2" />
-              <p>Nenhum evento nas últimas 12h</p>
+              <p className="font-semibold">Nenhum evento real encontrado</p>
+              <p className="text-sm">Sem eventos macroeconômicos relevantes (USD/JPY) nas últimas 12h</p>
             </div>
           )}
         </CardContent>
