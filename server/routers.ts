@@ -197,7 +197,8 @@ export const appRouter = router({
         }
 
         try {
-          const derivService = new DerivService(token, config.mode === "DEMO");
+          const derivAppId = config.derivAppId || "1089";
+          const derivService = new DerivService(token, config.mode === "DEMO", derivAppId);
           await derivService.connect();
           
           const symbols = await derivService.getActiveSymbols(input.market);
@@ -384,7 +385,8 @@ export const appRouter = router({
 
       try {
         // Buscar saldo real da DERIV
-        const derivService = new DerivService(token, config.mode === "DEMO");
+        const derivAppId = config.derivAppId || "1089";
+        const derivService = new DerivService(token, config.mode === "DEMO", derivAppId);
         await derivService.connect();
         const balanceValue = await derivService.getBalance();
         derivService.disconnect();
@@ -426,7 +428,8 @@ export const appRouter = router({
         }
 
         try {
-          const derivService = new DerivService(token, config.mode === "DEMO");
+          const derivAppId = config.derivAppId || "1089";
+          const derivService = new DerivService(token, config.mode === "DEMO", derivAppId);
           await derivService.connect();
           
           const derivCandles = await derivService.getCandleHistory(
