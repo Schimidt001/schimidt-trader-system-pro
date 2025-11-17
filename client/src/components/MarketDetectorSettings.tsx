@@ -415,9 +415,9 @@ export function MarketDetectorSettings() {
         <div className="border-t pt-6">
           <h3 className="text-lg font-semibold mb-4">Thresholds de Classificação</h3>
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="greenThreshold">🟢 GREEN (máx)</Label>
+              <Label htmlFor="greenThreshold">🟢 GREEN (Seguro para Operar)</Label>
               <Input
                 id="greenThreshold"
                 type="number"
@@ -426,10 +426,11 @@ export function MarketDetectorSettings() {
                 min="0"
                 max="10"
               />
-              <p className="text-sm text-muted-foreground">Score ≤ {greenThreshold} = Operar</p>
+              <p className="text-sm text-muted-foreground">Score de 0 até {greenThreshold} = Condições ideais para trading</p>
             </div>
+            
             <div className="space-y-2">
-              <Label htmlFor="yellowThreshold">🟡 YELLOW (máx)</Label>
+              <Label htmlFor="yellowThreshold">🟡 YELLOW (Operar com Cautela)</Label>
               <Input
                 id="yellowThreshold"
                 type="number"
@@ -438,12 +439,21 @@ export function MarketDetectorSettings() {
                 min="0"
                 max="10"
               />
-              <p className="text-sm text-muted-foreground">Score ≤ {yellowThreshold} = Cautela</p>
+              <p className="text-sm text-muted-foreground">Score de {parseInt(greenThreshold) + 1} até {yellowThreshold} = Volatilidade moderada</p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="text-red-600">🔴 RED (Parar Trading)</Label>
+              <div className="p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-md">
+                <p className="text-sm font-medium text-red-700 dark:text-red-300">
+                  Score acima de {yellowThreshold} (Score {'>'} {yellowThreshold})
+                </p>
+                <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                  Calculado automaticamente: Qualquer score maior que YELLOW = Alta volatilidade/risco
+                </p>
+              </div>
             </div>
           </div>
-          <p className="text-sm text-muted-foreground mt-2">
-            🔴 RED: Score {'>'} {yellowThreshold} = Parar
-          </p>
         </div>
         
         {/* Botões */}
