@@ -1843,9 +1843,23 @@ export class TradingBot {
     const delayMs = this.repredictionDelay * 1000;
     
     this.repredictionTimer = setTimeout(async () => {
-      // Verificar se ainda está ARMED (não entrou em posição)
-      if (this.state === "ARMED" && !this.hasRepredicted) {
-        await this.makeReprediction();
+      try {
+        // Verificar se ainda está ARMED (não entrou em posição)
+        if (this.state === "ARMED" && !this.hasRepredicted) {
+          await this.makeReprediction();
+        } else {
+          const tfLabel = this.timeframe === 1800 ? "M30" : "M60";
+          await this.logEvent(
+            "REPREDICTION_SKIPPED",
+            `[${tfLabel}] Re-predição cancelada: estado=${this.state}, hasRepredicted=${this.hasRepredicted}`
+          );
+        }
+      } catch (error: any) {
+        console.error("[TradingBot] Erro na re-predição:", error);
+        await this.logEvent(
+          "REPREDICTION_ERROR",
+          `Erro ao executar re-predição: ${error.message || error}`
+        );
       }
     }, delayMs);
     
