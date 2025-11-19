@@ -426,7 +426,7 @@ export class TradingBot {
 
     console.log('[RELOAD_CONFIG] Recarregando configurações do banco...');
     
-    const config = await getConfigByUserId(this.userId);
+    const config = await getConfigByUserId(this.userId, this.botId);
     if (!config) {
       console.warn('[RELOAD_CONFIG] Configuração não encontrada');
       return;
