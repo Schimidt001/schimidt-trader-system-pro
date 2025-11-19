@@ -545,10 +545,12 @@ export const appRouter = router({
         z.object({
           symbol: z.string(),
           limit: z.number().int().positive().optional().default(100),
+          botId: z.number().int().min(1).max(2).optional(), // ✅ ADICIONADO
         })
       )
       .query(async ({ ctx, input }) => {
-        const candles = await getCandleHistory(input.symbol, input.limit);
+        const botId = input.botId ?? 1;
+        const candles = await getCandleHistory(input.symbol, input.limit, undefined, botId); // ✅ ADICIONADO botId
         return candles.reverse(); // Ordem cronológica
       }),
   }),

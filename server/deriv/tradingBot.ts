@@ -589,6 +589,7 @@ export class TradingBot {
     // Salvar histórico no banco
     for (const candle of history) {
       await insertCandle({
+        botId: this.botId, // ✅ ADICIONADO
         symbol: this.symbol,
         timeframe: timeframeLabel,
         timestampUtc: candle.epoch,
@@ -908,6 +909,7 @@ export class TradingBot {
     // Dados já são oficiais da DERIV (via subscribeCandles), salvar diretamente
     const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
     await insertCandle({
+      botId: this.botId, // ✅ ADICIONADO
       symbol: this.symbol,
       timeframe: timeframeLabel,
       timestampUtc: this.currentCandleTimestamp,
@@ -1036,7 +1038,7 @@ export class TradingBot {
 
       // Buscar histórico com filtro de timeframe correto
       const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
-      const history = await getCandleHistory(this.symbol, this.lookback, timeframeLabel);
+      const history = await getCandleHistory(this.symbol, this.lookback, timeframeLabel, this.botId); // ✅ ADICIONADO botId
       
       // ⚠️ Criar cópia antes de reverter para não modificar array original
       const historyData: CandleData[] = [...history].reverse().map((c) => ({
@@ -2069,7 +2071,7 @@ export class TradingBot {
       // Buscar histórico de candles para cálculos
       const timeframeLabel = this.timeframe === 900 ? "M15" : this.timeframe === 1800 ? "M30" : "M60";
       const lookbackForATR = 20; // Precisamos de pelo menos atrPeriod + 1 candles
-      const history = await getCandleHistory(this.symbol, lookbackForATR, timeframeLabel);
+      const history = await getCandleHistory(this.symbol, lookbackForATR, timeframeLabel, this.botId); // ✅ ADICIONADO botId
       
       if (history.length < 15) {
         console.warn(`[MARKET_CONDITION] Histórico insuficiente (${history.length} candles). Pulando avaliação.`);

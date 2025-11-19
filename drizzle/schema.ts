@@ -70,10 +70,11 @@ export type InsertConfig = typeof config.$inferInsert;
 
 /**
  * Histórico de candles (M15, M30, M60)
- * ✅ OK: Não precisa de botId (dados compartilhados)
+ * ✅ CORRIGIDO: Adicionado botId para separar dados de cada bot
  */
 export const candles = mysqlTable("candles", {
   id: int("id").autoincrement().primaryKey(),
+  botId: int("botId").notNull().default(1), // ✅ ADICIONADO
   symbol: varchar("symbol", { length: 50 }).notNull(),
   timeframe: varchar("timeframe", { length: 10 }).notNull().default("M15"),
   timestampUtc: bigint("timestampUtc", { mode: "number" }).notNull(), // Unix timestamp em segundos

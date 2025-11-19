@@ -159,26 +159,27 @@ export async function insertCandle(data: InsertCandle): Promise<void> {
 export async function getCandleHistory(
   symbol: string,
   limit: number = 100,
-  timeframe?: string // Opcional: filtrar por timeframe (M15, M30, M60)
+  timeframe?: string, // Opcional: filtrar por timeframe (M15, M30, M60)
+  botId?: number // ✅ ADICIONADO: filtrar por botId
 ): Promise<Candle[]> {
   const db = await getDb();
   if (!db) return [];
   
-  // Se timeframe for especificado, filtrar por ele
+  // Construir condições de filtro
+  const conditions = [eq(candles.symbol, symbol)];
+  
   if (timeframe) {
-    return db
-      .select()
-      .from(candles)
-      .where(and(eq(candles.symbol, symbol), eq(candles.timeframe, timeframe)))
-      .orderBy(desc(candles.timestampUtc))
-      .limit(limit);
+    conditions.push(eq(candles.timeframe, timeframe));
   }
   
-  // Sem timeframe, retornar todos (comportamento antigo para compatibilidade)
+  if (botId !== undefined) {
+    conditions.push(eq(candles.botId, botId));
+  }
+  
   return db
     .select()
     .from(candles)
-    .where(eq(candles.symbol, symbol))
+    .where(and(...conditions))
     .orderBy(desc(candles.timestampUtc))
     .limit(limit);
 }
