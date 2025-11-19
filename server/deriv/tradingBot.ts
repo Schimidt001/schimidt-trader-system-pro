@@ -1346,6 +1346,8 @@ export class TradingBot {
         entryTime: new Date(),
         isHedge: false,
       });
+      
+      console.log(`[POSITION_SAVED] Posição salva no banco | ID: ${positionId} | Contract: ${contract.contract_id} | Stake: $${(finalStake / 100).toFixed(2)} | Bot: ${this.botId}`);
 
       // Adicionar à lista de posições
       this.currentPositions.push({
@@ -1536,7 +1538,7 @@ export class TradingBot {
         stake: stakeInCents,
         entryPrice: "0",
         predictedClose: this.prediction.predicted_close.toString(),
-        trigger: "0",
+        trigger: this.trigger.toString(),
         phase: this.prediction.phase,
         strategy: this.prediction.strategy,
         confidence: this.prediction.confidence.toString(),
@@ -1548,6 +1550,8 @@ export class TradingBot {
         hedgeAction,
         hedgeReason,
       });
+      
+      console.log(`[HEDGE_SAVED] Hedge salvo no banco | ID: ${hedgePositionId} | Contract: ${contract.contract_id} | Stake: $${(stakeInCents / 100).toFixed(2)} | Parent: ${parentPositionId} | Bot: ${this.botId}`);
 
       // Adicionar à lista de posições
       this.currentPositions.push({
@@ -1646,6 +1650,8 @@ export class TradingBot {
             status: "CLOSED",
             exitTime: new Date(),
           });
+          
+          console.log(`[POSITION_UPDATED] Posição atualizada no banco | ID: ${position.positionId} | Contract: ${position.contractId} | PnL: $${(pnlInCents / 100).toFixed(2)} | Status: ${finalContractInfo.status} | Bot: ${this.botId}`);
 
           closedPositions.push({
             id: position.positionId,
@@ -1665,7 +1671,10 @@ export class TradingBot {
 
       // Atualizar PnL diário com total combinado
       this.dailyPnL += totalPnL;
-      await this.updateDailyMetrics(totalPnL);
+      // Contar apenas 1 trade (operação completa com ou sem hedge)
+      await this.updateDailyMetrics(totalPnL, 1);
+      
+      console.log(`[METRICS_UPDATED] Métricas atualizadas | PnL Operação: $${(totalPnL / 100).toFixed(2)} | PnL Diário Total: $${(this.dailyPnL / 100).toFixed(2)} | Trades Contabilizados: 1 | Posições Fechadas: ${closedPositions.length} | Bot: ${this.botId}`);
 
       await this.logEvent(
         "ALL_POSITIONS_CLOSED",
@@ -1729,26 +1738,50 @@ export class TradingBot {
   }
 
   /**
-   * Atualiza métricas diárias
+   * Atualiza métricas diárias e mensais
+   * @param pnl - PnL total da operação (pode incluir hedge)
+   * @param tradeCount - Número de trades a contabilizar (padrão: 1)
    */
-  private async updateDailyMetrics(pnl: number): Promise<void> {
+  private async updateDailyMetrics(pnl: number, tradeCount: number = 1): Promise<void> {
     const today = new Date().toISOString().split("T")[0];
-    const metric = await getMetric(this.userId, today, "daily", this.botId);
+    const thisMonth = today.substring(0, 7); // YYYY-MM
+    
+    // Atualizar métricas diárias
+    const dailyMetric = await getMetric(this.userId, today, "daily", this.botId);
 
-    const totalTrades = (metric?.totalTrades || 0) + 1;
-    const wins = pnl > 0 ? (metric?.wins || 0) + 1 : metric?.wins || 0;
-    const losses = pnl < 0 ? (metric?.losses || 0) + 1 : metric?.losses || 0;
-    const totalPnL = (metric?.pnl || 0) + pnl;
+    const dailyTotalTrades = (dailyMetric?.totalTrades || 0) + tradeCount;
+    const dailyWins = pnl > 0 ? (dailyMetric?.wins || 0) + 1 : dailyMetric?.wins || 0;
+    const dailyLosses = pnl < 0 ? (dailyMetric?.losses || 0) + 1 : dailyMetric?.losses || 0;
+    const dailyTotalPnL = (dailyMetric?.pnl || 0) + pnl;
 
     await upsertMetric({
       userId: this.userId,
       botId: this.botId,
       date: today,
       period: "daily",
-      totalTrades,
-      wins,
-      losses,
-      pnl: totalPnL,
+      totalTrades: dailyTotalTrades,
+      wins: dailyWins,
+      losses: dailyLosses,
+      pnl: dailyTotalPnL,
+    });
+    
+    // Atualizar métricas mensais
+    const monthlyMetric = await getMetric(this.userId, thisMonth, "monthly", this.botId);
+    
+    const monthlyTotalTrades = (monthlyMetric?.totalTrades || 0) + tradeCount;
+    const monthlyWins = pnl > 0 ? (monthlyMetric?.wins || 0) + 1 : monthlyMetric?.wins || 0;
+    const monthlyLosses = pnl < 0 ? (monthlyMetric?.losses || 0) + 1 : monthlyMetric?.losses || 0;
+    const monthlyTotalPnL = (monthlyMetric?.pnl || 0) + pnl;
+    
+    await upsertMetric({
+      userId: this.userId,
+      botId: this.botId,
+      date: thisMonth,
+      period: "monthly",
+      totalTrades: monthlyTotalTrades,
+      wins: monthlyWins,
+      losses: monthlyLosses,
+      pnl: monthlyTotalPnL,
     });
   }
 
