@@ -1068,7 +1068,15 @@ export class TradingBot {
       );
 
       // Chamar engine de predição
-      console.log(`[PREDICTION_REQUEST] Bot: ${this.botId} | Symbol: ${this.symbol} | TF: ${request.tf} | History candles: ${request.history.length} | Partial candle: Open=${request.partial_current.abertura}, High=${request.partial_current.maxima}, Low=${request.partial_current.minima}`);
+      console.log(`[PREDICTION_REQUEST] Bot: ${this.botId} | Symbol: ${this.symbol} | TF: ${request.tf} | History candles: ${request.history.length} | Partial candle: Open=${request.partial_current.abertura}, High=${request.partial_current.maxima_parcial}, Low=${request.partial_current.minima_parcial}`);
+      
+      // Log dos primeiros e últimos candles do histórico para debug
+      if (request.history.length > 0) {
+        const first = request.history[0];
+        const last = request.history[request.history.length - 1];
+        console.log(`[HISTORY_DEBUG] Bot: ${this.botId} | PRIMEIRO candle: TS=${first.timestamp} O=${first.abertura} H=${first.maxima} L=${first.minima} C=${first.fechamento}`);
+        console.log(`[HISTORY_DEBUG] Bot: ${this.botId} | ÚLTIMO candle: TS=${last.timestamp} O=${last.abertura} H=${last.maxima} L=${last.minima} C=${last.fechamento}`);
+      }
       
       this.prediction = await predictionService.predict(request);
       
