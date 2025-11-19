@@ -619,7 +619,7 @@ export class TradingBot {
         timestamp: c.epoch,
       }));
       
-      console.log(`[PHASE_DISCOVERY] Enviando para IA: ${historyData.length} candles | Timeframe: ${timeframeLabel} | Symbol: ${this.symbol}`);
+      console.log(`[PHASE_DISCOVERY] Bot: ${this.botId} | Enviando para IA: ${historyData.length} candles | Timeframe: ${timeframeLabel} | Symbol: ${this.symbol}`);
       const initialPrediction = await predictionService.predict({
         symbol: this.symbol,
         tf: timeframeLabel,
@@ -1068,7 +1068,11 @@ export class TradingBot {
       );
 
       // Chamar engine de predição
+      console.log(`[PREDICTION_REQUEST] Bot: ${this.botId} | Symbol: ${this.symbol} | TF: ${request.tf} | History candles: ${request.history.length} | Partial candle: Open=${request.partial_current.abertura}, High=${request.partial_current.maxima}, Low=${request.partial_current.minima}`);
+      
       this.prediction = await predictionService.predict(request);
+      
+      console.log(`[PREDICTION_RESPONSE] Bot: ${this.botId} | Direction: ${this.prediction.direction.toUpperCase()} | Predicted Close: ${this.prediction.predicted_close} | Phase: ${this.prediction.phase} | Strategy: ${this.prediction.strategy} | Confidence: ${this.prediction.confidence}`);
 
       // Calcular gatilho usando offset configurável
       // Se offset = 0, entrar diretamente no preço de predição (sem offset)
@@ -1974,7 +1978,12 @@ export class TradingBot {
       
       // Fazer nova predição
       const oldPrediction = this.prediction;
+      
+      console.log(`[REPREDICTION_REQUEST] Bot: ${this.botId} | Symbol: ${this.symbol} | TF: ${request.tf} | History candles: ${request.history.length} | Partial candle: Open=${request.partial_current.abertura}, High=${request.partial_current.maxima}, Low=${request.partial_current.minima}`);
+      
       this.prediction = await predictionService.predict(request);
+      
+      console.log(`[REPREDICTION_RESPONSE] Bot: ${this.botId} | OLD Direction: ${oldPrediction?.direction.toUpperCase()} | NEW Direction: ${this.prediction.direction.toUpperCase()} | Predicted Close: ${this.prediction.predicted_close} | Phase: ${this.prediction.phase}`);
       
       // Recalcular gatilho
       const offset = this.triggerOffset;
