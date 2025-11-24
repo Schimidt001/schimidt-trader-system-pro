@@ -346,6 +346,67 @@ export class DerivService {
   }
 
   /**
+   * Obter payout de uma proposta sem comprar
+   * Retorna o payout em porcentagem (ex: 85.5 para 85.5%)
+   */
+  async getProposalPayout(
+    symbol: string,
+    contractType: "CALL" | "PUT" | "CALLE" | "PUTE" | "ONETOUCH" | "NOTOUCH",
+    stake: number,
+    duration: number,
+    durationType: string,
+    barrier?: string
+  ): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const handler = (message: any) => {
+        if (message.proposal) {
+          this.subscriptions.delete("proposal_payout");
+          
+          // Calcular payout em porcentagem
+          const payout = message.proposal.payout || 0;
+          const payoutPercent = ((payout - stake) / stake) * 100;
+          
+          console.log(`[DERIV_PAYOUT] Payout: ${payout} | Stake: ${stake} | Payout %: ${payoutPercent.toFixed(2)}%`);
+          
+          resolve(payoutPercent);
+        } else if (message.error) {
+          this.subscriptions.delete("proposal_payout");
+          console.error('[DERIV_PAYOUT_ERROR]', message.error.message);
+          reject(new Error(message.error.message));
+        }
+      };
+
+      this.subscriptions.set("proposal_payout", handler);
+      
+      // Construir parâmetros da proposta
+      const proposalParams: any = {
+        proposal: 1,
+        contract_type: contractType,
+        symbol: symbol,
+        duration: duration,
+        duration_unit: durationType,
+        basis: "stake",
+        amount: stake,
+        currency: this.accountCurrency,
+      };
+      
+      // Adicionar barreira se for TOUCH ou NO_TOUCH
+      if (barrier && (contractType === "ONETOUCH" || contractType === "NOTOUCH")) {
+        proposalParams.barrier = barrier;
+      }
+      
+      this.send(proposalParams);
+
+      setTimeout(() => {
+        if (this.subscriptions.has("proposal_payout")) {
+          this.subscriptions.delete("proposal_payout");
+          reject(new Error("Proposal payout timeout"));
+        }
+      }, 10000);
+    });
+  }
+
+  /**
    * Criar proposta de contrato
    */
   async createProposal(

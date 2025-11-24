@@ -61,6 +61,10 @@ export const config = mysqlTable("config", {
   derivAppId: varchar("derivAppId", { length: 20 }).default("1089"), // App ID personalizado da DERIV (padrão: 1089 para testes)
   // Configurações do Market Condition Detector
   marketConditionEnabled: boolean("marketConditionEnabled").default(false).notNull(), // Habilitar detector de condições de mercado
+  // Configurações de Payout Mínimo
+  minPayoutPercent: int("minPayoutPercent").default(80).notNull(), // Payout mínimo aceitável em % (ex: 80 = 80%)
+  payoutRecheckDelay: int("payoutRecheckDelay").default(300).notNull(), // Tempo de espera para verificar payout novamente em segundos (padrão: 300s = 5min)
+  payoutCheckEnabled: boolean("payoutCheckEnabled").default(true).notNull(), // Habilitar verificação de payout antes de entrar
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

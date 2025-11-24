@@ -118,6 +118,11 @@ export class TradingBot {
   
   // Market Condition Detector
   private currentMarketCondition: MarketConditionResult | null = null;
+  
+  // Configurações de Payout Mínimo
+  private minPayoutPercent: number = 80; // Payout mínimo aceitável em %
+  private payoutRecheckDelay: number = 300; // Tempo de espera para verificar payout novamente (segundos)
+  private payoutCheckEnabled: boolean = true; // Habilitar verificação de payout
   private marketConditionEnabled: boolean = false;
   private lastEvaluatedCandleTimestamp: number = 0; // Timestamp do último candle avaliado
 
@@ -276,6 +281,17 @@ export class TradingBot {
       this.marketConditionEnabled = config.marketConditionEnabled ?? false;
       if (this.marketConditionEnabled) {
         console.log(`[MARKET_CONDITION] Market Condition Detector Habilitado`);
+      } else {
+        console.log(`[MARKET_CONDITION] Market Condition Detector Desabilitado`);
+      }
+      
+      // Carregar configurações de Payout Mínimo
+      this.minPayoutPercent = config.minPayoutPercent ?? 80;
+      this.payoutRecheckDelay = config.payoutRecheckDelay ?? 300;
+      this.payoutCheckEnabled = config.payoutCheckEnabled ?? true;
+      
+      if (this.payoutCheckEnabled) {
+        console.log(`[PAYOUT_CHECK] Verificação de Payout Habilitada | Mínimo: ${this.minPayoutPercent}% | Retry: ${this.payoutRecheckDelay}s`);
         await this.logEvent(
           "MARKET_CONDITION_CONFIG",
           `🌐 MARKET CONDITION DETECTOR ATIVADO | Análise de condições de mercado habilitada`
@@ -296,7 +312,7 @@ export class TradingBot {
           console.log(`[MARKET_CONDITION] Última condição carregada: ${lastCondition.status} (Score: ${lastCondition.score})`);
         }
       } else {
-        console.log(`[MARKET_CONDITION] Market Condition Detector Desabilitado`);
+        console.log(`[PAYOUT_CHECK] Verificação de Payout Desabilitada`);
       }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -469,6 +485,11 @@ export class TradingBot {
     // Atualizar re-predição
     this.repredictionEnabled = config.repredictionEnabled ?? true;
     this.repredictionDelay = config.repredictionDelay ?? 300;
+    
+    // Atualizar configurações de Payout Mínimo
+    this.minPayoutPercent = config.minPayoutPercent ?? 80;
+    this.payoutRecheckDelay = config.payoutRecheckDelay ?? 300;
+    this.payoutCheckEnabled = config.payoutCheckEnabled ?? true;
     
     // ATUALIZAR FILTRO DE HORÁRIO (parte mais importante!)
     const hourlyFilterEnabled = config.hourlyFilterEnabled ?? false;
@@ -951,6 +972,80 @@ export class TradingBot {
   }
 
   /**
+   * Verifica payout antes de fazer predição
+   * Retorna se o payout é aceitável e o valor do payout
+   */
+  private async checkPayoutBeforePrediction(): Promise<{ acceptable: boolean; payout: number }> {
+    try {
+      if (!this.derivService) {
+        console.warn('[PAYOUT_CHECK] DerivService não disponível, pulando verificação');
+        return { acceptable: true, payout: 100 }; // Assumir OK se não conseguir verificar
+      }
+      
+      // Determinar parâmetros do contrato para verificar payout
+      // Usar CALL como referência (payout é similar para CALL e PUT)
+      const contractType = this.allowEquals ? "CALLE" : "CALL";
+      const duration = this.calculateDuration();
+      const durationType = this.getDurationType();
+      
+      // Primeira verificação
+      console.log(`[PAYOUT_CHECK] Verificando payout para ${this.symbol} | Stake: ${this.stake / 100} | Duration: ${duration}${durationType}`);
+      
+      let payout = await this.derivService.getProposalPayout(
+        this.symbol,
+        contractType,
+        this.stake / 100, // Converter centavos para unidade monetária
+        duration,
+        durationType,
+        undefined // sem barreira para RISE_FALL
+      );
+      
+      console.log(`[PAYOUT_CHECK] Payout atual: ${payout.toFixed(2)}% | Mínimo: ${this.minPayoutPercent}%`);
+      
+      // Se payout é aceitável, retornar OK
+      if (payout >= this.minPayoutPercent) {
+        return { acceptable: true, payout };
+      }
+      
+      // Payout baixo - aguardar e verificar novamente
+      await this.logEvent(
+        "PAYOUT_LOW_RETRY",
+        `⚠️ Payout baixo (${payout.toFixed(2)}%). Aguardando ${this.payoutRecheckDelay}s para verificar novamente...`
+      );
+      
+      console.log(`[PAYOUT_CHECK] Aguardando ${this.payoutRecheckDelay}s antes de verificar novamente...`);
+      await new Promise(resolve => setTimeout(resolve, this.payoutRecheckDelay * 1000));
+      
+      // Segunda verificação
+      console.log(`[PAYOUT_CHECK] Verificando payout novamente...`);
+      payout = await this.derivService.getProposalPayout(
+        this.symbol,
+        contractType,
+        this.stake / 100,
+        duration,
+        durationType,
+        undefined
+      );
+      
+      console.log(`[PAYOUT_CHECK] Payout após retry: ${payout.toFixed(2)}% | Mínimo: ${this.minPayoutPercent}%`);
+      
+      return {
+        acceptable: payout >= this.minPayoutPercent,
+        payout
+      };
+      
+    } catch (error) {
+      console.error('[PAYOUT_CHECK] Erro ao verificar payout:', error);
+      await this.logEvent(
+        "PAYOUT_CHECK_ERROR",
+        `⚠️ Erro ao verificar payout: ${error}. Prosseguindo com operação.`
+      );
+      // Em caso de erro, assumir que payout é OK para não bloquear operações
+      return { acceptable: true, payout: 100 };
+    }
+  }
+
+  /**
    * Faz predição aos 8 minutos do candle
    */
   private async makePrediction(elapsedSeconds: number): Promise<void> {
@@ -1068,6 +1163,28 @@ export class TradingBot {
         "PRE_PREDICTION_DATA",
         `[ENTRADA DA PREDIÇÃO] Abertura: ${this.currentCandleOpen} | Máxima: ${this.currentCandleHigh} | Mínima: ${this.currentCandleLow} | Timestamp: ${this.currentCandleTimestamp} | Tempo decorrido: ${elapsedSeconds}s`
       );
+      
+      // ✅ VERIFICAÇÃO DE PAYOUT ANTES DA PREDIÇÃO
+      if (this.payoutCheckEnabled) {
+        const payoutCheckResult = await this.checkPayoutBeforePrediction();
+        
+        if (!payoutCheckResult.acceptable) {
+          await this.logEvent(
+            "PAYOUT_TOO_LOW",
+            `⚠️ Payout muito baixo (${payoutCheckResult.payout.toFixed(2)}% < ${this.minPayoutPercent}%). Operação CANCELADA. Aguardando próximo candle.`
+          );
+          
+          // Voltar ao estado de espera
+          this.state = "WAITING_MIDPOINT";
+          await this.updateBotState();
+          return;
+        }
+        
+        await this.logEvent(
+          "PAYOUT_ACCEPTABLE",
+          `✅ Payout aceitável (${payoutCheckResult.payout.toFixed(2)}% >= ${this.minPayoutPercent}%). Prosseguindo com predição.`
+        );
+      }
 
       // Chamar engine de predição
       console.log(`[PREDICTION_REQUEST] Bot: ${this.botId} | Symbol: ${this.symbol} | TF: ${request.tf} | History candles: ${request.history.length} | Partial candle: Open=${request.partial_current.abertura}, High=${request.partial_current.maxima_parcial}, Low=${request.partial_current.minima_parcial}`);
