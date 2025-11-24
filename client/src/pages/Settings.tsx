@@ -71,6 +71,12 @@ export default function Settings() {
   
   // Estado para Market Condition Detector
   const [marketConditionEnabled, setMarketConditionEnabled] = useState(false);
+  
+  // Estados para Payout Mínimo
+  const [payoutCheckEnabled, setPayoutCheckEnabled] = useState(true);
+  const [minPayoutPercent, setMinPayoutPercent] = useState("80");
+  const [payoutRecheckDelay, setPayoutRecheckDelay] = useState("300");
+  
   const [hourlyFilterCustomHours, setHourlyFilterCustomHours] = useState<number[]>([]);
   const [hourlyFilterGoldHours, setHourlyFilterGoldHours] = useState<number[]>([]);
   const [hourlyFilterGoldMultiplier, setHourlyFilterGoldMultiplier] = useState("200");
@@ -195,6 +201,12 @@ export default function Settings() {
       
       // Carregar configuração do Market Condition Detector
       setMarketConditionEnabled(config.marketConditionEnabled ?? false);
+      
+      // Carregar configurações de Payout Mínimo
+      setPayoutCheckEnabled(config.payoutCheckEnabled ?? true);
+      setMinPayoutPercent((config.minPayoutPercent ?? 80).toString());
+      setPayoutRecheckDelay((config.payoutRecheckDelay ?? 300).toString());
+      
       if (config.hourlyFilterCustomHours) {
         try {
           setHourlyFilterCustomHours(JSON.parse(config.hourlyFilterCustomHours));
@@ -442,6 +454,10 @@ export default function Settings() {
       hourlyFilterGoldHours: JSON.stringify(hourlyFilterGoldHours),
       hourlyFilterGoldMultiplier: parseInt(hourlyFilterGoldMultiplier) || 200, // Fallback para 200 (2x) se vazio
       marketConditionEnabled, // Market Condition Detector
+      // Payout Mínimo
+      payoutCheckEnabled,
+      minPayoutPercent: parseInt(minPayoutPercent) || 80,
+      payoutRecheckDelay: parseInt(payoutRecheckDelay) || 300,
     });
     
     console.log('[FILTRO] Salvando configurações:', {
@@ -1475,6 +1491,96 @@ export default function Settings() {
           {marketConditionEnabled && (
             <MarketDetectorSettings />
           )}
+
+          {/* Payout Mínimo */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-slate-100">📊 Verificação de Payout Mínimo</CardTitle>
+              <CardDescription>Protege contra operações com payout muito baixo (risco maior que retorno)</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="payoutCheckEnabled" className="text-slate-300">
+                    Ativar Verificação de Payout
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Bot verifica payout antes de entrar e só opera se for aceitável
+                  </p>
+                </div>
+                <Switch
+                  id="payoutCheckEnabled"
+                  checked={payoutCheckEnabled}
+                  onCheckedChange={setPayoutCheckEnabled}
+                />
+              </div>
+
+              {payoutCheckEnabled && (
+                <div className="space-y-4 pt-4 border-t border-slate-700">
+                  <div className="space-y-2">
+                    <Label htmlFor="minPayoutPercent" className="text-slate-300">
+                      Payout Mínimo Aceitável (%)
+                    </Label>
+                    <Input
+                      id="minPayoutPercent"
+                      type="number"
+                      value={minPayoutPercent}
+                      onChange={(e) => setMinPayoutPercent(e.target.value)}
+                      placeholder="80"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Exemplo: 80 = bot só entra se payout for ≥ 80% (ganhar $0.80 para cada $1 arriscado)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="payoutRecheckDelay" className="text-slate-300">
+                      Tempo de Espera para Retry (segundos)
+                    </Label>
+                    <Input
+                      id="payoutRecheckDelay"
+                      type="number"
+                      value={payoutRecheckDelay}
+                      onChange={(e) => setPayoutRecheckDelay(e.target.value)}
+                      placeholder="300"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Se payout estiver baixo, aguarda X segundos e verifica novamente. Exemplo: 300 = 5 minutos
+                    </p>
+                  </div>
+
+                  <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3">
+                    <p className="text-sm text-slate-300">
+                      📊 <strong>Como funciona:</strong>
+                    </p>
+                    <ul className="text-xs text-slate-400 space-y-1 mt-2">
+                      <li>1. Bot identifica momento de predição</li>
+                      <li>2. <strong>Verifica payout</strong> na Deriv antes de fazer predição</li>
+                      <li>3. Se payout ≥ mínimo → faz predição e entra</li>
+                      <li>4. Se payout &lt; mínimo → aguarda X segundos</li>
+                      <li>5. Verifica payout novamente</li>
+                      <li>6. Se ainda baixo → <strong>cancela operação</strong></li>
+                      <li>7. Se agora OK → faz predição e entra</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3">
+                    <p className="text-xs text-yellow-400">
+                      ⚠️ <strong>Atenção:</strong> Payout varia com volatilidade e horário. Em horários de baixa liquidez, payout tende a cair.
+                    </p>
+                  </div>
+                  
+                  <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3">
+                    <p className="text-xs text-green-400">
+                      ✅ <strong>Recomendação:</strong> Forex = 80% | Índices = 85% | Retry = 300s (M60) ou 180s (M15/M30)
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Botão Salvar */}
           <div className="flex justify-end">

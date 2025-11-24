@@ -109,6 +109,10 @@ export const appRouter = router({
           hourlyFilterGoldMultiplier: z.number().int().min(100).optional(),
           // Market Condition Detector
           marketConditionEnabled: z.boolean().optional(),
+          // Payout Mínimo
+          payoutCheckEnabled: z.boolean().optional(),
+          minPayoutPercent: z.number().int().min(1).max(100).optional(),
+          payoutRecheckDelay: z.number().int().min(0).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
