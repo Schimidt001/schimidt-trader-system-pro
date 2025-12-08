@@ -958,13 +958,13 @@ export class TradingBot {
 
   /**
    * Verifica payout antes de fazer predição
-   * Retorna se o payout é aceitável e o valor do payout
+   * Retorna se o payout é aceitável, o valor do payout e se houve erro
    */
-  private async checkPayoutBeforePrediction(): Promise<{ acceptable: boolean; payout: number }> {
+  private async checkPayoutBeforePrediction(): Promise<{ acceptable: boolean; payout: number; error?: boolean }> {
     try {
       if (!this.derivService) {
         console.warn('[PAYOUT_CHECK] DerivService não disponível, pulando verificação');
-        return { acceptable: true, payout: 100 }; // Assumir OK se não conseguir verificar
+        return { acceptable: true, payout: 0, error: true };
       }
       
       // Determinar parâmetros do contrato para verificar payout
@@ -993,7 +993,7 @@ export class TradingBot {
       
       // Se payout é aceitável, retornar OK
       if (payout >= this.minPayoutPercent) {
-        return { acceptable: true, payout };
+        return { acceptable: true, payout, error: false };
       }
       
       // Payout baixo - aguardar e verificar novamente
@@ -1020,7 +1020,8 @@ export class TradingBot {
       
       return {
         acceptable: payout >= this.minPayoutPercent,
-        payout
+        payout,
+        error: false
       };
       
     } catch (error) {
@@ -1030,7 +1031,7 @@ export class TradingBot {
         `⚠️ Erro ao verificar payout: ${error}. Prosseguindo com operação.`
       );
       // Em caso de erro, assumir que payout é OK para não bloquear operações
-      return { acceptable: true, payout: 100 };
+      return { acceptable: true, payout: 0, error: true };
     }
   }
 
@@ -1157,7 +1158,11 @@ export class TradingBot {
       if (this.payoutCheckEnabled) {
         const payoutCheckResult = await this.checkPayoutBeforePrediction();
         
-        if (!payoutCheckResult.acceptable) {
+        // Se houve erro, apenas logar e prosseguir (já foi logado no catch)
+        if (payoutCheckResult.error) {
+          console.log(`[PAYOUT_CHECK] Erro na verificação, prosseguindo com operação por segurança`);
+        } else if (!payoutCheckResult.acceptable) {
+          // Payout insuficiente - bloquear operação
           console.log(`[PAYOUT_CHECK] Operação BLOQUEADA - Payout insuficiente | Oferecido: $${payoutCheckResult.payout.toFixed(2)} USD | Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD`);
           
           await this.logEvent(
@@ -1169,12 +1174,13 @@ export class TradingBot {
           this.state = "WAITING_MIDPOINT";
           await this.updateBotState();
           return;
+        } else {
+          // Payout aceitável - logar e prosseguir
+          await this.logEvent(
+            "PAYOUT_ACCEPTABLE",
+            `✅ Payout aceitável ($${payoutCheckResult.payout.toFixed(2)} USD >= $${this.minPayoutPercent} USD). Prosseguindo com predição.`
+          );
         }
-        
-        await this.logEvent(
-          "PAYOUT_ACCEPTABLE",
-          `✅ Payout aceitável ($${payoutCheckResult.payout.toFixed(2)} USD >= $${this.minPayoutPercent} USD). Prosseguindo com predição.`
-        );
       }
 
       // Chamar engine de predição
@@ -2098,7 +2104,7 @@ export class TradingBot {
       // Fazer nova predição
       const oldPrediction = this.prediction;
       
-      console.log(`[REPREDICTION_REQUEST] Bot: ${this.botId} | Symbol: ${this.symbol} | TF: ${request.tf} | History candles: ${request.history.length} | Partial candle: Open=${request.partial_current.abertura}, High=${request.partial_current.maxima}, Low=${request.partial_current.minima}`);
+      console.log(`[REPREDICTION_REQUEST] Bot: ${this.botId} | Symbol: ${this.symbol} | TF: ${request.tf} | History candles: ${request.history.length} | Partial candle: Open=${request.partial_current.abertura}, High=${request.partial_current.maxima_parcial}, Low=${request.partial_current.minima_parcial}`);
       
       this.prediction = await predictionService.predict(request);
       
