@@ -347,7 +347,7 @@ export class DerivService {
 
   /**
    * Obter payout de uma proposta sem comprar
-   * Retorna o payout em porcentagem (ex: 85.5 para 85.5%)
+   * Retorna o payout em valor absoluto USD (ex: 17.20 para $17.20)
    */
   async getProposalPayout(
     symbol: string,
@@ -362,13 +362,12 @@ export class DerivService {
         if (message.proposal) {
           this.subscriptions.delete("proposal_payout");
           
-          // Calcular payout em porcentagem
+          // Retornar payout em valor absoluto USD
           const payout = message.proposal.payout || 0;
-          const payoutPercent = ((payout - stake) / stake) * 100;
           
-          console.log(`[DERIV_PAYOUT] Payout: ${payout} | Stake: ${stake} | Payout %: ${payoutPercent.toFixed(2)}%`);
+          console.log(`[DERIV_PAYOUT] Payout: $${payout.toFixed(2)} USD | Stake: $${stake.toFixed(2)} USD`);
           
-          resolve(payoutPercent);
+          resolve(payout);
         } else if (message.error) {
           this.subscriptions.delete("proposal_payout");
           console.error('[DERIV_PAYOUT_ERROR]', message.error.message);

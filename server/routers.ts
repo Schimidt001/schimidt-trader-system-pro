@@ -111,7 +111,7 @@ export const appRouter = router({
           marketConditionEnabled: z.boolean().optional(),
           // Payout Mínimo
           payoutCheckEnabled: z.boolean().optional(),
-          minPayoutPercent: z.number().int().min(1).max(100).optional(),
+          minPayoutPercent: z.number().min(0).optional(),
           payoutRecheckDelay: z.number().int().min(0).optional(),
         })
       )

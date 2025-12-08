@@ -120,9 +120,9 @@ export class TradingBot {
   private currentMarketCondition: MarketConditionResult | null = null;
   
   // Configurações de Payout Mínimo
-  private minPayoutPercent: number = 80; // Payout mínimo aceitável em %
+  private minPayoutPercent: number = 0; // Payout mínimo aceitável em USD (0 = desabilitado)
   private payoutRecheckDelay: number = 300; // Tempo de espera para verificar payout novamente (segundos)
-  private payoutCheckEnabled: boolean = true; // Habilitar verificação de payout
+  private payoutCheckEnabled: boolean = false; // Habilitar verificação de payout
   private marketConditionEnabled: boolean = false;
   private lastEvaluatedCandleTimestamp: number = 0; // Timestamp do último candle avaliado
 
@@ -286,31 +286,16 @@ export class TradingBot {
       }
       
       // Carregar configurações de Payout Mínimo
-      this.minPayoutPercent = config.minPayoutPercent ?? 80;
+      this.minPayoutPercent = config.minPayoutPercent ?? 0;
       this.payoutRecheckDelay = config.payoutRecheckDelay ?? 300;
-      this.payoutCheckEnabled = config.payoutCheckEnabled ?? true;
+      this.payoutCheckEnabled = config.payoutCheckEnabled ?? false;
       
       if (this.payoutCheckEnabled) {
-        console.log(`[PAYOUT_CHECK] Verificação de Payout Habilitada | Mínimo: ${this.minPayoutPercent}% | Retry: ${this.payoutRecheckDelay}s`);
+        console.log(`[PAYOUT_CHECK] Verificação de Payout Habilitada | Mínimo: $${this.minPayoutPercent} USD | Retry: ${this.payoutRecheckDelay}s`);
         await this.logEvent(
-          "MARKET_CONDITION_CONFIG",
-          `🌐 MARKET CONDITION DETECTOR ATIVADO | Análise de condições de mercado habilitada`
+          "PAYOUT_CHECK_CONFIG",
+          `💵 VERIFICAÇÃO DE PAYOUT ATIVADA | Mínimo: $${this.minPayoutPercent} USD | Retry: ${this.payoutRecheckDelay}s`
         );
-        
-        // Carregar última condição de mercado do banco
-        const lastCondition = await getLatestMarketCondition(this.userId, this.botId, this.symbol);
-        if (lastCondition) {
-          this.currentMarketCondition = {
-            status: lastCondition.status,
-            score: lastCondition.score,
-            reasons: JSON.parse(lastCondition.reasons),
-            computedAt: lastCondition.computedAt,
-            candleTimestamp: lastCondition.candleTimestamp,
-            symbol: lastCondition.symbol,
-            details: lastCondition.details ? JSON.parse(lastCondition.details) : undefined,
-          };
-          console.log(`[MARKET_CONDITION] Última condição carregada: ${lastCondition.status} (Score: ${lastCondition.score})`);
-        }
       } else {
         console.log(`[PAYOUT_CHECK] Verificação de Payout Desabilitada`);
       }
@@ -487,9 +472,9 @@ export class TradingBot {
     this.repredictionDelay = config.repredictionDelay ?? 300;
     
     // Atualizar configurações de Payout Mínimo
-    this.minPayoutPercent = config.minPayoutPercent ?? 80;
+    this.minPayoutPercent = config.minPayoutPercent ?? 0;
     this.payoutRecheckDelay = config.payoutRecheckDelay ?? 300;
-    this.payoutCheckEnabled = config.payoutCheckEnabled ?? true;
+    this.payoutCheckEnabled = config.payoutCheckEnabled ?? false;
     
     // ATUALIZAR FILTRO DE HORÁRIO (parte mais importante!)
     const hourlyFilterEnabled = config.hourlyFilterEnabled ?? false;
@@ -1000,7 +985,7 @@ export class TradingBot {
         undefined // sem barreira para RISE_FALL
       );
       
-      console.log(`[PAYOUT_CHECK] Payout atual: ${payout.toFixed(2)}% | Mínimo: ${this.minPayoutPercent}%`);
+      console.log(`[PAYOUT_CHECK] Payout atual: $${payout.toFixed(2)} USD | Mínimo: $${this.minPayoutPercent} USD`);
       
       // Se payout é aceitável, retornar OK
       if (payout >= this.minPayoutPercent) {
@@ -1010,7 +995,7 @@ export class TradingBot {
       // Payout baixo - aguardar e verificar novamente
       await this.logEvent(
         "PAYOUT_LOW_RETRY",
-        `⚠️ Payout baixo (${payout.toFixed(2)}%). Aguardando ${this.payoutRecheckDelay}s para verificar novamente...`
+        `⚠️ Payout baixo ($${payout.toFixed(2)} USD < $${this.minPayoutPercent} USD). Aguardando ${this.payoutRecheckDelay}s para verificar novamente...`
       );
       
       console.log(`[PAYOUT_CHECK] Aguardando ${this.payoutRecheckDelay}s antes de verificar novamente...`);
@@ -1027,7 +1012,7 @@ export class TradingBot {
         undefined
       );
       
-      console.log(`[PAYOUT_CHECK] Payout após retry: ${payout.toFixed(2)}% | Mínimo: ${this.minPayoutPercent}%`);
+      console.log(`[PAYOUT_CHECK] Payout após retry: $${payout.toFixed(2)} USD | Mínimo: $${this.minPayoutPercent} USD`);
       
       return {
         acceptable: payout >= this.minPayoutPercent,
@@ -1169,9 +1154,11 @@ export class TradingBot {
         const payoutCheckResult = await this.checkPayoutBeforePrediction();
         
         if (!payoutCheckResult.acceptable) {
+          console.log(`[PAYOUT_CHECK] Operação BLOQUEADA - Payout insuficiente | Oferecido: $${payoutCheckResult.payout.toFixed(2)} USD | Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD`);
+          
           await this.logEvent(
             "PAYOUT_TOO_LOW",
-            `⚠️ Payout muito baixo (${payoutCheckResult.payout.toFixed(2)}% < ${this.minPayoutPercent}%). Operação CANCELADA. Aguardando próximo candle.`
+            `⚠️ OPERAÇÃO BLOQUEADA | Payout: $${payoutCheckResult.payout.toFixed(2)} USD < Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD | Aguardando próximo candle`
           );
           
           // Voltar ao estado de espera
@@ -1182,7 +1169,7 @@ export class TradingBot {
         
         await this.logEvent(
           "PAYOUT_ACCEPTABLE",
-          `✅ Payout aceitável (${payoutCheckResult.payout.toFixed(2)}% >= ${this.minPayoutPercent}%). Prosseguindo com predição.`
+          `✅ Payout aceitável ($${payoutCheckResult.payout.toFixed(2)} USD >= $${this.minPayoutPercent} USD). Prosseguindo com predição.`
         );
       }
 
