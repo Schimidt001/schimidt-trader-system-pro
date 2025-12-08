@@ -540,7 +540,16 @@ export async function getUpcomingMarketEvents(
     )
     .orderBy(asc(marketEvents.timestamp));
   
-  return results;
+  // Remover duplicatas baseado em title + timestamp + currency
+  const uniqueEvents = new Map<string, MarketEvent>();
+  for (const event of results) {
+    const key = `${event.title}_${event.timestamp}_${event.currency}`;
+    if (!uniqueEvents.has(key)) {
+      uniqueEvents.set(key, event);
+    }
+  }
+  
+  return Array.from(uniqueEvents.values());
 }
 
 /**
@@ -568,7 +577,16 @@ export async function getRecentMarketEvents(
     )
     .orderBy(desc(marketEvents.timestamp));
   
-  return results;
+  // Remover duplicatas baseado em title + timestamp + currency
+  const uniqueEvents = new Map<string, MarketEvent>();
+  for (const event of results) {
+    const key = `${event.title}_${event.timestamp}_${event.currency}`;
+    if (!uniqueEvents.has(key)) {
+      uniqueEvents.set(key, event);
+    }
+  }
+  
+  return Array.from(uniqueEvents.values());
 }
 
 /**
@@ -602,7 +620,16 @@ export async function getMarketEventsByDate(
     )
     .orderBy(asc(marketEvents.timestamp));
   
-  return results;
+  // Remover duplicatas baseado em title + timestamp + currency
+  const uniqueEvents = new Map<string, MarketEvent>();
+  for (const event of results) {
+    const key = `${event.title}_${event.timestamp}_${event.currency}`;
+    if (!uniqueEvents.has(key)) {
+      uniqueEvents.set(key, event);
+    }
+  }
+  
+  return Array.from(uniqueEvents.values());
 }
 
 /**

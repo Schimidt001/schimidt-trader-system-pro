@@ -1294,16 +1294,17 @@ export class TradingBot {
     if (this.marketConditionEnabled && this.currentMarketCondition) {
       if (this.currentMarketCondition.status === "RED") {
         await this.logEvent(
-          "ENTRY_BLOCKED_MARKET_CONDITION",
-          `🔴 Entrada bloqueada por condições de mercado | Status: RED | Score: ${this.currentMarketCondition.score}/10 | Motivos: ${this.currentMarketCondition.reasons.join(", ")}`
+          "BOT_STOPPED_MARKET_CONDITION",
+          `🔴 BOT PARADO AUTOMATICAMENTE | Condições de mercado perigosas detectadas | Status: RED | Score: ${this.currentMarketCondition.score}/10 | Motivos: ${this.currentMarketCondition.reasons.join(", ")} | Reative manualmente quando condições melhorarem`
         );
-        console.log(`[MARKET_CONDITION] Entrada bloqueada - Status: RED | Score: ${this.currentMarketCondition.score}`);
+        console.log(`[MARKET_CONDITION] BOT PARADO - Condições perigosas detectadas | Status: RED | Score: ${this.currentMarketCondition.score}`);
+        console.log(`[MARKET_CONDITION] Motivos: ${this.currentMarketCondition.reasons.join(", ")}`);
+        console.log(`[MARKET_CONDITION] Bot deve ser reativado MANUALMENTE após análise das condições`);
         
-        // Voltar para estado WAITING_MIDPOINT para aguardar próximo candle
-        this.state = "WAITING_MIDPOINT";
-        this.prediction = null;
-        this.trigger = 0;
+        // Parar bot completamente (similar ao stop/take diário)
+        this.state = "LOCK_RISK";
         await this.updateBotState();
+        await this.stop();
         return;
       }
       
