@@ -970,8 +970,12 @@ export class TradingBot {
       // Determinar parâmetros do contrato para verificar payout
       // Usar CALL como referência (payout é similar para CALL e PUT)
       const contractType = this.allowEquals ? "CALLE" : "CALL";
-      const duration = this.calculateDuration();
-      const durationType = this.getDurationType();
+      
+      // Calcular duração baseado no timeframe
+      // Usar minutos como unidade padrão
+      const durationMinutes = Math.ceil(this.timeframe / 60);
+      const duration = durationMinutes;
+      const durationType = "m"; // minutos
       
       // Primeira verificação
       console.log(`[PAYOUT_CHECK] Verificando payout para ${this.symbol} | Stake: ${this.stake / 100} | Duration: ${duration}${durationType}`);
