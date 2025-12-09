@@ -15,6 +15,13 @@
       "when": 1761587364922,
       "tag": "0001_blushing_dakota_north",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1765317103704,
+      "tag": "0002_perfect_reavers",
+      "breakpoints": true
     }
   ]
 }

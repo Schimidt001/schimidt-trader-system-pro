@@ -7,6 +7,8 @@ import type { HourlyFilterConfig } from "../../filtro-horario/types";
 import { validateHedgeConfig } from "../ai/hedgeConfigSchema";
 import { marketConditionDetector } from "../market-condition-v2/marketConditionDetector";
 import type { MarketConditionResult } from "../market-condition-v2/types";
+import { DojiGuard } from "../doji-guard/dojiGuard";
+import type { DojiGuardConfig, CandleData as DojiCandleData } from "../doji-guard/dojiGuard";
 import type {
   PredictionRequest,
   PredictionResponse,
@@ -125,6 +127,9 @@ export class TradingBot {
   private payoutCheckEnabled: boolean = false; // Habilitar verificação de payout
   private marketConditionEnabled: boolean = false;
   private lastEvaluatedCandleTimestamp: number = 0; // Timestamp do último candle avaliado
+  
+  // DojiGuard (Filtro Anti-Doji)
+  private dojiGuard: DojiGuard | null = null;
 
   constructor(userId: number, botId: number = 1) {
     this.userId = userId;
@@ -298,6 +303,27 @@ export class TradingBot {
         );
       } else {
         console.log(`[PAYOUT_CHECK] Verificação de Payout Desabilitada`);
+      }
+      
+      // Carregar configurações do DojiGuard (Filtro Anti-Doji)
+      const antiDojiEnabled = config.antiDojiEnabled ?? false;
+      const antiDojiRangeMin = config.antiDojiRangeMin ? parseFloat(config.antiDojiRangeMin.toString()) : 0.0500;
+      const antiDojiRatioMin = config.antiDojiRatioMin ? parseFloat(config.antiDojiRatioMin.toString()) : 0.1800;
+      
+      this.dojiGuard = new DojiGuard({
+        enabled: antiDojiEnabled,
+        rangeMin: antiDojiRangeMin,
+        ratioMin: antiDojiRatioMin,
+      });
+      
+      if (antiDojiEnabled) {
+        console.log(`[DOJI_GUARD] Filtro Anti-Doji Habilitado | Range Mínimo: ${antiDojiRangeMin.toFixed(4)} | Proporção Mínima: ${(antiDojiRatioMin * 100).toFixed(2)}%`);
+        await this.logEvent(
+          "DOJI_GUARD_CONFIG",
+          `🛡️ FILTRO ANTI-DOJI ATIVADO | Range Mínimo: ${antiDojiRangeMin.toFixed(4)} | Proporção Mínima: ${(antiDojiRatioMin * 100).toFixed(2)}%`
+        );
+      } else {
+        console.log(`[DOJI_GUARD] Filtro Anti-Doji Desabilitado`);
       }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -1191,6 +1217,43 @@ export class TradingBot {
       this.prediction = await predictionService.predict(request);
       
       console.log(`[PREDICTION_RESPONSE] Bot: ${this.botId} | Direction: ${this.prediction.direction.toUpperCase()} | Predicted Close: ${this.prediction.predicted_close} | Phase: ${this.prediction.phase} | Strategy: ${this.prediction.strategy} | Confidence: ${this.prediction.confidence}`);
+
+      // 🛡️ DOJI GUARD - Verificar se candle deve ser bloqueado
+      if (this.dojiGuard && this.dojiGuard.isEnabled()) {
+        const dojiCheckResult = this.dojiGuard.check({
+          open: this.currentCandleOpen,
+          high: this.currentCandleHigh,
+          low: this.currentCandleLow,
+          close: this.currentCandleClose, // Preço atual (close parcial)
+        });
+        
+        console.log(this.dojiGuard.formatLogMessage(dojiCheckResult));
+        
+        if (dojiCheckResult.blocked) {
+          // Candle bloqueado por DojiGuard
+          await this.logEvent(
+            "DOJI_BLOCKED",
+            `🚫 ENTRADA BLOQUEADA (DojiGuard) | ${dojiCheckResult.reason} | ` +
+            `Range: ${dojiCheckResult.metrics.range.toFixed(4)} | ` +
+            `Body: ${dojiCheckResult.metrics.body.toFixed(4)} | ` +
+            `Ratio: ${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}% | ` +
+            `Config: range_min=${dojiCheckResult.config.rangeMin.toFixed(4)}, ratio_min=${(dojiCheckResult.config.ratioMin * 100).toFixed(2)}%`
+          );
+          
+          // Não armar entrada, voltar para WAITING_MIDPOINT
+          this.state = "WAITING_MIDPOINT";
+          await this.updateBotState();
+          return;
+        } else {
+          // Candle aprovado pelo DojiGuard
+          await this.logEvent(
+            "DOJI_APPROVED",
+            `✅ Candle aprovado pelo DojiGuard | ` +
+            `Range: ${dojiCheckResult.metrics.range.toFixed(4)} | ` +
+            `Ratio: ${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}%`
+          );
+        }
+      }
 
       // Calcular gatilho usando offset configurável
       // Se offset = 0, entrar diretamente no preço de predição (sem offset)
@@ -2132,6 +2195,39 @@ export class TradingBot {
       this.prediction = await predictionService.predict(request);
       
       console.log(`[REPREDICTION_RESPONSE] Bot: ${this.botId} | OLD Direction: ${oldPrediction?.direction.toUpperCase()} | NEW Direction: ${this.prediction.direction.toUpperCase()} | Predicted Close: ${this.prediction.predicted_close} | Phase: ${this.prediction.phase}`);
+      
+      // 🛡️ DOJI GUARD - Verificar se candle deve ser bloqueado (na re-predição)
+      if (this.dojiGuard && this.dojiGuard.isEnabled()) {
+        const dojiCheckResult = this.dojiGuard.check({
+          open: this.currentCandleOpen,
+          high: this.currentCandleHigh,
+          low: this.currentCandleLow,
+          close: this.currentCandleClose, // Preço atual (close parcial)
+        });
+        
+        console.log(`[REPREDICTION] ${this.dojiGuard.formatLogMessage(dojiCheckResult)}`);
+        
+        if (dojiCheckResult.blocked) {
+          // Candle bloqueado por DojiGuard em re-predição
+          await this.logEvent(
+            "DOJI_BLOCKED_REPREDICTION",
+            `🚫 ENTRADA BLOQUEADA EM RE-PREDIÇÃO (DojiGuard) | ${dojiCheckResult.reason} | ` +
+            `Range: ${dojiCheckResult.metrics.range.toFixed(4)} | ` +
+            `Body: ${dojiCheckResult.metrics.body.toFixed(4)} | ` +
+            `Ratio: ${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}% | ` +
+            `Config: range_min=${dojiCheckResult.config.rangeMin.toFixed(4)}, ratio_min=${(dojiCheckResult.config.ratioMin * 100).toFixed(2)}%`
+          );
+          
+          // Cancelar gatilho armado e voltar para WAITING_MIDPOINT
+          this.prediction = null;
+          this.trigger = 0;
+          this.state = "WAITING_MIDPOINT";
+          await this.updateBotState();
+          
+          console.log(`[DOJI_GUARD] Gatilho cancelado devido a bloqueio em re-predição`);
+          return;
+        }
+      }
       
       // Recalcular gatilho
       const offset = this.triggerOffset;

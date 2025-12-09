@@ -65,6 +65,10 @@ export const config = mysqlTable("config", {
   minPayoutPercent: int("minPayoutPercent").default(80).notNull(), // Payout mínimo aceitável em % (ex: 80 = 80%)
   payoutRecheckDelay: int("payoutRecheckDelay").default(300).notNull(), // Tempo de espera para verificar payout novamente em segundos (padrão: 300s = 5min)
   payoutCheckEnabled: boolean("payoutCheckEnabled").default(true).notNull(), // Habilitar verificação de payout antes de entrar
+  // Configurações do DojiGuard (Filtro Anti-Doji)
+  antiDojiEnabled: boolean("antiDojiEnabled").default(false).notNull(), // Habilitar filtro anti-doji
+  antiDojiRangeMin: decimal("antiDojiRangeMin", { precision: 10, scale: 4 }).default("0.0500").notNull(), // Range mínimo aceitável (ex: 0.0500 = 50 pips)
+  antiDojiRatioMin: decimal("antiDojiRatioMin", { precision: 10, scale: 4 }).default("0.1800").notNull(), // Proporção mínima body/range (ex: 0.18 = 18%)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

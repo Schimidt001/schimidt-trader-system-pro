@@ -77,6 +77,11 @@ export default function Settings() {
   const [minPayoutPercent, setMinPayoutPercent] = useState("80");
   const [payoutRecheckDelay, setPayoutRecheckDelay] = useState("300");
   
+  // Estados para DojiGuard (Filtro Anti-Doji)
+  const [antiDojiEnabled, setAntiDojiEnabled] = useState(false);
+  const [antiDojiRangeMin, setAntiDojiRangeMin] = useState("0.0500");
+  const [antiDojiRatioMin, setAntiDojiRatioMin] = useState("18"); // Armazenar como % (18 = 18%)
+  
   const [hourlyFilterCustomHours, setHourlyFilterCustomHours] = useState<number[]>([]);
   const [hourlyFilterGoldHours, setHourlyFilterGoldHours] = useState<number[]>([]);
   const [hourlyFilterGoldMultiplier, setHourlyFilterGoldMultiplier] = useState("200");
@@ -206,6 +211,13 @@ export default function Settings() {
       setPayoutCheckEnabled(config.payoutCheckEnabled ?? true);
       setMinPayoutPercent((config.minPayoutPercent ?? 80).toString());
       setPayoutRecheckDelay((config.payoutRecheckDelay ?? 300).toString());
+      
+      // Carregar configurações do DojiGuard
+      setAntiDojiEnabled(config.antiDojiEnabled ?? false);
+      setAntiDojiRangeMin(config.antiDojiRangeMin ? config.antiDojiRangeMin.toString() : "0.0500");
+      // Converter de decimal (0.18) para % (18)
+      const ratioPercent = config.antiDojiRatioMin ? (parseFloat(config.antiDojiRatioMin.toString()) * 100).toFixed(0) : "18";
+      setAntiDojiRatioMin(ratioPercent);
       
       if (config.hourlyFilterCustomHours) {
         try {
@@ -458,6 +470,10 @@ export default function Settings() {
       payoutCheckEnabled,
       minPayoutPercent: parseInt(minPayoutPercent) || 80,
       payoutRecheckDelay: parseInt(payoutRecheckDelay) || 300,
+      // DojiGuard (Filtro Anti-Doji)
+      antiDojiEnabled,
+      antiDojiRangeMin: parseFloat(antiDojiRangeMin) || 0.0500,
+      antiDojiRatioMin: (parseInt(antiDojiRatioMin) || 18) / 100, // Converter % para decimal (18 -> 0.18)
     });
     
     console.log('[FILTRO] Salvando configurações:', {
@@ -1575,6 +1591,97 @@ export default function Settings() {
                   <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3">
                     <p className="text-xs text-green-400">
                       ✅ <strong>Recomendação:</strong> Forex = 80% | Índices = 85% | Retry = 300s (M60) ou 180s (M15/M30)
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* DojiGuard (Filtro Anti-Doji) */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-slate-100">🛡️ Filtro Anti-Doji (DojiGuard)</CardTitle>
+              <CardDescription>Bloqueia entrada em candles com alta probabilidade de indecisão (doji)</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="antiDojiEnabled" className="text-slate-300">
+                    Ativar Filtro Anti-Doji
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Bot verifica se o candle tem características de doji antes de armar entrada
+                  </p>
+                </div>
+                <Switch
+                  id="antiDojiEnabled"
+                  checked={antiDojiEnabled}
+                  onCheckedChange={setAntiDojiEnabled}
+                />
+              </div>
+
+              {antiDojiEnabled && (
+                <div className="space-y-4 pt-4 border-t border-slate-700">
+                  <div className="space-y-2">
+                    <Label htmlFor="antiDojiRangeMin" className="text-slate-300">
+                      Range Mínimo Aceitável (pips)
+                    </Label>
+                    <Input
+                      id="antiDojiRangeMin"
+                      type="number"
+                      step="0.0001"
+                      value={antiDojiRangeMin}
+                      onChange={(e) => setAntiDojiRangeMin(e.target.value)}
+                      placeholder="0.0500"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Exemplo: 0.0500 = 50 pips. Candles com range menor que isso são bloqueados (volatilidade insuficiente)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="antiDojiRatioMin" className="text-slate-300">
+                      Proporção Mínima Body/Range (%)
+                    </Label>
+                    <Input
+                      id="antiDojiRatioMin"
+                      type="number"
+                      value={antiDojiRatioMin}
+                      onChange={(e) => setAntiDojiRatioMin(e.target.value)}
+                      placeholder="18"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Exemplo: 18 = 18%. Se o corpo do candle for menor que 18% do range total, é bloqueado (alta probabilidade de doji)
+                    </p>
+                  </div>
+
+                  <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3">
+                    <p className="text-sm text-slate-300">
+                      📊 <strong>Como funciona:</strong>
+                    </p>
+                    <ul className="text-xs text-slate-400 space-y-1 mt-2">
+                      <li>1. Bot captura dados do candle aos 35 minutos (M60)</li>
+                      <li>2. Calcula: <strong>range</strong> = high - low</li>
+                      <li>3. Calcula: <strong>body</strong> = |close - open|</li>
+                      <li>4. Calcula: <strong>ratio</strong> = body / range</li>
+                      <li>5. Se range &lt; mínimo → <strong>BLOQUEIA</strong></li>
+                      <li>6. Se ratio &lt; mínimo → <strong>BLOQUEIA</strong></li>
+                      <li>7. Se aprovado → arma gatilho normalmente</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3">
+                    <p className="text-xs text-yellow-400">
+                      ⚠️ <strong>Atenção:</strong> Filtro também é aplicado em re-predições. Se candle virar "lixo" no meio do caminho, gatilho é cancelado.
+                    </p>
+                  </div>
+                  
+                  <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3">
+                    <p className="text-xs text-green-400">
+                      ✅ <strong>Recomendação:</strong> Forex M60 = Range: 0.0500 | Ratio: 18% (valores testados em USD/JPY e EUR/JPY)
                     </p>
                   </div>
                 </div>
