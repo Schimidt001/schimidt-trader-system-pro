@@ -401,7 +401,7 @@ export class DerivService {
           this.subscriptions.delete("proposal_payout");
           reject(new Error("Proposal payout timeout"));
         }
-      }, 10000);
+      }, 15000); // Aumentado de 10s para 15s
     });
   }
 
@@ -483,15 +483,55 @@ export class DerivService {
     try {
       // Primeiro, criar uma proposta
       console.log('[DERIV_BUY] Iniciando compra: criando proposta primeiro...');
-      const proposalId = await this.createProposal(
-        symbol,
-        contractType,
-        stake,
-        duration,
-        durationType,
-        barrier,
-        allowEquals
-      );
+      
+      let adjustedStake = stake;
+      let proposalId: string;
+      
+      try {
+        proposalId = await this.createProposal(
+          symbol,
+          contractType,
+          adjustedStake,
+          duration,
+          durationType,
+          barrier,
+          allowEquals
+        );
+      } catch (error: any) {
+        // Se o erro for de payout máximo excedido, tentar ajustar o stake
+        if (error.message && error.message.includes('maximum payout')) {
+          console.warn('[DERIV_BUY] Payout máximo excedido, ajustando stake...');
+          
+          // Extrair o payout máximo da mensagem de erro
+          const maxPayoutMatch = error.message.match(/maximum payout of ([\d.]+)/);
+          const currentPayoutMatch = error.message.match(/Current payout is ([\d.]+)/);
+          
+          if (maxPayoutMatch && currentPayoutMatch) {
+            const maxPayout = parseFloat(maxPayoutMatch[1]);
+            const currentPayout = parseFloat(currentPayoutMatch[1]);
+            
+            // Calcular stake ajustado: stake * (maxPayout / currentPayout) * 0.95 (margem de segurança)
+            adjustedStake = stake * (maxPayout / currentPayout) * 0.95;
+            
+            console.log(`[DERIV_BUY] Stake ajustado: $${stake.toFixed(2)} -> $${adjustedStake.toFixed(2)} USD`);
+            
+            // Tentar novamente com stake ajustado
+            proposalId = await this.createProposal(
+              symbol,
+              contractType,
+              adjustedStake,
+              duration,
+              durationType,
+              barrier,
+              allowEquals
+            );
+          } else {
+            throw error; // Re-lançar se não conseguir extrair os valores
+          }
+        } else {
+          throw error; // Re-lançar se não for erro de payout máximo
+        }
+      }
       
       console.log('[DERIV_BUY] Proposta criada com sucesso. ID:', proposalId);
       
@@ -524,7 +564,7 @@ export class DerivService {
         
         this.send({
           buy: proposalId,
-          price: stake,
+          price: adjustedStake, // Usar stake ajustado se foi modificado
         });
 
         setTimeout(() => {

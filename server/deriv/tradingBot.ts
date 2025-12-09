@@ -957,8 +957,9 @@ export class TradingBot {
   }
 
   /**
-   * Verifica payout antes de fazer predição
+   * Verifica payout antes de entrar na operação
    * Retorna se o payout é aceitável, o valor do payout e se houve erro
+   * IMPORTANTE: Calcula a duração baseada no tempo ATUAL (momento da entrada)
    */
   private async checkPayoutBeforePrediction(): Promise<{ acceptable: boolean; payout: number; error?: boolean }> {
     try {
@@ -971,11 +972,33 @@ export class TradingBot {
       // Usar CALL como referência (payout é similar para CALL e PUT)
       const contractType = this.allowEquals ? "CALLE" : "CALL";
       
-      // Calcular duração baseado no timeframe
-      // Usar minutos como unidade padrão
-      const durationMinutes = Math.ceil(this.timeframe / 60);
-      const duration = durationMinutes;
+      // ✅ Calcular duração baseada no tempo ATUAL (momento da entrada)
+      // Detectar se é Forex
+      const isForex = !this.symbol.startsWith("R_") && !this.symbol.startsWith("1HZ");
+      
+      // Calcular tempo restante do candle AGORA
+      const currentCandleStartTime = Math.floor(Date.now() / 1000 / this.timeframe) * this.timeframe;
+      const currentTime = Math.floor(Date.now() / 1000);
+      const elapsedInCandle = currentTime - currentCandleStartTime;
+      const remainingSeconds = this.timeframe - elapsedInCandle;
+      
+      let duration: number;
       const durationType = "m"; // minutos
+      
+      if (this.useCandleDuration) {
+        // Usar tempo restante do candle
+        duration = Math.max(Math.ceil(remainingSeconds / 60), 1);
+        console.log(`[PAYOUT_CHECK] Duração dinâmica: ${duration} min (${remainingSeconds}s restantes do candle)`);
+      } else if (isForex) {
+        // Para Forex, usar duração mínima fixa
+        duration = this.forexMinDurationMinutes;
+        console.log(`[PAYOUT_CHECK] Forex detectado. Usando duração mínima: ${duration} min (${remainingSeconds}s restantes do candle)`);
+      } else {
+        // Para Sintéticos, usar tempo restante do candle
+        const durationMinutes = Math.ceil(remainingSeconds / 60);
+        duration = Math.max(durationMinutes, 1);
+        console.log(`[PAYOUT_CHECK] Sintético detectado. Duração: ${duration} min (${remainingSeconds}s restantes do candle)`);
+      }
       
       // Primeira verificação
       console.log(`[PAYOUT_CHECK] Verificando payout para ${this.symbol} | Stake: ${this.stake / 100} | Duration: ${duration}${durationType}`);
@@ -1153,35 +1176,6 @@ export class TradingBot {
         "PRE_PREDICTION_DATA",
         `[ENTRADA DA PREDIÇÃO] Abertura: ${this.currentCandleOpen} | Máxima: ${this.currentCandleHigh} | Mínima: ${this.currentCandleLow} | Timestamp: ${this.currentCandleTimestamp} | Tempo decorrido: ${elapsedSeconds}s`
       );
-      
-      // ✅ VERIFICAÇÃO DE PAYOUT ANTES DA PREDIÇÃO
-      if (this.payoutCheckEnabled) {
-        const payoutCheckResult = await this.checkPayoutBeforePrediction();
-        
-        // Se houve erro, apenas logar e prosseguir (já foi logado no catch)
-        if (payoutCheckResult.error) {
-          console.log(`[PAYOUT_CHECK] Erro na verificação, prosseguindo com operação por segurança`);
-        } else if (!payoutCheckResult.acceptable) {
-          // Payout insuficiente - bloquear operação
-          console.log(`[PAYOUT_CHECK] Operação BLOQUEADA - Payout insuficiente | Oferecido: $${payoutCheckResult.payout.toFixed(2)} USD | Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD`);
-          
-          await this.logEvent(
-            "PAYOUT_TOO_LOW",
-            `⚠️ OPERAÇÃO BLOQUEADA | Payout: $${payoutCheckResult.payout.toFixed(2)} USD < Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD | Aguardando próximo candle`
-          );
-          
-          // Voltar ao estado de espera
-          this.state = "WAITING_MIDPOINT";
-          await this.updateBotState();
-          return;
-        } else {
-          // Payout aceitável - logar e prosseguir
-          await this.logEvent(
-            "PAYOUT_ACCEPTABLE",
-            `✅ Payout aceitável ($${payoutCheckResult.payout.toFixed(2)} USD >= $${this.minPayoutPercent} USD). Prosseguindo com predição.`
-          );
-        }
-      }
 
       // Chamar engine de predição
       console.log(`[PREDICTION_REQUEST] Bot: ${this.botId} | Symbol: ${this.symbol} | TF: ${request.tf} | History candles: ${request.history.length} | Partial candle: Open=${request.partial_current.abertura}, High=${request.partial_current.maxima_parcial}, Low=${request.partial_current.minima_parcial}`);
@@ -1346,6 +1340,35 @@ export class TradingBot {
         await this.updateBotState();
         return;
       }
+      // ✅ VERIFICAÇÃO DE PAYOUT ANTES DA ENTRADA
+      if (this.payoutCheckEnabled) {
+        const payoutCheckResult = await this.checkPayoutBeforePrediction();
+        
+        // Se houve erro, apenas logar e prosseguir (já foi logado no catch)
+        if (payoutCheckResult.error) {
+          console.log(`[PAYOUT_CHECK] Erro na verificação, prosseguindo com operação por segurança`);
+        } else if (!payoutCheckResult.acceptable) {
+          // Payout insuficiente - bloquear entrada
+          console.log(`[PAYOUT_CHECK] ENTRADA BLOQUEADA - Payout insuficiente | Oferecido: $${payoutCheckResult.payout.toFixed(2)} USD | Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD`);
+          
+          await this.logEvent(
+            "PAYOUT_TOO_LOW",
+            `⚠️ ENTRADA BLOQUEADA | Payout: $${payoutCheckResult.payout.toFixed(2)} USD < Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD | Aguardando próximo candle`
+          );
+          
+          // Voltar ao estado ARMED (continua aguardando gatilho)
+          this.state = "ARMED";
+          await this.updateBotState();
+          return;
+        } else {
+          // Payout aceitável - logar e prosseguir com entrada
+          await this.logEvent(
+            "PAYOUT_ACCEPTABLE",
+            `✅ Payout aceitável ($${payoutCheckResult.payout.toFixed(2)} USD >= $${this.minPayoutPercent} USD). Prosseguindo com entrada.`
+          );
+        }
+      }
+      
       // Cancelar timer de re-predição (gatilho foi acionado)
       if (this.repredictionTimer) {
         clearTimeout(this.repredictionTimer);
