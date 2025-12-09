@@ -113,15 +113,31 @@ export const appRouter = router({
           payoutCheckEnabled: z.boolean().optional(),
           minPayoutPercent: z.number().min(0).optional(),
           payoutRecheckDelay: z.number().int().min(0).optional(),
+          // DojiGuard (Filtro Anti-Doji)
+          antiDojiEnabled: z.boolean().optional(),
+          antiDojiRangeMin: z.number().min(0).optional(),
+          antiDojiRatioMin: z.number().min(0).max(1).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
         const botId = input.botId ?? 1;
-        await upsertConfig({
+        
+        // Converter campos decimais para string (Drizzle espera string para decimal)
+        const configData: any = {
           userId: ctx.user.id,
           botId,
           ...input,
-        });
+        };
+        
+        // Converter antiDojiRangeMin e antiDojiRatioMin para string se existirem
+        if (input.antiDojiRangeMin !== undefined) {
+          configData.antiDojiRangeMin = input.antiDojiRangeMin.toString();
+        }
+        if (input.antiDojiRatioMin !== undefined) {
+          configData.antiDojiRatioMin = input.antiDojiRatioMin.toString();
+        }
+        
+        await upsertConfig(configData);
         
         // Logar alterações de hedge se houver
         if (input.hedgeEnabled !== undefined) {
