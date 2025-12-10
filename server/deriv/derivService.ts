@@ -1,6 +1,17 @@
 import WebSocket from "ws";
 
 /**
+ * Formata stake de centavos para dólares com 2 casas decimais
+ * Exemplo: 7000 centavos → "70.00" USD
+ * @param centavos Valor em centavos
+ * @returns String formatada com 2 casas decimais
+ */
+function formatStakeForDeriv(centavos: number): string {
+  const dolares = centavos / 100;
+  return dolares.toFixed(2);
+}
+
+/**
  * Serviço para conexão com a API DERIV
  * Suporta WebSocket para dados em tempo real e REST para operações
  */
@@ -378,6 +389,8 @@ export class DerivService {
       this.subscriptions.set("proposal_payout", handler);
       
       // Construir parâmetros da proposta
+      // ✅ CORREÇÃO: Garantir stake sempre com 2 casas decimais
+      const stakeFormatted = typeof stake === 'number' ? stake.toFixed(2) : stake;
       const proposalParams: any = {
         proposal: 1,
         contract_type: contractType,
@@ -385,7 +398,7 @@ export class DerivService {
         duration: duration,
         duration_unit: durationType,
         basis: "stake",
-        amount: stake,
+        amount: stakeFormatted,
         currency: this.accountCurrency,
       };
       
@@ -436,6 +449,8 @@ export class DerivService {
       this.subscriptions.set("proposal", handler);
       
       // Construir parâmetros da proposta
+      // ✅ CORREÇÃO: Garantir stake sempre com 2 casas decimais
+      const stakeFormatted = typeof stake === 'number' ? stake.toFixed(2) : stake;
       const proposalParams: any = {
         proposal: 1,
         contract_type: contractType,
@@ -443,7 +458,7 @@ export class DerivService {
         duration: duration,
         duration_unit: durationType,
         basis: "stake",
-        amount: stake,
+        amount: stakeFormatted,
         currency: this.accountCurrency,
       };
       
@@ -562,9 +577,11 @@ export class DerivService {
         
         console.log('[DERIV_BUY] Comprando contrato com proposal_id:', proposalId);
         
+        // ✅ CORREÇÃO: Garantir price sempre com 2 casas decimais
+        const priceFormatted = typeof adjustedStake === 'number' ? adjustedStake.toFixed(2) : adjustedStake;
         this.send({
           buy: proposalId,
-          price: adjustedStake, // Usar stake ajustado se foi modificado
+          price: priceFormatted, // Usar stake ajustado se foi modificado
         });
 
         setTimeout(() => {

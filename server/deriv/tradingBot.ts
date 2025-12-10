@@ -130,6 +130,11 @@ export class TradingBot {
   
   // DojiGuard (Filtro Anti-Doji)
   private dojiGuard: DojiGuard | null = null;
+  
+  // ✅ CORREÇÃO: Estruturas de controle de debounce para logs
+  private lastDojiCheckByCandle: Map<string, Set<'INITIAL' | 'REPREDICTION'>> = new Map();
+  private triggerHitLogged: Set<number> = new Set();
+  private marketConditionLogged: Set<number> = new Set();
 
   constructor(userId: number, botId: number = 1) {
     this.userId = userId;
@@ -764,6 +769,16 @@ export class TradingBot {
       this.currentCandleStartTime = new Date(candleTimestamp * 1000);
       this.tradesThisCandle.clear();
       this.predictionSkippedLogged = false; // Resetar flag para o novo candle
+      
+      // ✅ CORREÇÃO: Limpar Sets de debounce ao mudar de candle
+      this.triggerHitLogged.clear();
+      this.marketConditionLogged.clear();
+      // Limpar entradas antigas do Map de DojiGuard (manter apenas últimos 5 candles)
+      if (this.lastDojiCheckByCandle.size > 5) {
+        const sortedKeys = Array.from(this.lastDojiCheckByCandle.keys()).sort();
+        const keysToDelete = sortedKeys.slice(0, sortedKeys.length - 5);
+        keysToDelete.forEach(key => this.lastDojiCheckByCandle.delete(key));
+      }
 
       // Verificar filtro de horário antes de processar o candle
       if (this.hourlyFilter && !this.hourlyFilter.isAllowedHour()) {
@@ -1074,13 +1089,78 @@ export class TradingBot {
       };
       
     } catch (error) {
-      console.error('[PAYOUT_CHECK] Erro ao verificar payout:', error);
+      // ✅ CORREÇÃO: Implementar retry em caso de timeout
+      console.error('[PAYOUT_CHECK] Erro ao verificar payout (tentativa 1/3):', error);
+      
+      // Verificar se é timeout ou erro de proposta
+      const errorMessage = String(error);
+      const isTimeoutError = errorMessage.includes('timeout') || errorMessage.includes('Timeout');
+      
+      if (isTimeoutError) {
+        // Tentar mais 2 vezes com intervalo de 250ms
+        for (let attempt = 2; attempt <= 3; attempt++) {
+          try {
+            console.log(`[PAYOUT_CHECK] Tentativa ${attempt}/3 após timeout...`);
+            await new Promise(resolve => setTimeout(resolve, 250));
+            
+            // Recalcular duração (pode ter mudado)
+            const isForex = !this.symbol.startsWith("R_") && !this.symbol.startsWith("1HZ");
+            const currentCandleStartTime = Math.floor(Date.now() / 1000 / this.timeframe) * this.timeframe;
+            const currentTime = Math.floor(Date.now() / 1000);
+            const elapsedInCandle = currentTime - currentCandleStartTime;
+            const remainingSeconds = this.timeframe - elapsedInCandle;
+            
+            let duration: number;
+            if (this.useCandleDuration) {
+              duration = Math.max(Math.ceil(remainingSeconds / 60), 1);
+            } else if (isForex) {
+              duration = this.forexMinDurationMinutes;
+            } else {
+              duration = Math.max(Math.ceil(remainingSeconds / 60), 1);
+            }
+            
+            const contractType = this.allowEquals ? "CALLE" : "CALL";
+            const payout = await this.derivService!.getProposalPayout(
+              this.symbol,
+              contractType,
+              this.stake / 100,
+              duration,
+              "m",
+              undefined
+            );
+            
+            console.log(`[PAYOUT_CHECK] Sucesso na tentativa ${attempt}/3 | Payout: $${payout.toFixed(2)} USD`);
+            
+            // Validar se payout está dentro do range
+            return {
+              acceptable: payout >= this.minPayoutPercent,
+              payout,
+              error: false
+            };
+          } catch (retryError) {
+            console.error(`[PAYOUT_CHECK] Erro na tentativa ${attempt}/3:`, retryError);
+            if (attempt === 3) {
+              // Última tentativa falhou
+              await this.logEvent(
+                "PAYOUT_ABORTED",
+                `❌ PAYOUT_ABORTED: Falha após 3 tentativas (timeout ou erro de proposta). Nenhuma posição aberta. Erro: ${retryError}`
+              );
+              console.error('[PAYOUT_CHECK] ABORTADO - Não foi possível obter payout válido após 3 tentativas');
+              // ✅ CORREÇÃO CRÍTICA: Retornar acceptable: false para NÃO abrir posição
+              return { acceptable: false, payout: 0, error: true };
+            }
+          }
+        }
+      }
+      
+      // Se não for timeout, logar e abortar
       await this.logEvent(
-        "PAYOUT_CHECK_ERROR",
-        `⚠️ Erro ao verificar payout: ${error}. Prosseguindo com operação.`
+        "PAYOUT_ABORTED",
+        `❌ PAYOUT_ABORTED: Erro ao verificar payout (não-timeout). Nenhuma posição aberta. Erro: ${error}`
       );
-      // Em caso de erro, assumir que payout é OK para não bloquear operações
-      return { acceptable: true, payout: 0, error: true };
+      console.error('[PAYOUT_CHECK] ABORTADO - Erro não-timeout ao verificar payout');
+      // ✅ CORREÇÃO CRÍTICA: Retornar acceptable: false para NÃO abrir posição
+      return { acceptable: false, payout: 0, error: true };
     }
   }
 
@@ -1220,38 +1300,51 @@ export class TradingBot {
 
       // 🛡️ DOJI GUARD - Verificar se candle deve ser bloqueado
       if (this.dojiGuard && this.dojiGuard.isEnabled()) {
-        const dojiCheckResult = this.dojiGuard.check({
-          open: this.currentCandleOpen,
-          high: this.currentCandleHigh,
-          low: this.currentCandleLow,
-          close: this.currentCandleClose, // Preço atual (close parcial)
-        });
+        // ✅ CORREÇÃO: Debounce - verificar se já foi avaliado para este candle/fase
+        const candleKey = `${this.currentCandleTimestamp}`;
+        if (!this.lastDojiCheckByCandle.has(candleKey)) {
+          this.lastDojiCheckByCandle.set(candleKey, new Set());
+        }
+        const phasesChecked = this.lastDojiCheckByCandle.get(candleKey)!;
         
-        console.log(this.dojiGuard.formatLogMessage(dojiCheckResult));
-        
-        if (dojiCheckResult.blocked) {
-          // Candle bloqueado por DojiGuard
-          await this.logEvent(
-            "DOJI_BLOCKED",
-            `🚫 ENTRADA BLOQUEADA (DojiGuard) | ${dojiCheckResult.reason} | ` +
-            `Range: ${dojiCheckResult.metrics.range.toFixed(4)} | ` +
-            `Body: ${dojiCheckResult.metrics.body.toFixed(4)} | ` +
-            `Ratio: ${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}% | ` +
-            `Config: range_min=${dojiCheckResult.config.rangeMin.toFixed(4)}, ratio_min=${(dojiCheckResult.config.ratioMin * 100).toFixed(2)}%`
+        // Verificar se já foi avaliado na fase INITIAL
+        if (!phasesChecked.has('INITIAL')) {
+          const dojiCheckResult = this.dojiGuard.check({
+            open: this.currentCandleOpen,
+            high: this.currentCandleHigh,
+            low: this.currentCandleLow,
+            close: this.currentCandleClose, // Preço atual (close parcial)
+          });
+          
+          // Marcar como avaliado
+          phasesChecked.add('INITIAL');
+          
+          console.log(this.dojiGuard.formatLogMessage(dojiCheckResult));
+          
+          if (dojiCheckResult.blocked) {
+            // Candle bloqueado por DojiGuard
+            await this.logEvent(
+              "DOJI_BLOCKED",
+              `🚫 DOJI_BLOCKED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ${dojiCheckResult.reason} | ` +
+              `Range=${dojiCheckResult.metrics.range.toFixed(4)} | ` +
+              `Body=${dojiCheckResult.metrics.body.toFixed(4)} | ` +
+              `Ratio=${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}% | ` +
+              `Config: range_min=${dojiCheckResult.config.rangeMin.toFixed(4)}, ratio_min=${(dojiCheckResult.config.ratioMin * 100).toFixed(2)}%`
           );
           
-          // Não armar entrada, voltar para WAITING_MIDPOINT
-          this.state = "WAITING_MIDPOINT";
-          await this.updateBotState();
-          return;
-        } else {
-          // Candle aprovado pelo DojiGuard
-          await this.logEvent(
-            "DOJI_APPROVED",
-            `✅ Candle aprovado pelo DojiGuard | ` +
-            `Range: ${dojiCheckResult.metrics.range.toFixed(4)} | ` +
-            `Ratio: ${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}%`
-          );
+            // Não armar entrada, voltar para WAITING_MIDPOINT
+            this.state = "WAITING_MIDPOINT";
+            await this.updateBotState();
+            return;
+          } else {
+            // Candle aprovado pelo DojiGuard
+            await this.logEvent(
+              "DOJI_APPROVED",
+              `✅ DOJI_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
+              `Range=${dojiCheckResult.metrics.range.toFixed(4)} | ` +
+              `Ratio=${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}%`
+            );
+          }
         }
       }
 
@@ -1337,10 +1430,14 @@ export class TradingBot {
     }
 
     if (triggered) {
-      await this.logEvent(
-        "TRIGGER_HIT",
-        `[GATILHO ATINGIDO] Preço atual: ${currentPrice} | Gatilho: ${this.trigger} | Direção: ${this.prediction.direction.toUpperCase()} | Condição: ${this.prediction.direction === 'up' ? `Preço (${currentPrice}) <= Gatilho (${this.trigger})` : `Preço (${currentPrice}) >= Gatilho (${this.trigger})`}`
-      );
+      // ✅ CORREÇÃO: Debounce - logar apenas uma vez por candle
+      if (!this.triggerHitLogged.has(this.currentCandleTimestamp)) {
+        await this.logEvent(
+          "TRIGGER_HIT",
+          `[GATILHO ATINGIDO] Preço atual: ${currentPrice} | Gatilho: ${this.trigger} | Direção: ${this.prediction.direction.toUpperCase()} | Condição: ${this.prediction.direction === 'up' ? `Preço (${currentPrice}) <= Gatilho (${this.trigger})` : `Preço (${currentPrice}) >= Gatilho (${this.trigger})`}`
+        );
+        this.triggerHitLogged.add(this.currentCandleTimestamp);
+      }
       await this.enterPosition(currentPrice, elapsedSeconds);
     }
   }
@@ -1376,11 +1473,15 @@ export class TradingBot {
       }
       
       // Log de condições de mercado (GREEN ou YELLOW)
-      const statusEmoji = this.currentMarketCondition.status === "GREEN" ? "🟢" : "🟡";
-      await this.logEvent(
-        "MARKET_CONDITION_CHECK",
-        `${statusEmoji} Condições de mercado verificadas | Status: ${this.currentMarketCondition.status} | Score: ${this.currentMarketCondition.score}/10`
-      );
+      // ✅ CORREÇÃO: Debounce - logar apenas uma vez por candle
+      if (!this.marketConditionLogged.has(this.currentCandleTimestamp)) {
+        const statusEmoji = this.currentMarketCondition.status === "GREEN" ? "🟢" : "🟡";
+        await this.logEvent(
+          "MARKET_CONDITION_CHECK",
+          `${statusEmoji} Condições de mercado verificadas | Status: ${this.currentMarketCondition.status} | Score: ${this.currentMarketCondition.score}/10`
+        );
+        this.marketConditionLogged.add(this.currentCandleTimestamp);
+      }
     }
 
     try {
@@ -2198,34 +2299,55 @@ export class TradingBot {
       
       // 🛡️ DOJI GUARD - Verificar se candle deve ser bloqueado (na re-predição)
       if (this.dojiGuard && this.dojiGuard.isEnabled()) {
-        const dojiCheckResult = this.dojiGuard.check({
-          open: this.currentCandleOpen,
-          high: this.currentCandleHigh,
-          low: this.currentCandleLow,
-          close: this.currentCandleClose, // Preço atual (close parcial)
-        });
+        // ✅ CORREÇÃO: Debounce - verificar se já foi avaliado para este candle/fase
+        const candleKey = `${this.currentCandleTimestamp}`;
+        if (!this.lastDojiCheckByCandle.has(candleKey)) {
+          this.lastDojiCheckByCandle.set(candleKey, new Set());
+        }
+        const phasesChecked = this.lastDojiCheckByCandle.get(candleKey)!;
         
-        console.log(`[REPREDICTION] ${this.dojiGuard.formatLogMessage(dojiCheckResult)}`);
-        
-        if (dojiCheckResult.blocked) {
-          // Candle bloqueado por DojiGuard em re-predição
-          await this.logEvent(
-            "DOJI_BLOCKED_REPREDICTION",
-            `🚫 ENTRADA BLOQUEADA EM RE-PREDIÇÃO (DojiGuard) | ${dojiCheckResult.reason} | ` +
-            `Range: ${dojiCheckResult.metrics.range.toFixed(4)} | ` +
-            `Body: ${dojiCheckResult.metrics.body.toFixed(4)} | ` +
-            `Ratio: ${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}% | ` +
-            `Config: range_min=${dojiCheckResult.config.rangeMin.toFixed(4)}, ratio_min=${(dojiCheckResult.config.ratioMin * 100).toFixed(2)}%`
-          );
+        // Verificar se já foi avaliado na fase REPREDICTION
+        if (!phasesChecked.has('REPREDICTION')) {
+          const dojiCheckResult = this.dojiGuard.check({
+            open: this.currentCandleOpen,
+            high: this.currentCandleHigh,
+            low: this.currentCandleLow,
+            close: this.currentCandleClose, // Preço atual (close parcial)
+          });
           
-          // Cancelar gatilho armado e voltar para WAITING_MIDPOINT
-          this.prediction = null;
-          this.trigger = 0;
-          this.state = "WAITING_MIDPOINT";
-          await this.updateBotState();
+          // Marcar como avaliado
+          phasesChecked.add('REPREDICTION');
           
-          console.log(`[DOJI_GUARD] Gatilho cancelado devido a bloqueio em re-predição`);
-          return;
+          console.log(`[REPREDICTION] ${this.dojiGuard.formatLogMessage(dojiCheckResult)}`);
+          
+          if (dojiCheckResult.blocked) {
+            // Candle bloqueado por DojiGuard em re-predição
+            await this.logEvent(
+              "DOJI_BLOCKED",
+              `🚫 DOJI_BLOCKED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ${dojiCheckResult.reason} | ` +
+              `Range=${dojiCheckResult.metrics.range.toFixed(4)} | ` +
+              `Body=${dojiCheckResult.metrics.body.toFixed(4)} | ` +
+              `Ratio=${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}% | ` +
+              `Config: range_min=${dojiCheckResult.config.rangeMin.toFixed(4)}, ratio_min=${(dojiCheckResult.config.ratioMin * 100).toFixed(2)}%`
+            );
+            
+            // Cancelar gatilho armado e voltar para WAITING_MIDPOINT
+            this.prediction = null;
+            this.trigger = 0;
+            this.state = "WAITING_MIDPOINT";
+            await this.updateBotState();
+            
+            console.log(`[DOJI_GUARD] Gatilho cancelado devido a bloqueio em re-predição`);
+            return;
+          } else {
+            // Candle aprovado pelo DojiGuard em re-predição
+            await this.logEvent(
+              "DOJI_APPROVED",
+              `✅ DOJI_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ` +
+              `Range=${dojiCheckResult.metrics.range.toFixed(4)} | ` +
+              `Ratio=${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}%`
+            );
+          }
         }
       }
       

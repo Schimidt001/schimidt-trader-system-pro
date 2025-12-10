@@ -1,0 +1,26 @@
+CORREÇÕES CRÍTICAS - 10/12/2025
+
+1. STAKE COM 2 CASAS DECIMAIS
+   - Formatação consistente de valores monetários
+   - 3 pontos corrigidos em derivService.ts
+
+2. TIMEOUT DE PAYOUT COM RETRY
+   - Retry 3x com 250ms de intervalo
+   - NUNCA abre posição sem payout válido
+   - Log PAYOUT_ABORTED em caso de falha
+
+3. DEBOUNCE DE DOJIGUARD
+   - Máximo 1 avaliação por candle/fase
+   - Logs: DOJI_BLOCKED (CANDLE=X, PHASE=INITIAL/REPREDICTION)
+
+4. DEBOUNCE DE TRIGGER_HIT
+   - Apenas 1 log por candle
+
+5. DEBOUNCE DE MARKET_CONDITION_CHECK
+   - Apenas 1 log por candle
+
+ARQUIVOS MODIFICADOS:
+- server/deriv/derivService.ts (3 correções)
+- server/deriv/tradingBot.ts (9 correções)
+
+TOTAL: 12 pontos de correção implementados
