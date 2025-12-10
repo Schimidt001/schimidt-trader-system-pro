@@ -1555,11 +1555,15 @@ export class TradingBot {
       
       if (this.contractType === "RISE_FALL") {
         // RISE/FALL tradicional (CALL/PUT)
-        // Se allowEquals estiver ativado, usar CALLE/PUTE ao invés de CALL/PUT
+        // ❗ CORREÇÃO CRÍTICA: Mapeamento correto segundo documentação oficial Deriv
+        // Deriv API: UP (Rise) = PUT/PUTE | DOWN (Fall) = CALL/CALLE
+        // Referência: https://developers.deriv.com/docs/risefall
         if (this.allowEquals) {
-          contractType = this.prediction.direction === "up" ? "CALLE" : "PUTE";
+          // Com Allow Equals: UP = PUTE (Rise) | DOWN = CALLE (Fall)
+          contractType = this.prediction.direction === "up" ? "PUTE" : "CALLE";
         } else {
-          contractType = this.prediction.direction === "up" ? "CALL" : "PUT";
+          // Sem Allow Equals: UP = PUT (Rise) | DOWN = CALL (Fall)
+          contractType = this.prediction.direction === "up" ? "PUT" : "CALL";
         }
       } else if (this.contractType === "TOUCH") {
         // TOUCH: usar barreira baseada na direção da predição
@@ -1619,16 +1623,27 @@ export class TradingBot {
         console.log(`[GOLD_STAKE] Stake ajustado para horário GOLD: ${this.stake / 100} -> ${finalStake / 100} (${multiplier}x)`);
       }
       
-      // Log antes de comprar contrato
-      console.log('[BEFORE_BUY] Chamando buyContract com:', {
+      // ✅ CORREÇÃO: Log de auditoria completo ANTES de enviar para Deriv
+      const auditLog = {
+        timestamp: new Date().toISOString(),
+        predictionDirection: this.prediction.direction.toUpperCase(),
+        derivContractType: contractType,
+        derivMeaning: contractType === "PUTE" || contractType === "PUT" ? "Rise" : contractType === "CALLE" || contractType === "CALL" ? "Fall" : contractType,
         symbol: this.symbol,
-        contractType,
         stake: finalStake / 100,
         duration: finalDurationMinutes,
         durationType: 'm',
         barrier,
-        allowEquals: this.allowEquals
-      });
+        allowEquals: this.allowEquals,
+        entryPrice
+      };
+      
+      console.log('[AUDIT_BEFORE_BUY] Auditoria completa:', JSON.stringify(auditLog, null, 2));
+      
+      await this.logEvent(
+        "AUDIT_BEFORE_BUY",
+        `📋 AUDITORIA | IA: ${auditLog.predictionDirection} | Deriv: ${auditLog.derivMeaning} (${contractType}) | Symbol: ${this.symbol} | Stake: $${auditLog.stake} | Duration: ${finalDurationMinutes}m`
+      );
       
       // Comprar contrato na DERIV usando duração em minutos (mais compatível)
       const contract = await this.derivService.buyContract(
@@ -1676,9 +1691,13 @@ export class TradingBot {
       this.lastContractCheckTime = 0; // Resetar para permitir verificação imediata
 
       // Estado já foi mudado para ENTERED no início da função (linha 1022)
+      // ✅ CORREÇÃO: Log completo com direção da IA + tipo de contrato Deriv
+      const directionLabel = this.prediction.direction.toUpperCase();
+      const derivContractLabel = contractType === "PUTE" || contractType === "PUT" ? "Rise" : contractType === "CALLE" || contractType === "CALL" ? "Fall" : contractType;
+      
       await this.logEvent(
         "POSITION_ENTERED",
-        `Posição aberta: ${contractType} | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${finalDurationMinutes}min | Contract: ${contract.contract_id}`
+        `Posição aberta: IA=${directionLabel} | Deriv=${derivContractLabel} (${contractType}) | Entrada: ${entryPrice} | Stake: ${finalStake / 100} | Duração: ${finalDurationMinutes}min | Contract: ${contract.contract_id}`
       );
     } catch (error: any) {
       console.error("[TradingBot] Error entering position:", error);
