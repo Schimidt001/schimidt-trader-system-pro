@@ -5,11 +5,6 @@ Integrado ao Schimidt Trader System PRO
 
 Este servidor roda internamente e expõe a engine de predição via API REST
 NÃO MODIFICAR a lógica de predição - é proprietária e imutável
-
-VERSÃO STATELESS (Auditoria 10/12/2025):
-- Cada requisição cria uma nova instância isolada da PredictionEngine
-- Elimina contaminação de estado entre bots e chamadas
-- Garante determinismo e consistência entre modo manual e automático
 """
 
 from flask import Flask, request, jsonify
@@ -32,6 +27,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# Dicionário de engines por símbolo (para suportar multi-bot com ativos diferentes)
+engines_by_symbol = {}
+# engines_by_symbol[symbol] = {'engine': PredictionEngine(), 'initialized': bool}
+
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -39,8 +38,8 @@ def health_check():
     return jsonify({
         'status': 'ok',
         'engine': 'Fibonacci da Amplitude',
-        'mode': 'stateless',
-        'version': '2.0'
+        'active_symbols': list(engines_by_symbol.keys()),
+        'engines_count': len(engines_by_symbol)
     }), 200
 
 
@@ -48,8 +47,6 @@ def health_check():
 def predict():
     """
     Endpoint de predição conforme especificação do cliente
-    
-    VERSÃO STATELESS: Cada requisição cria uma nova engine isolada
     
     Request:
     {
@@ -103,26 +100,28 @@ def predict():
         if tf not in ['M15', 'M30', 'M60']:
             return jsonify({'error': 'Only M15, M30 and M60 timeframes are supported'}), 400
         
-        # ===================== SOLUÇÃO STATELESS =====================
-        # 1. Criar uma NOVA engine para cada requisição (isolamento total)
-        logger.info(f"🔧 Criando engine isolada para requisição de {symbol}")
-        engine = PredictionEngine()
+        # Obter ou criar engine específica para este símbolo
+        if symbol not in engines_by_symbol:
+            logger.info(f"🔧 Criando nova engine para símbolo: {symbol}")
+            engines_by_symbol[symbol] = {
+                'engine': PredictionEngine(),
+                'initialized': False
+            }
         
-        # 2. Alimentar a engine com os dados da requisição ATUAL
-        logger.info(f"🔧 Alimentando engine com {len(history)} candles históricos")
-        result = engine.alimentar_dados(history)
+        engine_data = engines_by_symbol[symbol]
+        engine = engine_data['engine']
         
-        if not result['sucesso']:
-            logger.error(f"❌ Erro ao alimentar engine: {result.get('erro')}")
-            return jsonify({
-                'error': 'Failed to initialize engine',
-                'details': result.get('erro')
-            }), 500
+        # Alimentar engine com histórico (primeira vez para este símbolo)
+        if not engine_data['initialized']:
+            logger.info(f"🔧 Inicializando engine para {symbol} com {len(history)} candles históricos")
+            result = engine.alimentar_dados(history)
+            if result['sucesso']:
+                engine_data['initialized'] = True
+                logger.info(f"✅ Engine inicializada para {symbol} - Fase: {result['fase_detectada']}")
+            else:
+                logger.error(f"❌ Erro ao inicializar engine para {symbol}: {result.get('erro')}")
         
-        logger.info(f"✅ Engine inicializada - Fase: {result['fase_detectada']}")
-        # =============================================================
-        
-        # 3. Fazer predição com candle parcial atual
+        # Fazer predição com candle parcial atual
         abertura = float(partial['abertura'])
         minima = float(partial['minima_parcial'])
         maxima = float(partial['maxima_parcial'])
@@ -132,21 +131,21 @@ def predict():
         # Chamar engine proprietária
         predicao = engine.fazer_predicao(abertura, maxima, minima)
         
-        # Verificar se houve erro na predição
-        if 'erro' in predicao:
-            logger.error(f"❌ Erro na predição: {predicao['erro']}")
-            return jsonify({
-                'error': 'Prediction failed',
-                'details': predicao['erro']
-            }), 500
+        # Calcular gatilho (16 pontos de offset)
+        # Assumindo pip_size = 0.01 para ativos sintéticos
+        pip_size = 0.01
+        offset_pontos = 16
         
         predicted_close = predicao['fechamento_predito']
         
         # Determinar direção
         if predicao['cor_predita'] == 'Verde':
             direction = 'up'
+            # Para CALL, gatilho abaixo da predição
+            # (mas aqui retornamos apenas a predição, o cálculo do gatilho fica no tradingBot)
         else:
             direction = 'down'
+            # Para PUT, gatilho acima da predição
         
         # Montar resposta conforme especificação
         response = {
@@ -159,8 +158,7 @@ def predict():
         
         logger.info(
             f"✅ Predição: {predicted_close:.4f} ({direction}) - "
-            f"Fase: {predicao.get('fase_usada', 2)} - "
-            f"Algoritmo: {predicao.get('algoritmo', 'N/A')}"
+            f"Fase: {predicao.get('fase_usada', 2)}"
         )
         
         return jsonify(response), 200
@@ -175,37 +173,61 @@ def predict():
 
 @app.route('/reset', methods=['POST'])
 def reset_engine():
-    """
-    Endpoint de reset (mantido para compatibilidade)
-    Na versão stateless, não há estado global para resetar
-    """
-    logger.info("ℹ️ Reset solicitado (sem efeito na versão stateless)")
-    return jsonify({
-        'success': True,
-        'message': 'Servidor stateless - não há estado para resetar',
-        'mode': 'stateless'
-    }), 200
+    """Reinicia a engine (útil para testes)"""
+    global engines_by_symbol
+    
+    try:
+        data = request.json or {}
+        symbol = data.get('symbol')
+        
+        if symbol:
+            # Reiniciar engine específica de um símbolo
+            if symbol in engines_by_symbol:
+                engines_by_symbol[symbol] = {
+                    'engine': PredictionEngine(),
+                    'initialized': False
+                }
+                logger.info(f"🔄 Engine reiniciada para símbolo: {symbol}")
+                message = f'Engine reiniciada para {symbol}'
+            else:
+                message = f'Nenhuma engine encontrada para {symbol}'
+        else:
+            # Reiniciar todas as engines
+            engines_by_symbol.clear()
+            logger.info("🔄 Todas as engines reiniciadas")
+            message = 'Todas as engines reiniciadas com sucesso'
+        
+        return jsonify({
+            'success': True,
+            'message': message
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"❌ Erro ao reiniciar engine: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
 if __name__ == '__main__':
     print("=" * 70)
     print("  🤖 SCHIMIDT TRADER SYSTEM PRO - ENGINE DE PREDIÇÃO")
     print("  Algoritmo Fibonacci da Amplitude - 84.85% de Assertividade")
-    print("  VERSÃO STATELESS 2.0 - Isolamento Total de Requisições")
     print("=" * 70)
     print()
     print("🚀 Servidor da engine iniciado com sucesso!")
     print("📊 Algoritmo proprietário integrado")
-    print("⚡ Modo stateless: cada requisição é 100% isolada")
-    print("✅ Garantia de determinismo e consistência")
+    print("⚡ Pronto para receber requisições de predição")
     print()
     print("Endpoints disponíveis:")
     print("  GET  /health  - Health check")
-    print("  POST /predict - Fazer predição (stateless)")
-    print("  POST /reset   - Reset (sem efeito em modo stateless)")
+    print("  POST /predict - Fazer predição")
+    print("  POST /reset   - Reiniciar engine")
     print()
     print("Servidor rodando em: http://localhost:5070")
     print("=" * 70)
     
     # Rodar na porta 5070 (interna)
     app.run(host='127.0.0.1', port=5070, debug=False)
+
