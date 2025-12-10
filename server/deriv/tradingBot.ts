@@ -1,6 +1,7 @@
 import { DerivService, DerivCandle, DerivTick } from "./derivService";
 import { InactivityWatchdog } from "./inactivityWatchdog";
-import { predictionService } from "../prediction/predictionService";
+import { PredictionService } from "../prediction/predictionService";
+import { mapDirectionToContractType, generateAuditLog, type PredictionDirection } from "./contractMapper";
 import { analyzePositionForHedge, DEFAULT_HEDGE_CONFIG, type HedgeConfig } from "../ai/hedgeStrategy";
 import { HourlyFilter } from "../../filtro-horario/hourlyFilterLogic";
 import type { HourlyFilterConfig } from "../../filtro-horario/types";
@@ -1554,17 +1555,14 @@ export class TradingBot {
       let barrier: string | undefined;
       
       if (this.contractType === "RISE_FALL") {
-        // RISE/FALL tradicional (CALL/PUT)
-        // ❗ CORREÇÃO CRÍTICA: Mapeamento correto segundo documentação oficial Deriv
-        // Deriv API: UP (Rise) = PUT/PUTE | DOWN (Fall) = CALL/CALLE
-        // Referência: https://developers.deriv.com/docs/risefall
-        if (this.allowEquals) {
-          // Com Allow Equals: UP = PUTE (Rise) | DOWN = CALLE (Fall)
-          contractType = this.prediction.direction === "up" ? "PUTE" : "CALLE";
-        } else {
-          // Sem Allow Equals: UP = PUT (Rise) | DOWN = CALL (Fall)
-          contractType = this.prediction.direction === "up" ? "PUT" : "CALL";
-        }
+        // ✅ CORREÇÃO CRÍTICA: Usar mapeamento central correto
+        // FONTE ÚNICA DE VERDADE: contractMapper.ts
+        // Documentação Deriv: UP → CALL/CALLE (RISE) | DOWN → PUT/PUTE (FALL)
+        const mapping = mapDirectionToContractType(this.prediction.direction as PredictionDirection, this.allowEquals);
+        contractType = mapping.contract_type;
+        
+        // Log de validação do mapeamento
+        console.log(generateAuditLog(this.prediction.direction as PredictionDirection, contractType, this.allowEquals));
       } else if (this.contractType === "TOUCH") {
         // TOUCH: usar barreira baseada na direção da predição
         contractType = "ONETOUCH";
@@ -1623,26 +1621,35 @@ export class TradingBot {
         console.log(`[GOLD_STAKE] Stake ajustado para horário GOLD: ${this.stake / 100} -> ${finalStake / 100} (${multiplier}x)`);
       }
       
-      // ✅ CORREÇÃO: Log de auditoria completo ANTES de enviar para Deriv
-      const auditLog = {
+      // ✅ AUDIT_PAYLOAD_SENT: Log do payload REAL que será enviado
+      const mapping = mapDirectionToContractType(this.prediction.direction as PredictionDirection, this.allowEquals);
+      const auditPayload = {
         timestamp: new Date().toISOString(),
         predictionDirection: this.prediction.direction.toUpperCase(),
-        derivContractType: contractType,
-        derivMeaning: contractType === "PUTE" || contractType === "PUT" ? "Rise" : contractType === "CALLE" || contractType === "CALL" ? "Fall" : contractType,
+        expectedSemantic: mapping.semantic,
+        contract_type: contractType,
         symbol: this.symbol,
         stake: finalStake / 100,
         duration: finalDurationMinutes,
-        durationType: 'm',
+        duration_unit: 'm',
         barrier,
-        allowEquals: this.allowEquals,
-        entryPrice
+        allow_equals: this.allowEquals,
+        entry_price: entryPrice,
+        rawPayload: {
+          symbol: this.symbol,
+          contract_type: contractType,
+          amount: finalStake / 100,
+          duration: finalDurationMinutes,
+          duration_unit: 'm',
+          barrier: barrier || undefined
+        }
       };
       
-      console.log('[AUDIT_BEFORE_BUY] Auditoria completa:', JSON.stringify(auditLog, null, 2));
+      console.log('[AUDIT_PAYLOAD_SENT] Payload REAL que será enviado:', JSON.stringify(auditPayload, null, 2));
       
       await this.logEvent(
-        "AUDIT_BEFORE_BUY",
-        `📋 AUDITORIA | IA: ${auditLog.predictionDirection} | Deriv: ${auditLog.derivMeaning} (${contractType}) | Symbol: ${this.symbol} | Stake: $${auditLog.stake} | Duration: ${finalDurationMinutes}m`
+        "AUDIT_PAYLOAD_SENT",
+        `🔍 PAYLOAD REAL | IA: ${auditPayload.predictionDirection} | Semântica: ${auditPayload.expectedSemantic} | Contract: ${contractType} | Symbol: ${this.symbol} | Stake: $${auditPayload.stake} | Duration: ${finalDurationMinutes}m`
       );
       
       // Comprar contrato na DERIV usando duração em minutos (mais compatível)
@@ -1690,10 +1697,11 @@ export class TradingBot {
       this.tradesThisCandle.add(this.currentCandleTimestamp);
       this.lastContractCheckTime = 0; // Resetar para permitir verificação imediata
 
-      // Estado já foi mudado para ENTERED no início da função (linha 1022)
-      // ✅ CORREÇÃO: Log completo com direção da IA + tipo de contrato Deriv
+      // Estado já foi mudado para ENTERED no início da função
+      // ✅ CORREÇÃO: Log completo com direção da IA + semântica correta
       const directionLabel = this.prediction.direction.toUpperCase();
-      const derivContractLabel = contractType === "PUTE" || contractType === "PUT" ? "Rise" : contractType === "CALLE" || contractType === "CALL" ? "Fall" : contractType;
+      const mappingResult = mapDirectionToContractType(this.prediction.direction as PredictionDirection, this.allowEquals);
+      const derivContractLabel = mappingResult.semantic;
       
       await this.logEvent(
         "POSITION_ENTERED",
@@ -1869,7 +1877,7 @@ export class TradingBot {
         botId: this.botId,
         contractId: contract.contract_id,
         symbol: this.symbol,
-        direction: contractType === 'CALL' ? 'up' : 'down',
+        direction: contractType === 'CALL' ? 'up' : 'down', // CALL=RISE=up | PUT=FALL=down
         stake: stakeInCents,
         entryPrice: "0",
         predictedClose: this.prediction.predicted_close.toString(),

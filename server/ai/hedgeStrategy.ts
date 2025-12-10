@@ -136,7 +136,7 @@ export function analyzePositionForHedge(
       return {
         action: 'HEDGE',
         shouldOpenSecondPosition: true,
-        secondPositionType: direction === 'up' ? 'PUT' : 'CALL',
+        secondPositionType: direction === 'up' ? 'PUT' : 'CALL', // Hedge abre posição OPOSTA: up→PUT(FALL) | down→CALL(RISE)
         secondPositionStake: Math.round(originalStake * config.reversalStakeMultiplier),
         reason: `🔴 REVERSÃO DETECTADA: Preço ${reversalRisk >= 0.8 ? 'muito' : ''} estendido (${(reversalRisk * 100).toFixed(1)}%) no lado oposto da predição. Abrindo hedge protetor.`,
         progressRatio,
@@ -163,7 +163,7 @@ export function analyzePositionForHedge(
       return {
         action: 'REINFORCE',
         shouldOpenSecondPosition: true,
-        secondPositionType: direction === 'up' ? 'CALL' : 'PUT',
+        secondPositionType: direction === 'up' ? 'CALL' : 'PUT', // Reforço abre MESMA direção: up→CALL(RISE) | down→PUT(FALL)
         secondPositionStake: Math.round(originalStake * config.pullbackStakeMultiplier),
         reason: `🟢 PULLBACK IDENTIFICADO: Movimento correto (${direction.toUpperCase()}) mas atrasado (${(progressRatio * 100).toFixed(1)}%). Reforçando posição com preço melhor.`,
         progressRatio,
@@ -188,7 +188,7 @@ export function analyzePositionForHedge(
       return {
         action: 'REVERSAL_EDGE',
         shouldOpenSecondPosition: true,
-        secondPositionType: direction === 'up' ? 'PUT' : 'CALL',
+        secondPositionType: direction === 'up' ? 'PUT' : 'CALL', // Reversão abre posição OPOSTA: up→PUT(FALL) | down→CALL(RISE)
         secondPositionStake: Math.round(originalStake * config.edgeStakeMultiplier),
         reason: `🟡 EXAUSTÃO DE PONTA: Candle muito estendido (${(priceExtension * 100).toFixed(1)}%) na direção ${direction.toUpperCase()}. Apostando em reversão de final.`,
         progressRatio,

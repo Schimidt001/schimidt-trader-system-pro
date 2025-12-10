@@ -23,6 +23,63 @@ import { predictionService } from "./prediction/predictionService";
 import { engineManager } from "./prediction/engineManager";
 
 export const appRouter = router({
+  // Rota para predição manual (diagnóstico)
+  manualPrediction: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string(),
+        timeframe: z.enum(["M15", "M30", "M60"]),
+        lookback: z.number().int().positive(),
+        botId: z.number().int().min(1).max(2).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const botId = input.botId ?? 1;
+      const history = await getCandleHistory(
+        input.symbol,
+        input.lookback + 1, // +1 para pegar o candle parcial
+        input.timeframe,
+        botId
+      );
+
+      if (history.length < 2) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Histórico de candles insuficiente para predição manual",
+        });
+      }
+
+      const [partialCandle, ...historicalCandles] = history;
+
+      const request = {
+        symbol: input.symbol,
+        tf: input.timeframe,
+        history: historicalCandles.reverse().map((c) => ({
+          abertura: parseFloat(c.open),
+          minima: parseFloat(c.low),
+          maxima: parseFloat(c.high),
+          fechamento: parseFloat(c.close),
+          timestamp: c.timestampUtc,
+        })),
+        partial_current: {
+          timestamp_open: partialCandle.timestampUtc,
+          elapsed_seconds: 0, // Simulado
+          abertura: parseFloat(partialCandle.open),
+          minima_parcial: parseFloat(partialCandle.low),
+          maxima_parcial: parseFloat(partialCandle.high),
+        },
+      };
+
+      // Chamar a engine de predição
+      const prediction = await predictionService.predict(request);
+
+      return {
+        success: true,
+        request,
+        prediction,
+      };
+    }),
+
   system: systemRouter,
 
   auth: router({
