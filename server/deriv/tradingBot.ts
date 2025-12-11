@@ -1,6 +1,6 @@
 import { DerivService, DerivCandle, DerivTick } from "./derivService";
 import { InactivityWatchdog } from "./inactivityWatchdog";
-import { PredictionService } from "../prediction/predictionService";
+import { predictionService } from "../prediction/predictionService";
 import { mapDirectionToContractType, generateAuditLog, type PredictionDirection } from "./contractMapper";
 import { analyzePositionForHedge, DEFAULT_HEDGE_CONFIG, type HedgeConfig } from "../ai/hedgeStrategy";
 import { HourlyFilter } from "../../filtro-horario/hourlyFilterLogic";
