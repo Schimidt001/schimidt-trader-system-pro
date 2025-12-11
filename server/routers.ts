@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
+
+// Validação de email mais permissiva
+const emailSchema = z.string().refine(
+  (val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val),
+  { message: "Email inv\u00e1lido" }
+);
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
@@ -97,7 +103,7 @@ export const appRouter = router({
     // Login local com email e senha
     loginLocal: publicProcedure
       .input(z.object({
-        email: z.string().email(),
+        email: emailSchema,
         password: z.string().min(6),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -157,7 +163,7 @@ export const appRouter = router({
     // Criar usuário (apenas admin)
     createUser: protectedProcedure
       .input(z.object({
-        email: z.string().email(),
+        email: emailSchema,
         password: z.string().min(6),
         name: z.string().min(1),
         role: z.enum(['user', 'admin']).optional(),
@@ -189,7 +195,7 @@ export const appRouter = router({
       .input(z.object({
         userId: z.number(),
         name: z.string().min(1).optional(),
-        email: z.string().email().optional(),
+        email: emailSchema.optional(),
         role: z.enum(['user', 'admin']).optional(),
         password: z.string().min(6).optional(),
       }))
