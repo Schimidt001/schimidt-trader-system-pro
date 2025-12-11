@@ -1278,10 +1278,47 @@ export class TradingBot {
         },
       };
 
+      // ✅ VALIDAÇÃO DE SANIDADE: Verificar se os dados do candle são válidos
+      if (this.currentCandleHigh < this.currentCandleOpen || 
+          this.currentCandleLow > this.currentCandleOpen) {
+        await this.logEvent(
+          "CANDLE_DATA_ERROR",
+          `⚠️ DADOS INVÁLIDOS: High=${this.currentCandleHigh} < Open=${this.currentCandleOpen} ` +
+          `ou Low=${this.currentCandleLow} > Open=${this.currentCandleOpen}. ABORTANDO predição.`
+        );
+        this.state = "WAITING_MIDPOINT";
+        await this.updateBotState();
+        return;
+      }
+      
+      // Verificar se há amplitude mínima
+      const amplitude = this.currentCandleHigh - this.currentCandleLow;
+      if (amplitude < 0.0001) {
+        await this.logEvent(
+          "CANDLE_AMPLITUDE_TOO_SMALL",
+          `⚠️ Amplitude muito pequena (${amplitude.toFixed(6)}). Possível Doji. Pulando predição.`
+        );
+        this.state = "WAITING_MIDPOINT";
+        await this.updateBotState();
+        return;
+      }
+      
       // Log dos valores ANTES da predição
       await this.logEvent(
         "PRE_PREDICTION_DATA",
         `[ENTRADA DA PREDIÇÃO] Abertura: ${this.currentCandleOpen} | Máxima: ${this.currentCandleHigh} | Mínima: ${this.currentCandleLow} | Timestamp: ${this.currentCandleTimestamp} | Tempo decorrido: ${elapsedSeconds}s`
+      );
+      
+      // 🔍 DEBUG: Calcular e logar ponto médio e tendência esperada
+      const meio = (this.currentCandleHigh + this.currentCandleLow) / 2;
+      const tendenciaEsperada = this.currentCandleOpen < meio ? 'UP' : 'DOWN';
+      await this.logEvent(
+        "PREDICTION_DEBUG",
+        `[DEBUG PREDIÇÃO] ` +
+        `Meio: ${meio.toFixed(4)} | ` +
+        `Abertura < Meio? ${this.currentCandleOpen < meio} | ` +
+        `Tendência Esperada (Fibonacci): ${tendenciaEsperada} | ` +
+        `Amplitude: ${(this.currentCandleHigh - this.currentCandleLow).toFixed(4)}`
       );
 
       // Chamar engine de predição
@@ -1298,6 +1335,16 @@ export class TradingBot {
       this.prediction = await predictionService.predict(request);
       
       console.log(`[PREDICTION_RESPONSE] Bot: ${this.botId} | Direction: ${this.prediction.direction.toUpperCase()} | Predicted Close: ${this.prediction.predicted_close} | Phase: ${this.prediction.phase} | Strategy: ${this.prediction.strategy} | Confidence: ${this.prediction.confidence}`);
+      
+      // 🔍 DEBUG: Comparar tendência esperada com resultado real
+      await this.logEvent(
+        "PREDICTION_COMPARISON",
+        `[COMPARAÇÃO] Tendência Esperada: ${tendenciaEsperada} | ` +
+        `Direção Real da IA: ${this.prediction.direction.toUpperCase()} | ` +
+        `Match: ${tendenciaEsperada === this.prediction.direction.toUpperCase() ? '✅ SIM' : '❌ NÃO (INESPERADO!)'} | ` +
+        `Predicted Close: ${this.prediction.predicted_close} | ` +
+        `Abertura: ${this.currentCandleOpen}`
+      );
 
       // 🛡️ DOJI GUARD - Verificar se candle deve ser bloqueado
       if (this.dojiGuard && this.dojiGuard.isEnabled()) {
