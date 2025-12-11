@@ -13,6 +13,7 @@ import { useAuth } from "./_core/hooks/useAuth";
 import { getLoginUrl } from "./const";
 import { CinematicLogin } from "./components/CinematicLogin";
 import LocalLogin from "./pages/LocalLogin";
+import FuturisticLogin from "./pages/FuturisticLogin";
 import { Button } from "./components/ui/button";
 import { BarChart3, Settings as SettingsIcon, FileText, LogOut, Calendar, Users } from "lucide-react";
 import { trpc } from "./lib/trpc";
@@ -110,8 +111,8 @@ function Router() {
     if (oauthConfigured) {
       return <CinematicLogin />;
     }
-    // Senão, usar LocalLogin
-    return <LocalLogin />;
+    // Senão, usar FuturisticLogin
+    return <FuturisticLogin />;
   }
 
   return (
