@@ -8,11 +8,13 @@ import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Logs from "./pages/Logs";
 import MarketCalendar from "./pages/MarketCalendar";
+import AdminUsers from "./pages/AdminUsers";
 import { useAuth } from "./_core/hooks/useAuth";
 import { getLoginUrl } from "./const";
 import { CinematicLogin } from "./components/CinematicLogin";
+import LocalLogin from "./pages/LocalLogin";
 import { Button } from "./components/ui/button";
-import { BarChart3, Settings as SettingsIcon, FileText, LogOut, Calendar } from "lucide-react";
+import { BarChart3, Settings as SettingsIcon, FileText, LogOut, Calendar, Users } from "lucide-react";
 import { trpc } from "./lib/trpc";
 
 function Navigation() {
@@ -35,6 +37,11 @@ function Navigation() {
     { path: "/settings", label: "Configurações", icon: SettingsIcon },
     { path: "/logs", label: "Logs", icon: FileText },
   ];
+  
+  // Adicionar item de admin se usuário for admin
+  if (user?.role === 'admin') {
+    navItems.push({ path: "/admin/users", label: "Usuários", icon: Users });
+  }
 
   return (
     <nav className="bg-slate-900/80 border-b border-slate-800 backdrop-blur-sm sticky top-0 z-50">
@@ -95,16 +102,16 @@ function Router() {
     );
   }
 
-  // Se não tem usuário E OAuth está configurado, mostrar tela de login
+  // Se não tem usuário, mostrar tela de login
   const oauthConfigured = import.meta.env.VITE_OAUTH_PORTAL_URL && import.meta.env.VITE_APP_ID;
   
-  if (!user && oauthConfigured) {
-    return <CinematicLogin />;
-  }
-  
-  // Se OAuth não está configurado, continuar sem usuário (modo mock no backend)
-  if (!user && !oauthConfigured) {
-    console.log('[App] OAuth não configurado, continuando sem autenticação');
+  if (!user) {
+    // Se OAuth está configurado, usar CinematicLogin
+    if (oauthConfigured) {
+      return <CinematicLogin />;
+    }
+    // Senão, usar LocalLogin
+    return <LocalLogin />;
   }
 
   return (
@@ -115,6 +122,7 @@ function Router() {
         <Route path="/market" component={MarketCalendar} />
         <Route path="/settings" component={Settings} />
         <Route path="/logs" component={Logs} />
+        <Route path="/admin/users" component={AdminUsers} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

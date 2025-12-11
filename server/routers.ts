@@ -87,10 +87,170 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      // Limpar também o cookie de sessão local
+      ctx.res.clearCookie('user_session', { ...cookieOptions, maxAge: -1 });
       return {
         success: true,
       } as const;
     }),
+    
+    // Login local com email e senha
+    loginLocal: publicProcedure
+      .input(z.object({
+        email: z.string().email(),
+        password: z.string().min(6),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { AuthService } = await import('./auth/authService');
+        const user = await AuthService.authenticate(input.email, input.password);
+        
+        if (!user) {
+          throw new TRPCError({
+            code: 'UNAUTHORIZED',
+            message: 'Email ou senha inválidos',
+          });
+        }
+        
+        // Criar sessão (simples, usando cookie)
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie('user_session', JSON.stringify({ userId: user.id, email: user.email }), {
+          ...cookieOptions,
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 dias
+        });
+        
+        return {
+          success: true,
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          },
+        };
+      }),
+    
+    // Listar usuários (apenas admin)
+    listUsers: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user?.role !== 'admin') {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Apenas administradores podem listar usuários',
+          });
+        }
+        
+        const { AuthService } = await import('./auth/authService');
+        const users = await AuthService.listUsers();
+        
+        // Não retornar senhas
+        return users.map(u => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          loginMethod: u.loginMethod,
+          createdAt: u.createdAt,
+          lastSignedIn: u.lastSignedIn,
+        }));
+      }),
+    
+    // Criar usuário (apenas admin)
+    createUser: protectedProcedure
+      .input(z.object({
+        email: z.string().email(),
+        password: z.string().min(6),
+        name: z.string().min(1),
+        role: z.enum(['user', 'admin']).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user?.role !== 'admin') {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Apenas administradores podem criar usuários',
+          });
+        }
+        
+        const { AuthService } = await import('./auth/authService');
+        const user = await AuthService.createUser(input);
+        
+        return {
+          success: true,
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          },
+        };
+      }),
+    
+    // Atualizar usuário (apenas admin)
+    updateUser: protectedProcedure
+      .input(z.object({
+        userId: z.number(),
+        name: z.string().min(1).optional(),
+        email: z.string().email().optional(),
+        role: z.enum(['user', 'admin']).optional(),
+        password: z.string().min(6).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user?.role !== 'admin') {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Apenas administradores podem atualizar usuários',
+          });
+        }
+        
+        const { AuthService } = await import('./auth/authService');
+        const { userId, password, ...updateData } = input;
+        
+        // Atualizar dados básicos
+        const user = await AuthService.updateUser(userId, updateData);
+        
+        // Atualizar senha se fornecida
+        if (password) {
+          await AuthService.updatePassword(userId, password);
+        }
+        
+        return {
+          success: true,
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          },
+        };
+      }),
+    
+    // Deletar usuário (apenas admin)
+    deleteUser: protectedProcedure
+      .input(z.object({
+        userId: z.number(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user?.role !== 'admin') {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Apenas administradores podem deletar usuários',
+          });
+        }
+        
+        // Não permitir deletar a si mesmo
+        if (ctx.user.id === input.userId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Você não pode deletar sua própria conta',
+          });
+        }
+        
+        const { AuthService } = await import('./auth/authService');
+        await AuthService.deleteUser(input.userId);
+        
+        return {
+          success: true,
+        };
+      }),
   }),
 
   // Configurações do bot

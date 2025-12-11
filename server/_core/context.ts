@@ -14,31 +14,37 @@ export async function createContext(
 ): Promise<TrpcContext> {
   let user: User | null = null;
 
-  try {
-    user = await sdk.authenticateRequest(opts.req);
-  } catch (error) {
-    // Authentication is optional for public procedures.
-    // Se OAuth não estiver configurado, criar usuário mock
-    if (!process.env.OAUTH_SERVER_URL) {
-      // Criar ou buscar usuário padrão "admin"
-      const mockOpenId = "railway-admin";
-      
-      user = await getUserByOpenId(mockOpenId);
-      
-      if (!user) {
-        await upsertUser({
-          openId: mockOpenId,
-          name: "Admin",
-          email: "admin@railway.app",
-          loginMethod: "mock",
-          role: "admin",
-        });
-        user = await getUserByOpenId(mockOpenId);
+  // Tentar autenticação local primeiro (cookie user_session)
+  const cookies = opts.req.headers.cookie || '';
+  const userSessionMatch = cookies.match(/user_session=([^;]+)/);
+  
+  if (userSessionMatch) {
+    try {
+      const sessionData = JSON.parse(decodeURIComponent(userSessionMatch[1]));
+      if (sessionData.userId) {
+        // Buscar usuário pelo ID
+        const { AuthService } = await import('../auth/authService');
+        user = await AuthService.getUserById(sessionData.userId);
+        if (user) {
+          console.log(`[Auth] Usuário autenticado via sessão local: ${user.email}`);
+        }
       }
-      
-      console.log("[Auth] Usando usuário mock (OAuth não configurado)");
-    } else {
-      user = null;
+    } catch (error) {
+      console.error('[Auth] Erro ao processar sessão local:', error);
+    }
+  }
+
+  // Se não encontrou usuário local, tentar OAuth
+  if (!user) {
+    try {
+      user = await sdk.authenticateRequest(opts.req);
+    } catch (error) {
+      // Authentication is optional for public procedures.
+      // Se OAuth não estiver configurado, não criar usuário mock
+      // (o sistema de login local será usado)
+      if (!process.env.OAUTH_SERVER_URL) {
+        console.log("[Auth] OAuth não configurado, usando autenticação local");
+      }
     }
   }
 
