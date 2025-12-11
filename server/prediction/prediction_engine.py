@@ -36,8 +36,10 @@ class PredictionEngine:
         aberturas = [float(candle.get('abertura', 0)) for candle in dados]
         media_abertura = np.mean(aberturas)
         
-        # Fase 1: valores ~0.9, Fase 2: valores ~9400+
-        if media_abertura > 1000:
+        # Fase 1: valores ~0.9 (Volatility Indices decimais)
+        # Fase 2: valores >= 10 (Forex, Sintéticos, Índices)
+        # Threshold ajustado para cobrir USD/JPY (~155), EUR/USD (~1.1), etc.
+        if media_abertura >= 10:
             fase = 2
         else:
             fase = 1
