@@ -1509,9 +1509,19 @@ export class TradingBot {
       if (this.payoutCheckEnabled) {
         const payoutCheckResult = await this.checkPayoutBeforePrediction();
         
-        // Se houve erro, apenas logar e prosseguir (já foi logado no catch)
+        // ✅ CORREÇÃO CRÍTICA: Se houve erro, ABORTAR entrada (não prosseguir)
         if (payoutCheckResult.error) {
-          console.log(`[PAYOUT_CHECK] Erro na verificação, prosseguindo com operação por segurança`);
+          console.error(`[PAYOUT_CHECK] ENTRADA ABORTADA - Erro ao verificar payout após 3 tentativas`);
+          
+          await this.logEvent(
+            "ENTRY_BLOCKED_PAYOUT_ERROR",
+            `❌ ENTRADA BLOQUEADA | Erro ao verificar payout após 3 tentativas de timeout | Aguardando próximo candle`
+          );
+          
+          // Voltar ao estado ARMED (continua aguardando gatilho)
+          this.state = "ARMED";
+          await this.updateBotState();
+          return;
         } else if (!payoutCheckResult.acceptable) {
           // Payout insuficiente - bloquear entrada
           console.log(`[PAYOUT_CHECK] ENTRADA BLOQUEADA - Payout insuficiente | Oferecido: $${payoutCheckResult.payout.toFixed(2)} USD | Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD`);
