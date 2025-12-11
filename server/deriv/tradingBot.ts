@@ -136,6 +136,8 @@ export class TradingBot {
   private lastDojiCheckByCandle: Map<string, Set<'INITIAL' | 'REPREDICTION'>> = new Map();
   private triggerHitLogged: Set<number> = new Set();
   private marketConditionLogged: Set<number> = new Set();
+  private payoutCheckAttempted: Set<number> = new Set(); // Controle de tentativas de payout check por candle
+  private payoutCheckErrorLogged: Set<number> = new Set(); // Controle de logs de erro de payout por candle
 
   constructor(userId: number, botId: number = 1) {
     this.userId = userId;
@@ -774,6 +776,8 @@ export class TradingBot {
       // ✅ CORREÇÃO: Limpar Sets de debounce ao mudar de candle
       this.triggerHitLogged.clear();
       this.marketConditionLogged.clear();
+      this.payoutCheckAttempted.clear();
+      this.payoutCheckErrorLogged.clear();
       // Limpar entradas antigas do Map de DojiGuard (manter apenas últimos 5 candles)
       if (this.lastDojiCheckByCandle.size > 5) {
         const sortedKeys = Array.from(this.lastDojiCheckByCandle.keys()).sort();
@@ -1554,32 +1558,54 @@ export class TradingBot {
       }
       // ✅ VERIFICAÇÃO DE PAYOUT ANTES DA ENTRADA
       if (this.payoutCheckEnabled) {
+        // ✅ CORREÇÃO: Verificar se já tentou payout check neste candle
+        if (this.payoutCheckAttempted.has(this.currentCandleTimestamp)) {
+          console.log(`[PAYOUT_CHECK] Já tentou verificar payout neste candle (${this.currentCandleTimestamp}). Aguardando próximo candle.`);
+          // Não fazer nada, aguardar próximo candle
+          return;
+        }
+        
+        // Marcar que tentou verificar payout neste candle
+        this.payoutCheckAttempted.add(this.currentCandleTimestamp);
+        
         const payoutCheckResult = await this.checkPayoutBeforePrediction();
         
-        // ✅ CORREÇÃO CRÍTICA: Se houve erro, ABORTAR entrada (não prosseguir)
+        // ✅ CORREÇÃO CRÍTICA: Se houve erro, RESETAR predição e aguardar próximo candle
         if (payoutCheckResult.error) {
           console.error(`[PAYOUT_CHECK] ENTRADA ABORTADA - Erro ao verificar payout após 3 tentativas`);
           
-          await this.logEvent(
-            "ENTRY_BLOCKED_PAYOUT_ERROR",
-            `❌ ENTRADA BLOQUEADA | Erro ao verificar payout após 3 tentativas de timeout | Aguardando próximo candle`
-          );
+          // ✅ Logar apenas uma vez por candle
+          if (!this.payoutCheckErrorLogged.has(this.currentCandleTimestamp)) {
+            await this.logEvent(
+              "ENTRY_BLOCKED_PAYOUT_ERROR",
+              `❌ ENTRADA BLOQUEADA | Erro ao verificar payout após 3 tentativas de timeout | Aguardando próximo candle`
+            );
+            this.payoutCheckErrorLogged.add(this.currentCandleTimestamp);
+          }
           
-          // Voltar ao estado ARMED (continua aguardando gatilho)
-          this.state = "ARMED";
+          // ✅ RESETAR predição e gatilho para forçar aguardar próximo candle
+          this.prediction = null;
+          this.trigger = 0;
+          this.state = "WAITING_MIDPOINT";
           await this.updateBotState();
           return;
         } else if (!payoutCheckResult.acceptable) {
           // Payout insuficiente - bloquear entrada
           console.log(`[PAYOUT_CHECK] ENTRADA BLOQUEADA - Payout insuficiente | Oferecido: $${payoutCheckResult.payout.toFixed(2)} USD | Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD`);
           
-          await this.logEvent(
-            "PAYOUT_TOO_LOW",
-            `⚠️ ENTRADA BLOQUEADA | Payout: $${payoutCheckResult.payout.toFixed(2)} USD < Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD | Aguardando próximo candle`
-          );
+          // ✅ Logar apenas uma vez por candle
+          if (!this.payoutCheckErrorLogged.has(this.currentCandleTimestamp)) {
+            await this.logEvent(
+              "PAYOUT_TOO_LOW",
+              `⚠️ ENTRADA BLOQUEADA | Payout: $${payoutCheckResult.payout.toFixed(2)} USD < Mínimo: $${this.minPayoutPercent} USD | Diferença: -$${(this.minPayoutPercent - payoutCheckResult.payout).toFixed(2)} USD | Aguardando próximo candle`
+            );
+            this.payoutCheckErrorLogged.add(this.currentCandleTimestamp);
+          }
           
-          // Voltar ao estado ARMED (continua aguardando gatilho)
-          this.state = "ARMED";
+          // ✅ RESETAR predição e gatilho para forçar aguardar próximo candle
+          this.prediction = null;
+          this.trigger = 0;
+          this.state = "WAITING_MIDPOINT";
           await this.updateBotState();
           return;
         } else {

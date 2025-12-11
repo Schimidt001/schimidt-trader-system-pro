@@ -181,6 +181,15 @@ export class DerivService {
       return;
     }
     
+    // ✅ CORREÇÃO: Processar mensagens de proposal para payout check
+    if (message.proposal && this.subscriptions.has("proposal_payout")) {
+      const handler = this.subscriptions.get("proposal_payout");
+      if (handler) {
+        handler(message);
+        return;
+      }
+    }
+    
     if (msgType && this.subscriptions.has(msgType)) {
       const handler = this.subscriptions.get(msgType);
       if (handler) {
