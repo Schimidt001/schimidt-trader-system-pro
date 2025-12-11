@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { db } from '../db';
+import { getDb } from '../db';
 import { users } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
 import type { User } from '../../drizzle/schema';
@@ -32,6 +32,9 @@ export class AuthService {
     name: string;
     role?: 'user' | 'admin';
   }): Promise<User> {
+    const db = await getDb();
+    if (!db) throw new Error('Database not connected');
+
     // Verificar se email já existe
     const existingUser = await db
       .select()
@@ -74,6 +77,9 @@ export class AuthService {
    * Autenticar usuário com email e senha
    */
   static async authenticate(email: string, password: string): Promise<User | null> {
+    const db = await getDb();
+    if (!db) throw new Error('Database not connected');
+
     // Buscar usuário por email
     const [user] = await db
       .select()
@@ -104,6 +110,9 @@ export class AuthService {
    * Atualizar senha do usuário
    */
   static async updatePassword(userId: number, newPassword: string): Promise<void> {
+    const db = await getDb();
+    if (!db) throw new Error('Database not connected');
+
     const passwordHash = await this.hashPassword(newPassword);
     await db
       .update(users)
@@ -115,6 +124,9 @@ export class AuthService {
    * Deletar usuário
    */
   static async deleteUser(userId: number): Promise<void> {
+    const db = await getDb();
+    if (!db) throw new Error('Database not connected');
+
     await db.delete(users).where(eq(users.id, userId));
   }
 
@@ -122,6 +134,9 @@ export class AuthService {
    * Listar todos os usuários (apenas admin)
    */
   static async listUsers(): Promise<User[]> {
+    const db = await getDb();
+    if (!db) throw new Error('Database not connected');
+
     return db.select().from(users);
   }
 
@@ -129,6 +144,9 @@ export class AuthService {
    * Buscar usuário por ID
    */
   static async getUserById(userId: number): Promise<User | null> {
+    const db = await getDb();
+    if (!db) throw new Error('Database not connected');
+
     const [user] = await db
       .select()
       .from(users)
@@ -149,6 +167,9 @@ export class AuthService {
       role?: 'user' | 'admin';
     }
   ): Promise<User> {
+    const db = await getDb();
+    if (!db) throw new Error('Database not connected');
+
     await db
       .update(users)
       .set(data)
