@@ -25,6 +25,7 @@ import { getLatestMarketCondition, getMarketConditionHistory, getMarketCondition
 import { resetDailyData } from "./db_reset";
 import { getBotForUser, removeBotForUser } from "./deriv/tradingBot";
 import { DerivService } from "./deriv/derivService";
+import { DerivReconciliationService } from "./deriv/derivReconciliationService";
 import { predictionService } from "./prediction/predictionService";
 import { engineManager } from "./prediction/engineManager";
 
@@ -699,6 +700,61 @@ export const appRouter = router({
           });
         }
       }),
+
+    reconcile: protectedProcedure
+      .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      
+      try {
+        // Buscar configuração do usuário para obter token
+        const config = await getConfigByUserId(ctx.user.id, botId);
+        
+        if (!config) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Configuração não encontrada. Configure o token DERIV primeiro.",
+          });
+        }
+
+        const token = config.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
+        
+        if (!token) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Token ${config.mode} não configurado.`,
+          });
+        }
+
+        // Conectar ao DERIV
+        const derivAppId = config.derivAppId || "1089";
+        const derivService = new DerivService(token, config.mode === "DEMO", derivAppId);
+        await derivService.connect();
+        
+        // Executar reconciliação
+        const result = await DerivReconciliationService.reconcileTodayPositions(
+          ctx.user.id,
+          botId,
+          derivService
+        );
+        
+        derivService.disconnect();
+        
+        return {
+          success: result.success,
+          message: result.success 
+            ? `Reconciliação concluída: ${result.positionsUpdated} posições atualizadas`
+            : `Reconciliação com erros: ${result.errors.join(", ")}`,
+          ...result,
+        };
+      } catch (error: any) {
+        console.error("[Reconciliation] Erro:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erro na reconciliação: ${error.message}`,
+        });
+      }
+    }),
 
     resetDailyData: protectedProcedure
       .input(z.object({ botId: z.number().int().min(1).max(2).optional() }).optional())

@@ -354,6 +354,29 @@ export class TradingBot {
       // Carregar PnL do dia
       await this.loadDailyPnL();
 
+      // Reconciliar posições órfãs ao iniciar (sincronização com DERIV)
+      try {
+        const { DerivReconciliationService } = await import("./derivReconciliationService");
+        const reconcileResult = await DerivReconciliationService.reconcileTodayPositions(
+          this.userId,
+          this.botId,
+          this.derivService
+        );
+        
+        if (reconcileResult.positionsUpdated > 0) {
+          await this.logEvent(
+            "RECONCILIATION_AUTO",
+            `✅ Sincronização automática: ${reconcileResult.positionsUpdated} posições atualizadas com dados da DERIV`
+          );
+          
+          // Recarregar PnL após reconciliação
+          await this.loadDailyPnL();
+        }
+      } catch (error) {
+        console.warn("[TradingBot] Erro na reconciliação automática:", error);
+        // Não bloquear o início do bot por erro na reconciliação
+      }
+
       // Verificar se já atingiu stop ou take
       if (this.dailyPnL <= -this.stopDaily) {
         await this.logEvent("STOP_DAILY_HIT", "Stop diário atingido, bot não iniciará");
