@@ -1002,6 +1002,30 @@ export class TradingBot {
     // Se tinha posições abertas, fechar todas
     if (this.state === "ENTERED" && this.currentPositions.length > 0) {
       await this.closeAllPositions("Candle fechado");
+      
+      // 🔄 RECONCILIAÇÃO AUTOMÁTICA: Aguardar 3 segundos e verificar se PnL está correto
+      setTimeout(async () => {
+        try {
+          const { DerivReconciliationService } = await import("./derivReconciliationService");
+          const result = await DerivReconciliationService.reconcileTodayPositions(
+            this.userId,
+            this.botId,
+            this.derivService
+          );
+          
+          if (result.positionsUpdated > 0) {
+            await this.logEvent(
+              "RECONCILIATION_POST_CLOSE",
+              `🔄 Reconciliação pós-close: ${result.positionsUpdated} posições corrigidas | PnL ajustado`
+            );
+            
+            // Recarregar PnL após correção
+            await this.loadDailyPnL();
+          }
+        } catch (error) {
+          console.warn("[TradingBot] Erro na reconciliação pós-close:", error);
+        }
+      }, 3000); // Aguardar 3 segundos para contratos finalizarem
     } else {
       // Reset estado se não tinha posições
       this.prediction = null;

@@ -79,23 +79,40 @@ export class DerivReconciliationService {
         console.error(`[RECONCILIATION] Erro ao buscar profit_table:`, error);
       }
 
-      // 3. Verificar posições "órfãs" (ENTERED/ARMED há muito tempo)
+      // 3. Verificar posições que precisam de reconciliação
+      // - Órfãs: ENTERED/ARMED há muito tempo
+      // - CLOSED recentemente: podem ter PnL de early close (verificar se já expiraram)
       for (const position of dbPositions) {
-        if (position.status === "ENTERED" || position.status === "ARMED") {
+        const shouldReconcile = 
+          position.status === "ENTERED" || 
+          position.status === "ARMED" ||
+          (position.status === "CLOSED" && this.isRecentlyClosed(position));
+        
+        if (shouldReconcile) {
           try {
             const contractInfo = await derivService.getContractInfo(position.contractId);
             
-            // Se o contrato já foi finalizado na DERIV, atualizar no banco
-            if (contractInfo.status === "won" || contractInfo.status === "lost" || contractInfo.status === "sold") {
+            // Verificar se o contrato já expirou naturalmente (won/lost)
+            // Ignorar 'sold' se a posição já está CLOSED (early close intencional)
+            const needsUpdate = 
+              (contractInfo.status === "won" || contractInfo.status === "lost") ||
+              (contractInfo.status === "sold" && position.status !== "CLOSED");
+            
+            if (needsUpdate) {
               console.log(`[RECONCILIATION] Posição órfã detectada: ${position.contractId} (status DERIV: ${contractInfo.status})`);
               
-              // Calcular PnL real
+              // Calcular PnL real com base no status final
               let finalProfit = 0;
-              if (contractInfo.status === "won" || contractInfo.status === "sold") {
-                const sellPrice = contractInfo.sell_price || contractInfo.payout || 0;
-                finalProfit = sellPrice - contractInfo.buy_price;
+              
+              if (contractInfo.status === "won") {
+                // Contrato ganhou: usar payout (resultado final)
+                finalProfit = (contractInfo.payout || contractInfo.sell_price || 0) - contractInfo.buy_price;
               } else if (contractInfo.status === "lost") {
+                // Contrato perdeu: perda total do stake
                 finalProfit = -contractInfo.buy_price;
+              } else if (contractInfo.status === "sold") {
+                // Early close: usar sell_price
+                finalProfit = (contractInfo.sell_price || 0) - contractInfo.buy_price;
               }
 
               const pnlInCents = Math.round(finalProfit * 100);
@@ -157,6 +174,20 @@ export class DerivReconciliationService {
       console.error(`[RECONCILIATION] Erro geral:`, error);
       return result;
     }
+  }
+
+  /**
+   * Verifica se uma posição foi fechada recentemente (nos últimos 5 minutos)
+   * Posições recém-fechadas podem ter PnL de early close que precisa ser corrigido
+   */
+  private static isRecentlyClosed(position: any): boolean {
+    if (!position.exitTime) return false;
+    
+    const exitTime = new Date(position.exitTime).getTime();
+    const now = Date.now();
+    const fiveMinutesAgo = now - (5 * 60 * 1000);
+    
+    return exitTime >= fiveMinutesAgo;
   }
 
   /**
