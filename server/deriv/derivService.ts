@@ -89,9 +89,16 @@ export class DerivService {
                 this.subscriptions.delete("authorize");
                 authorized = true;
                 resolve();
-              } else if (message.error && message.error.code === "AuthorizationRequired") {
+              } else if (message.error) {
+                // ✅ CORREÇÃO: Tratar TODOS os erros de autorização (não apenas AuthorizationRequired)
                 this.subscriptions.delete("authorize");
-                reject(new Error("Token inválido ou expirado"));
+                const errorCode = message.error.code || 'UnknownError';
+                const errorMessage = message.error.message || 'Erro desconhecido na autorização';
+                
+                console.error(`[DerivService] Erro de autorização: ${errorCode} - ${errorMessage}`);
+                console.error(`[DerivService] Detalhes completos:`, JSON.stringify(message.error, null, 2));
+                
+                reject(new Error(`Erro de autorização (${errorCode}): ${errorMessage}`));
               }
             };
             this.subscriptions.set("authorize", authHandler);
@@ -773,6 +780,8 @@ export class DerivService {
 
     /**
      * Inicia o envio de pings periódicos para manter a conexão viva
+     * ✅ MELHORADO: Verificação mais frequente (15s) e detecção mais rápida de conexão morta (60s)
+     * A Deriv fecha conexões após 2 minutos de inatividade, então precisamos ser mais agressivos
      */
     private startPing(): void {
         if (this.pingInterval) return;
@@ -780,20 +789,28 @@ export class DerivService {
         this.lastPongTime = Date.now(); // Inicializar
         
         this.pingInterval = setInterval(() => {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                // Verificar se o último pong foi recebido recentemente (90 segundos)
-                const timeSinceLastPong = Date.now() - this.lastPongTime;
-                if (timeSinceLastPong > 90000) {
-                    console.warn("[DerivService] No pong received for 90s - connection may be dead");
-                    // Forçar reconeexão
-                    this.ws.close();
-                    return;
-                }
-                
-                console.log("[DerivService] Sending ping...");
-                this.send({ ping: 1 });
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                return; // Não fazer nada se não estiver conectado
             }
-        }, 30000); // Ping a cada 30 segundos
+            
+            const timeSinceLastPong = Date.now() - this.lastPongTime;
+            
+            // Se não recebemos pong em 60s, a conexão está provavelmente morta
+            // (Deriv fecha após 120s de inatividade, então 60s é um bom threshold)
+            if (timeSinceLastPong > 60000) {
+                console.error("[DerivService] No pong received for 60s - connection is likely dead. Forcing reconnect.");
+                this.ws.close();
+                return;
+            }
+            
+            // Se não recebemos pong em 30s, logar aviso mas continuar tentando
+            if (timeSinceLastPong > 30000) {
+                console.warn(`[DerivService] No pong received for ${Math.round(timeSinceLastPong/1000)}s - connection may be unstable`);
+            }
+            
+            // Enviar ping (sem log excessivo para não poluir console)
+            this.send({ ping: 1 });
+        }, 15000); // ✅ Verificar a cada 15 segundos (era 30s)
     }
 
     /**
