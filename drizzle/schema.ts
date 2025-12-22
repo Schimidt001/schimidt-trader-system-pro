@@ -131,7 +131,7 @@ export const positions = mysqlTable("positions", {
   strategy: varchar("strategy", { length: 50 }),
   confidence: varchar("confidence", { length: 20 }),
   pnl: int("pnl"), // em centavos
-  status: mysqlEnum("status", ["ARMED", "ENTERED", "CLOSED", "CANCELLED"]).notNull(),
+  status: mysqlEnum("status", ["PENDING", "ARMED", "ENTERED", "CLOSED", "CANCELLED", "ORPHAN_EXECUTION"]).notNull(),
   candleTimestamp: bigint("candleTimestamp", { mode: "number" }).notNull(),
   entryTime: timestamp("entryTime"),
   exitTime: timestamp("exitTime"),

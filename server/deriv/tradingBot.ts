@@ -2038,40 +2038,115 @@ export class TradingBot {
         `🔍 PAYLOAD REAL | IA: ${auditPayload.predictionDirection} | Semântica: ${auditPayload.expectedSemantic} | Contract: ${contractType} | Symbol: ${this.symbol} | Stake: $${auditPayload.stake} | Duration: ${finalDurationMinutes}m`
       );
       
-      // Comprar contrato na DERIV usando duração em minutos (mais compatível)
-      const contract = await this.derivService.buyContract(
-        this.symbol,
-        contractType,
-        finalStake / 100, // Converter centavos para unidade (com ajuste GOLD se aplicável)
-        finalDurationMinutes, // Duração final em minutos
-        "m", // Usar minutos para maior compatibilidade
-        barrier, // Passar barreira se for TOUCH/NO_TOUCH
-        this.allowEquals // ✅ Permitir empate como vitória
-      );
+      // 🚨 CORREÇÃO CRÍTICA: PERSISTÊNCIA ANTES DE EXECUÇÃO
+      // Fluxo seguro: PENDING -> DERIV -> ENTERED (ou ORPHAN_EXECUTION em caso de falha)
       
-      console.log('[AFTER_BUY] Contrato comprado com sucesso:', contract.contract_id);
-
-      // Salvar posição no banco
-      const positionId = await insertPosition({
-        userId: this.userId,
-        botId: this.botId,
-        contractId: contract.contract_id,
-        symbol: this.symbol,
-        direction: this.prediction.direction,
-        stake: finalStake,
-        entryPrice: entryPrice.toString(),
-        predictedClose: this.prediction.predicted_close.toString(),
-        trigger: this.trigger.toString(),
-        phase: this.prediction.phase,
-        strategy: this.prediction.strategy,
-        confidence: this.prediction.confidence.toString(),
-        status: "ENTERED",
-        candleTimestamp: this.currentCandleTimestamp,
-        entryTime: new Date(),
-        isHedge: false,
-      });
+      // PASSO 1: Criar posição em estado PENDING (antes de enviar para DERIV)
+      let positionId: number;
+      try {
+        positionId = await insertPosition({
+          userId: this.userId,
+          botId: this.botId,
+          contractId: null, // Ainda não temos o contractId
+          symbol: this.symbol,
+          direction: this.prediction.direction,
+          stake: finalStake,
+          entryPrice: entryPrice.toString(),
+          predictedClose: this.prediction.predicted_close.toString(),
+          trigger: this.trigger.toString(),
+          phase: this.prediction.phase,
+          strategy: this.prediction.strategy,
+          confidence: this.prediction.confidence.toString(),
+          status: "PENDING", // 🚨 Estado inicial PENDING
+          candleTimestamp: this.currentCandleTimestamp,
+          entryTime: new Date(),
+          isHedge: false,
+        });
+        
+        console.log(`[POSITION_PENDING] Posição criada em estado PENDING | ID: ${positionId} | Bot: ${this.botId}`);
+        await this.logEvent(
+          "POSITION_PENDING",
+          `📦 Posição criada em PENDING | ID: ${positionId} | Aguardando confirmação da DERIV`
+        );
+      } catch (dbError: any) {
+        // Se falhar ao criar PENDING, ABORTAR - não enviar ordem para DERIV
+        console.error("[CRITICAL] Falha ao criar posição PENDING no banco:", dbError);
+        await this.logEvent(
+          "POSITION_PENDING_FAILED",
+          `❌ FALHA CRÍTICA | Não foi possível criar posição PENDING | Ordem NÃO enviada para DERIV | Erro: ${dbError?.message || dbError}`
+        );
+        this.state = "ERROR_API";
+        await this.updateBotState();
+        return; // ABORTAR - não enviar ordem sem persistência
+      }
       
-      console.log(`[POSITION_SAVED] Posição salva no banco | ID: ${positionId} | Contract: ${contract.contract_id} | Stake: $${(finalStake / 100).toFixed(2)} | Bot: ${this.botId}`);
+      // PASSO 2: Enviar ordem para DERIV (agora temos garantia de persistência)
+      let contract: any;
+      try {
+        contract = await this.derivService.buyContract(
+          this.symbol,
+          contractType,
+          finalStake / 100, // Converter centavos para unidade (com ajuste GOLD se aplicável)
+          finalDurationMinutes, // Duração final em minutos
+          "m", // Usar minutos para maior compatibilidade
+          barrier, // Passar barreira se for TOUCH/NO_TOUCH
+          this.allowEquals // ✅ Permitir empate como vitória
+        );
+        
+        console.log('[AFTER_BUY] Contrato comprado com sucesso:', contract.contract_id);
+      } catch (derivError: any) {
+        // Falha na DERIV - atualizar posição para CANCELLED
+        console.error("[DERIV_ERROR] Falha ao comprar contrato na DERIV:", derivError);
+        try {
+          await updatePosition(positionId, {
+            status: "CANCELLED",
+            exitTime: new Date(),
+          });
+          await this.logEvent(
+            "POSITION_CANCELLED_DERIV_ERROR",
+            `❌ Posição CANCELADA | ID: ${positionId} | Erro DERIV: ${derivError?.message || derivError}`
+          );
+        } catch (updateError) {
+          console.error("[CRITICAL] Falha ao atualizar posição para CANCELLED:", updateError);
+        }
+        this.state = "ERROR_API";
+        await this.updateBotState();
+        return;
+      }
+      
+      // PASSO 3: Atualizar posição para ENTERED com contractId
+      try {
+        await updatePosition(positionId, {
+          contractId: contract.contract_id,
+          status: "ENTERED",
+        });
+        
+        console.log(`[POSITION_ENTERED] Posição atualizada para ENTERED | ID: ${positionId} | Contract: ${contract.contract_id}`);
+      } catch (updateError: any) {
+        // 🚨 CASO CRÍTICO: Ordem executada na DERIV mas falha ao atualizar banco
+        // Marcar como ORPHAN_EXECUTION para reconciliação posterior
+        console.error("[CRITICAL] Ordem executada na DERIV mas falha ao atualizar banco:", updateError);
+        console.error(`[ORPHAN_EXECUTION] ContractId: ${contract.contract_id} | PositionId: ${positionId}`);
+        
+        try {
+          // Tentar marcar como ORPHAN_EXECUTION
+          await updatePosition(positionId, {
+            contractId: contract.contract_id,
+            status: "ORPHAN_EXECUTION",
+          });
+          await this.logEvent(
+            "ORPHAN_EXECUTION_DETECTED",
+            `⚠️ EXECUÇÃO ÓRFÃ | Contract: ${contract.contract_id} | Position: ${positionId} | Requer reconciliação manual`
+          );
+        } catch (orphanError) {
+          // Pior caso: logar para recuperação manual
+          console.error("[CRITICAL_ORPHAN] Falha total - requer intervenção manual:", orphanError);
+          await this.logEvent(
+            "CRITICAL_ORPHAN_EXECUTION",
+            `🚨 EXECUÇÃO ÓRFÃ CRÍTICA | Contract: ${contract.contract_id} | Position: ${positionId} | REQUER INTERVENÇÃO MANUAL`
+          );
+        }
+      }
 
       // Adicionar à lista de posições
       this.currentPositions.push({
@@ -2083,7 +2158,6 @@ export class TradingBot {
       this.tradesThisCandle.add(this.currentCandleTimestamp);
       this.lastContractCheckTime = 0; // Resetar para permitir verificação imediata
 
-      // Estado já foi mudado para ENTERED no início da função
       // ✅ CORREÇÃO: Log completo com direção da IA + semântica correta
       const directionLabel = this.prediction.direction.toUpperCase();
       const mappingResult = mapDirectionToContractType(this.prediction.direction as PredictionDirection, this.allowEquals);

@@ -102,12 +102,89 @@ export class DerivReconciliationService {
           continue;
         }
 
+        // 🚨 TRATAMENTO DE POSIÇÕES PENDING (criadas mas não enviadas para DERIV)
+        if (position.status === "PENDING") {
+          // Posição ficou em PENDING - provavelmente falha na comunicação com DERIV
+          // Verificar se já passou muito tempo (mais de 5 minutos)
+          const pendingAge = Date.now() - new Date(position.createdAt).getTime();
+          if (pendingAge > 5 * 60 * 1000) { // 5 minutos
+            console.log(`[RECONCILIATION] Posição PENDING antiga detectada: ${position.id} | Idade: ${Math.round(pendingAge / 1000)}s`);
+            await updatePosition(position.id, {
+              status: "CANCELLED",
+              exitTime: new Date(),
+              reconciled: true,
+              reconciledAt: new Date(),
+            });
+            result.positionsUpdated++;
+            await insertEventLog({
+              userId,
+              botId,
+              timestampUtc: Math.floor(Date.now() / 1000),
+              eventType: "RECONCILIATION_PENDING_CANCELLED",
+              message: `Posição PENDING cancelada (timeout): ID=${position.id} | Idade: ${Math.round(pendingAge / 60000)}min`,
+            });
+          }
+          continue;
+        }
+        
+        // 🚨 TRATAMENTO DE ORPHAN_EXECUTION (executada na DERIV mas falhou ao atualizar banco)
+        if (position.status === "ORPHAN_EXECUTION" && position.contractId) {
+          console.log(`[RECONCILIATION] ORPHAN_EXECUTION detectada: ${position.contractId}`);
+          try {
+            const contractInfo = await derivService.getContractInfo(position.contractId);
+            
+            if (contractInfo.status === "won" || contractInfo.status === "lost" || contractInfo.status === "sold") {
+              let finalProfit = 0;
+              if (contractInfo.status === "won") {
+                finalProfit = (contractInfo.payout || contractInfo.sell_price || 0) - contractInfo.buy_price;
+              } else if (contractInfo.status === "lost") {
+                finalProfit = -contractInfo.buy_price;
+              } else if (contractInfo.status === "sold") {
+                finalProfit = (contractInfo.sell_price || 0) - contractInfo.buy_price;
+              }
+              
+              const pnlInCents = Math.round(finalProfit * 100);
+              const exitPrice = contractInfo.exit_tick || contractInfo.current_spot || 0;
+              
+              await updatePosition(position.id, {
+                exitPrice: exitPrice.toString(),
+                pnl: pnlInCents,
+                status: "CLOSED",
+                exitTime: new Date(),
+                reconciled: true,
+                reconciledAt: new Date(),
+              });
+              
+              result.positionsUpdated++;
+              console.log(`[RECONCILIATION] ORPHAN_EXECUTION recuperada: ${position.contractId} | PnL: $${(pnlInCents / 100).toFixed(2)}`);
+              
+              await insertEventLog({
+                userId,
+                botId,
+                timestampUtc: Math.floor(Date.now() / 1000),
+                eventType: "RECONCILIATION_ORPHAN_RECOVERED",
+                message: `Execução órfã recuperada: ${position.contractId} | PnL: $${(pnlInCents / 100).toFixed(2)} | Status DERIV: ${contractInfo.status}`,
+              });
+            }
+          } catch (orphanError) {
+            console.error(`[RECONCILIATION] Erro ao recuperar ORPHAN_EXECUTION ${position.contractId}:`, orphanError);
+            result.errors.push(`Erro ao recuperar orphan ${position.contractId}: ${orphanError}`);
+          }
+          continue;
+        }
+
         const shouldReconcile = 
           position.status === "ENTERED" || 
           position.status === "ARMED" ||
           (position.status === "CLOSED" && this.isRecentlyClosed(position));
         
         if (shouldReconcile) {
+          // Verificar se tem contractId válido
+          if (!position.contractId) {
+            console.log(`[RECONCILIATION] Posição ${position.id} sem contractId - pulando`);
+            continue;
+          }
+          
           try {
             const contractInfo = await derivService.getContractInfo(position.contractId);
             
