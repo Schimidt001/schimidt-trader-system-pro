@@ -150,6 +150,10 @@ export class TradingBot {
   private payoutCheckAttempted: Set<number> = new Set(); // Controle de tentativas de payout check por candle
   private payoutCheckErrorLogged: Set<number> = new Set(); // Controle de logs de erro de payout por candle
   private ttlCheckLogged: Set<number> = new Set(); // Controle de logs do TTL por candle
+  
+  // 🚨 CORREÇÃO CRÍTICA: Controle de candles bloqueados por filtros (VETO ABSOLUTO)
+  // Se um candle está neste Set, NENHUMA operação pode ser executada nele
+  private blockedCandles: Set<number> = new Set();
 
   constructor(userId: number, botId: number = 1) {
     this.userId = userId;
@@ -868,6 +872,15 @@ export class TradingBot {
       this.payoutCheckAttempted.clear();
       this.payoutCheckErrorLogged.clear();
       this.ttlCheckLogged.clear();
+      
+      // 🚨 CORREÇÃO CRÍTICA: Limpar candles bloqueados antigos (manter apenas últimos 5)
+      // Isso evita que o Set cresça indefinidamente
+      if (this.blockedCandles.size > 5) {
+        const sortedCandles = Array.from(this.blockedCandles).sort((a, b) => a - b);
+        const candlesToDelete = sortedCandles.slice(0, sortedCandles.length - 5);
+        candlesToDelete.forEach(ts => this.blockedCandles.delete(ts));
+      }
+      
       // Limpar entradas antigas do Map de DojiGuard (manter apenas últimos 5 candles)
       if (this.lastDojiCheckByCandle.size > 5) {
         const sortedKeys = Array.from(this.lastDojiCheckByCandle.keys()).sort();
@@ -1301,6 +1314,14 @@ export class TradingBot {
    */
   private async makePrediction(elapsedSeconds: number): Promise<void> {
     try {
+      // 🚨 VETO ABSOLUTO: Verificar se o candle já foi bloqueado por algum filtro
+      if (this.blockedCandles.has(this.currentCandleTimestamp)) {
+        console.log(`[FILTER_VETO] Candle ${this.currentCandleTimestamp} já foi BLOQUEADO por um filtro - IGNORANDO makePrediction`);
+        this.state = "WAITING_MIDPOINT";
+        await this.updateBotState();
+        return;
+      }
+      
       this.state = "PREDICTING";
       await this.updateBotState();
 
@@ -1501,6 +1522,9 @@ export class TradingBot {
           console.log(this.dojiGuard.formatLogMessage(dojiCheckResult));
           
           if (dojiCheckResult.blocked) {
+            // 🚨 VETO ABSOLUTO: Adicionar candle ao Set de bloqueados
+            this.blockedCandles.add(this.currentCandleTimestamp);
+            
             // Candle bloqueado por DojiGuard
             await this.logEvent(
               "DOJI_BLOCKED",
@@ -1572,6 +1596,9 @@ export class TradingBot {
           }
           
           if (exhaustionCheckResult.blocked) {
+            // 🚨 VETO ABSOLUTO: Adicionar candle ao Set de bloqueados
+            this.blockedCandles.add(this.currentCandleTimestamp);
+            
             // Candle bloqueado por ExhaustionGuard
             const avgRangeInfo = exhaustionCheckResult.metrics.avgRange !== null 
               ? ` | AvgRange(${exhaustionCheckResult.config.rangeLookback})=${exhaustionCheckResult.metrics.avgRange.toFixed(4)}`
@@ -1633,6 +1660,9 @@ export class TradingBot {
           }
           
           if (ttlCheckResult.blocked) {
+            // 🚨 VETO ABSOLUTO: Adicionar candle ao Set de bloqueados
+            this.blockedCandles.add(this.currentCandleTimestamp);
+            
             // Candle bloqueado por TTL Filter - tempo insuficiente na janela operacional
             await this.logEvent(
               "TTL_BLOCKED",
@@ -1729,6 +1759,12 @@ export class TradingBot {
    */
   private async checkTrigger(currentPrice: number, elapsedSeconds: number): Promise<void> {
     if (!this.prediction || !this.derivService) return;
+    
+    // 🚨 VETO ABSOLUTO: Verificar se o candle já foi bloqueado por algum filtro
+    if (this.blockedCandles.has(this.currentCandleTimestamp)) {
+      console.log(`[FILTER_VETO] Candle ${this.currentCandleTimestamp} já foi BLOQUEADO - IGNORANDO checkTrigger`);
+      return;
+    }
 
     let triggered = false;
 
@@ -1756,6 +1792,16 @@ export class TradingBot {
    */
   private async enterPosition(entryPrice: number, elapsedSeconds: number): Promise<void> {
     if (!this.prediction || !this.derivService) return;
+    
+    // 🚨 VETO ABSOLUTO: Verificar se o candle já foi bloqueado por algum filtro
+    if (this.blockedCandles.has(this.currentCandleTimestamp)) {
+      console.log(`[FILTER_VETO] Candle ${this.currentCandleTimestamp} já foi BLOQUEADO - IGNORANDO enterPosition`);
+      await this.logEvent(
+        "FILTER_VETO_ENTRY_BLOCKED",
+        `🚨 ENTRADA BLOQUEADA | Candle ${this.currentCandleTimestamp} foi vetado por filtro | Nenhuma operação permitida`
+      );
+      return;
+    }
 
     // Proteção de idempotência: não entrar se já estiver em posição
     if (this.state === "ENTERED") {
@@ -2691,6 +2737,9 @@ export class TradingBot {
           console.log(`[REPREDICTION] ${this.dojiGuard.formatLogMessage(dojiCheckResult)}`);
           
           if (dojiCheckResult.blocked) {
+            // 🚨 VETO ABSOLUTO: Adicionar candle ao Set de bloqueados
+            this.blockedCandles.add(this.currentCandleTimestamp);
+            
             // Candle bloqueado por DojiGuard em re-predição
             await this.logEvent(
               "DOJI_BLOCKED",
@@ -2766,6 +2815,9 @@ export class TradingBot {
           }
           
           if (exhaustionCheckResult.blocked) {
+            // 🚨 VETO ABSOLUTO: Adicionar candle ao Set de bloqueados
+            this.blockedCandles.add(this.currentCandleTimestamp);
+            
             // Candle bloqueado por ExhaustionGuard em re-predição
             const avgRangeInfo = exhaustionCheckResult.metrics.avgRange !== null 
               ? ` | AvgRange(${exhaustionCheckResult.config.rangeLookback})=${exhaustionCheckResult.metrics.avgRange.toFixed(4)}`
@@ -2819,6 +2871,9 @@ export class TradingBot {
         }
         
         if (ttlCheckResult.blocked) {
+          // 🚨 VETO ABSOLUTO: Adicionar candle ao Set de bloqueados
+          this.blockedCandles.add(this.currentCandleTimestamp);
+          
           // Candle bloqueado por TTL Filter na re-predição - tempo insuficiente na janela operacional
           await this.logEvent(
             "TTL_BLOCKED",
