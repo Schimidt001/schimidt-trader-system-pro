@@ -434,6 +434,9 @@ export class TradingBot {
           
           // Recarregar PnL após reconciliação
           await this.loadDailyPnL();
+        } else if (reconcileResult.positionsSkipped > 0) {
+          // ✅ LOG INFORMATIVO: Posições já reconciliadas foram ignoradas (idempotência)
+          console.log(`[RECONCILIATION_AUTO] ${reconcileResult.positionsSkipped} posições já reconciliadas - nenhuma alteração necessária (idempotência)`);
         }
       } catch (error) {
         console.warn("[TradingBot] Erro na reconciliação automática:", error);
@@ -1076,6 +1079,10 @@ export class TradingBot {
       // 🔄 RECONCILIAÇÃO AUTOMÁTICA: Aguardar 3 segundos e verificar se PnL está correto
       setTimeout(async () => {
         try {
+          if (!this.derivService) {
+            console.warn("[TradingBot] DerivService não disponível para reconciliação pós-close");
+            return;
+          }
           const { DerivReconciliationService } = await import("./derivReconciliationService");
           const result = await DerivReconciliationService.reconcileTodayPositions(
             this.userId,
@@ -1091,6 +1098,9 @@ export class TradingBot {
             
             // Recarregar PnL após correção
             await this.loadDailyPnL();
+          } else if (result.positionsSkipped > 0) {
+            // ✅ LOG INFORMATIVO: Posições já reconciliadas foram ignoradas (idempotência)
+            console.log(`[RECONCILIATION_POST_CLOSE] ${result.positionsSkipped} posições já reconciliadas - nenhuma alteração necessária (idempotência)`);
           }
         } catch (error) {
           console.warn("[TradingBot] Erro na reconciliação pós-close:", error);
@@ -2316,12 +2326,15 @@ export class TradingBot {
           totalPnL += pnlInCents;
 
           // Atualizar posição no banco com dados finais
+          // ✅ CORREÇÃO: Marcar como reconciliada para evitar duplicação de PnL
           const exitPrice = finalContractInfo.exit_tick || finalContractInfo.current_spot || 0;
           await updatePosition(position.positionId, {
             exitPrice: exitPrice.toString(),
             pnl: pnlInCents,
             status: "CLOSED",
             exitTime: new Date(),
+            reconciled: true, // ✅ MARCAR COMO RECONCILIADA
+            reconciledAt: new Date(), // ✅ TIMESTAMP DA RECONCILIAÇÃO
           });
           
           console.log(`[POSITION_UPDATED] Posição atualizada no banco | ID: ${position.positionId} | Contract: ${position.contractId} | PnL: $${(pnlInCents / 100).toFixed(2)} | Status: ${finalContractInfo.status} | Bot: ${this.botId}`);

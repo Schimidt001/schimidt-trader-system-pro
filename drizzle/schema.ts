@@ -140,6 +140,9 @@ export const positions = mysqlTable("positions", {
   parentPositionId: int("parentPositionId"), // ID da posição original (se for hedge)
   hedgeAction: varchar("hedgeAction", { length: 50 }), // HOLD, REINFORCE, HEDGE, REVERSAL_EDGE
   hedgeReason: text("hedgeReason"), // Motivo da abertura do hedge
+  // Campo de controle de reconciliação (idempotência)
+  reconciled: boolean("reconciled").default(false).notNull(), // Indica se a posição já foi reconciliada (PnL já contabilizado)
+  reconciledAt: timestamp("reconciledAt"), // Timestamp da reconciliação
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

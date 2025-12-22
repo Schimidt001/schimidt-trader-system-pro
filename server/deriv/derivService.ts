@@ -774,8 +774,30 @@ export class DerivService {
    */
   isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
-  
-}
+  }
+
+  /**
+   * Envia mensagem para a API (método público para uso externo)
+   * Usado pelo serviço de reconciliação
+   */
+  public sendMessage(data: any): void {
+    this.send(data);
+  }
+
+  /**
+   * Inscreve-se em um tipo de mensagem específico
+   * Usado pelo serviço de reconciliação para profit_table
+   */
+  public subscribeToMessage(msgType: string, callback: (message: any) => void): void {
+    this.subscriptions.set(msgType, callback);
+  }
+
+  /**
+   * Remove inscrição de um tipo de mensagem
+   */
+  public unsubscribeFromMessage(msgType: string): void {
+    this.subscriptions.delete(msgType);
+  }
 
 
     /**

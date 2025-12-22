@@ -783,7 +783,7 @@ export const appRouter = router({
         return {
           success: result.success,
           message: result.success 
-            ? `Reconciliação concluída: ${result.positionsUpdated} posições atualizadas`
+            ? `Reconciliação concluída: ${result.positionsUpdated} posições atualizadas | ${result.positionsSkipped} já reconciliadas (ignoradas)`
             : `Reconciliação com erros: ${result.errors.join(", ")}`,
           ...result,
         };
