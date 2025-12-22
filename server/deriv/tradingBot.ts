@@ -343,23 +343,25 @@ export class TradingBot {
       // Carregar configurações do ExhaustionGuard (Filtro de Exaustão)
       const exhaustionGuardEnabled = config.exhaustionGuardEnabled ?? false;
       const exhaustionRatioMax = config.exhaustionRatioMax ? parseFloat(config.exhaustionRatioMax.toString()) : 0.7000;
-      const exhaustionRangeLookback = config.exhaustionRangeLookback ?? 20;
+      const exhaustionPositionMin = config.exhaustionPositionMin ? parseFloat(config.exhaustionPositionMin.toString()) : 0.8500; // NOVO - Adendo Técnico
+      const exhaustionRangeLookback = config.exhaustionRangeLookback ?? 10; // Alterado de 20 para 10 (Adendo Técnico)
       const exhaustionRangeMultiplier = config.exhaustionRangeMultiplier ? parseFloat(config.exhaustionRangeMultiplier.toString()) : 1.5000;
       const exhaustionGuardLogEnabled = config.exhaustionGuardLogEnabled ?? true;
       
       this.exhaustionGuard = new ExhaustionGuard({
         enabled: exhaustionGuardEnabled,
         exhaustionRatioMax: exhaustionRatioMax,
+        exhaustionPositionMin: exhaustionPositionMin, // NOVO - Adendo Técnico
         rangeLookback: exhaustionRangeLookback,
         rangeMultiplier: exhaustionRangeMultiplier,
         logEnabled: exhaustionGuardLogEnabled,
       });
       
       if (exhaustionGuardEnabled) {
-        console.log(`[EXHAUSTION_GUARD] Filtro de Exaustão Habilitado | Ratio Máx: ${(exhaustionRatioMax * 100).toFixed(1)}% | Lookback: ${exhaustionRangeLookback} candles | Multiplicador: ${exhaustionRangeMultiplier}x`);
+        console.log(`[EXHAUSTION_GUARD] Filtro de Exaustão Habilitado | Ratio Máx: ${(exhaustionRatioMax * 100).toFixed(1)}% | Position Mín: ${(exhaustionPositionMin * 100).toFixed(1)}% | Lookback: ${exhaustionRangeLookback} candles | Multiplicador: ${exhaustionRangeMultiplier}x`);
         await this.logEvent(
           "EXHAUSTION_GUARD_CONFIG",
-          `🛡️ FILTRO DE EXAUSTÃO ATIVADO | Ratio Máx: ${(exhaustionRatioMax * 100).toFixed(1)}% | Lookback: ${exhaustionRangeLookback} candles | Multiplicador: ${exhaustionRangeMultiplier}x`
+          `🛡️ FILTRO DE EXAUSTÃO ATIVADO | Ratio Máx: ${(exhaustionRatioMax * 100).toFixed(1)}% | Position Mín: ${(exhaustionPositionMin * 100).toFixed(1)}% | Lookback: ${exhaustionRangeLookback} candles | Multiplicador: ${exhaustionRangeMultiplier}x`
         );
       } else {
         console.log(`[EXHAUSTION_GUARD] Filtro de Exaustão Desabilitado`);
@@ -1537,9 +1539,9 @@ export class TradingBot {
             await this.logEvent(
               "EXHAUSTION_BLOCKED",
               `🛑 EXHAUSTION_BLOCKED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
-              `Range=${exhaustionCheckResult.metrics.range.toFixed(4)} | ` +
-              `DirectionalMove=${exhaustionCheckResult.metrics.directionalMove.toFixed(4)} | ` +
-              `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}%` +
+              `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}% | ` +
+              `PositionRatio=${(exhaustionCheckResult.metrics.positionRatio * 100).toFixed(1)}% | ` +
+              `Range=${exhaustionCheckResult.metrics.range.toFixed(4)}` +
               `${avgRangeInfo} | ` +
               `Motivo=${exhaustionCheckResult.blockType}`
             );
@@ -1554,7 +1556,7 @@ export class TradingBot {
               "EXHAUSTION_APPROVED",
               `✅ EXHAUSTION_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
               `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}% | ` +
-              `Range OK`
+              `PositionRatio=${(exhaustionCheckResult.metrics.positionRatio * 100).toFixed(1)}%`
             );
           }
         }
@@ -2674,9 +2676,9 @@ export class TradingBot {
             await this.logEvent(
               "EXHAUSTION_BLOCKED",
               `🛑 EXHAUSTION_BLOCKED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ` +
-              `Range=${exhaustionCheckResult.metrics.range.toFixed(4)} | ` +
-              `DirectionalMove=${exhaustionCheckResult.metrics.directionalMove.toFixed(4)} | ` +
-              `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}%` +
+              `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}% | ` +
+              `PositionRatio=${(exhaustionCheckResult.metrics.positionRatio * 100).toFixed(1)}% | ` +
+              `Range=${exhaustionCheckResult.metrics.range.toFixed(4)}` +
               `${avgRangeInfo} | ` +
               `Motivo=${exhaustionCheckResult.blockType}`
             );
@@ -2695,7 +2697,7 @@ export class TradingBot {
               "EXHAUSTION_APPROVED",
               `✅ EXHAUSTION_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ` +
               `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}% | ` +
-              `Range OK`
+              `PositionRatio=${(exhaustionCheckResult.metrics.positionRatio * 100).toFixed(1)}%`
             );
           }
         }

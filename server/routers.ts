@@ -297,7 +297,8 @@ export const appRouter = router({
           // ExhaustionGuard padrão (DESATIVADO por padrão)
           exhaustionGuardEnabled: false,
           exhaustionRatioMax: "0.7000",
-          exhaustionRangeLookback: 20,
+          exhaustionPositionMin: "0.8500", // ADENDO TÉCNICO
+          exhaustionRangeLookback: 10, // Alterado de 20 para 10 (ADENDO TÉCNICO)
           exhaustionRangeMultiplier: "1.5000",
           exhaustionGuardLogEnabled: true,
         };
@@ -354,6 +355,7 @@ export const appRouter = router({
           // ExhaustionGuard (Filtro de Exaustão)
           exhaustionGuardEnabled: z.boolean().optional(),
           exhaustionRatioMax: z.number().min(0).max(1).optional(),
+          exhaustionPositionMin: z.number().min(0).max(1).optional(), // ADENDO TÉCNICO
           exhaustionRangeLookback: z.number().int().min(1).optional(),
           exhaustionRangeMultiplier: z.number().min(1).optional(),
           exhaustionGuardLogEnabled: z.boolean().optional(),
@@ -380,6 +382,9 @@ export const appRouter = router({
         // Converter campos do ExhaustionGuard para string se existirem
         if (input.exhaustionRatioMax !== undefined) {
           configData.exhaustionRatioMax = input.exhaustionRatioMax.toString();
+        }
+        if (input.exhaustionPositionMin !== undefined) {
+          configData.exhaustionPositionMin = input.exhaustionPositionMin.toString(); // ADENDO TÉCNICO
         }
         if (input.exhaustionRangeMultiplier !== undefined) {
           configData.exhaustionRangeMultiplier = input.exhaustionRangeMultiplier.toString();

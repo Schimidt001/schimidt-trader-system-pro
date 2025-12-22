@@ -10,14 +10,20 @@
  * ✅ Este candle é saudável para operar
  * ❌ Este candle deve ser ignorado
  * 
- * Versão: 1.0
+ * ADENDO TÉCNICO v1.1:
+ * - Position Ratio implementado como métrica complementar obrigatória
+ * - Bloqueio por exaustão requer AMBOS: exhaustion_ratio E position_ratio
+ * - Range anormal é critério SEPARADO e OPCIONAL
+ * 
+ * Versão: 1.1
  * Ambiente: Produção / Forex M60
  */
 
 export interface ExhaustionGuardConfig {
   enabled: boolean;
   exhaustionRatioMax: number;      // Limite máximo de exaustão (ex: 0.70 = 70%)
-  rangeLookback: number;           // Nº de candles para média de range (ex: 20)
+  exhaustionPositionMin: number;   // Limite mínimo de posição (ex: 0.85 = 85%) - NOVO
+  rangeLookback: number;           // Nº de candles para média de range (ex: 10)
   rangeMultiplier: number;         // Multiplicador de range anormal (ex: 1.5)
   logEnabled: boolean;             // Log detalhado ON/OFF
 }
@@ -37,19 +43,22 @@ export interface HistoricalCandle {
 export interface ExhaustionGuardResult {
   blocked: boolean;
   reason?: string;
-  blockType?: 'HIGH_EXHAUSTION' | 'ABNORMAL_RANGE';
+  blockType?: 'HIGH_DIRECTIONAL_EXHAUSTION' | 'ABNORMAL_RANGE';
   metrics: {
     range: number;
     directionalMove: number;
     exhaustionRatio: number;
+    positionRatio: number;        // NOVO
     avgRange: number | null;
     rangeRatio: number | null;
   };
   config: {
     exhaustionRatioMax: number;
+    exhaustionPositionMin: number; // NOVO
     rangeLookback: number;
     rangeMultiplier: number;
   };
+  direction?: 'UP' | 'DOWN';       // Direção detectada do candle
 }
 
 /**
@@ -100,7 +109,41 @@ export class ExhaustionGuard {
   }
 
   /**
+   * Calcula o Position Ratio baseado na direção do candle
+   * 
+   * Para UP (close > open): position_ratio = (price_atual - low) / range
+   * Para DOWN (close < open): position_ratio = (high - price_atual) / range
+   * 
+   * Mede se o preço já está próximo do extremo do range
+   */
+  private calculatePositionRatio(candleData: CandleData, range: number): { ratio: number; direction: 'UP' | 'DOWN' } {
+    if (range <= 0) {
+      return { ratio: 0, direction: 'UP' };
+    }
+
+    // Determinar direção do candle
+    const isUp = candleData.close >= candleData.open;
+    
+    if (isUp) {
+      // Para predição de alta (UP): mede quão perto o preço está do HIGH
+      const positionRatio = (candleData.close - candleData.low) / range;
+      return { ratio: positionRatio, direction: 'UP' };
+    } else {
+      // Para predição de baixa (DOWN): mede quão perto o preço está do LOW
+      const positionRatio = (candleData.high - candleData.close) / range;
+      return { ratio: positionRatio, direction: 'DOWN' };
+    }
+  }
+
+  /**
    * Verifica se o candle deve ser bloqueado por exaustão
+   * 
+   * REGRA CRÍTICA (ADENDO TÉCNICO):
+   * Bloqueio por exaustão direcional requer AMBOS:
+   * - exhaustion_ratio >= exhaustionRatioMax
+   * - position_ratio >= exhaustionPositionMin
+   * 
+   * Bloqueio por range anormal é SEPARADO e OPCIONAL
    * 
    * @param candleData Dados do candle parcial (OHLC)
    * @param historicalCandles Histórico de candles para cálculo de média (opcional)
@@ -118,11 +161,13 @@ export class ExhaustionGuard {
           range: 0,
           directionalMove: 0,
           exhaustionRatio: 0,
+          positionRatio: 0,
           avgRange: null,
           rangeRatio: null,
         },
         config: {
           exhaustionRatioMax: this.config.exhaustionRatioMax,
+          exhaustionPositionMin: this.config.exhaustionPositionMin,
           rangeLookback: this.config.rangeLookback,
           rangeMultiplier: this.config.rangeMultiplier,
         },
@@ -135,6 +180,9 @@ export class ExhaustionGuard {
     
     // Evitar divisão por zero
     const exhaustionRatio = range > 0 ? directionalMove / range : 0;
+
+    // Calcular Position Ratio (NOVO - ADENDO TÉCNICO)
+    const { ratio: positionRatio, direction } = this.calculatePositionRatio(candleData, range);
 
     // Calcular média de range histórico (se disponível)
     let avgRange: number | null = null;
@@ -153,15 +201,19 @@ export class ExhaustionGuard {
     // Verificar condições de bloqueio
     let blocked = false;
     let reason = "";
-    let blockType: 'HIGH_EXHAUSTION' | 'ABNORMAL_RANGE' | undefined;
+    let blockType: 'HIGH_DIRECTIONAL_EXHAUSTION' | 'ABNORMAL_RANGE' | undefined;
 
-    // 🔒 Condição 1 — Exhaustion Ratio Excessivo
-    if (exhaustionRatio >= this.config.exhaustionRatioMax) {
+    // 🔒 Condição 1 — Exaustão Direcional (requer AMBOS critérios)
+    // ADENDO TÉCNICO: Nunca bloquear apenas com exhaustion_ratio isolado
+    const exhaustionRatioExceeded = exhaustionRatio >= this.config.exhaustionRatioMax;
+    const positionRatioExceeded = positionRatio >= this.config.exhaustionPositionMin;
+    
+    if (exhaustionRatioExceeded && positionRatioExceeded) {
       blocked = true;
-      blockType = 'HIGH_EXHAUSTION';
-      reason = `Exhaustion Ratio excessivo (${(exhaustionRatio * 100).toFixed(1)}% >= ${(this.config.exhaustionRatioMax * 100).toFixed(1)}%)`;
+      blockType = 'HIGH_DIRECTIONAL_EXHAUSTION';
+      reason = `Exaustão direcional alta (ExhaustionRatio=${(exhaustionRatio * 100).toFixed(1)}% >= ${(this.config.exhaustionRatioMax * 100).toFixed(1)}% E PositionRatio=${(positionRatio * 100).toFixed(1)}% >= ${(this.config.exhaustionPositionMin * 100).toFixed(1)}%)`;
     }
-    // 🔒 Condição 2 — Range Anormal (se tiver histórico suficiente)
+    // 🔒 Condição 2 — Range Anormal (critério SEPARADO e OPCIONAL)
     else if (rangeRatio !== null && rangeRatio >= this.config.rangeMultiplier) {
       blocked = true;
       blockType = 'ABNORMAL_RANGE';
@@ -172,15 +224,18 @@ export class ExhaustionGuard {
       blocked,
       reason,
       blockType,
+      direction,
       metrics: {
         range,
         directionalMove,
         exhaustionRatio,
+        positionRatio,
         avgRange,
         rangeRatio,
       },
       config: {
         exhaustionRatioMax: this.config.exhaustionRatioMax,
+        exhaustionPositionMin: this.config.exhaustionPositionMin,
         rangeLookback: this.config.rangeLookback,
         rangeMultiplier: this.config.rangeMultiplier,
       },
@@ -189,13 +244,14 @@ export class ExhaustionGuard {
 
   /**
    * Formata o resultado para log
+   * ADENDO TÉCNICO: Incluir position_ratio nos logs
    */
   public formatLogMessage(result: ExhaustionGuardResult): string {
     if (!result.blocked) {
       const avgRangeInfo = result.metrics.avgRange !== null 
         ? ` | AvgRange(${result.config.rangeLookback})=${result.metrics.avgRange.toFixed(4)}`
         : '';
-      return `[ExhaustionGuard] ✅ Candle aprovado — ExhaustionRatio=${(result.metrics.exhaustionRatio * 100).toFixed(1)}%${avgRangeInfo}`;
+      return `[ExhaustionGuard] ✅ Candle aprovado — ExhaustionRatio=${(result.metrics.exhaustionRatio * 100).toFixed(1)}% | PositionRatio=${(result.metrics.positionRatio * 100).toFixed(1)}%${avgRangeInfo}`;
     }
 
     const avgRangeInfo = result.metrics.avgRange !== null 
@@ -208,7 +264,8 @@ export class ExhaustionGuard {
     return `[ExhaustionGuard] 🛑 Candle bloqueado — ${result.reason} | ` +
            `Range=${result.metrics.range.toFixed(4)} | ` +
            `DirectionalMove=${result.metrics.directionalMove.toFixed(4)} | ` +
-           `ExhaustionRatio=${(result.metrics.exhaustionRatio * 100).toFixed(1)}%` +
+           `ExhaustionRatio=${(result.metrics.exhaustionRatio * 100).toFixed(1)}% | ` +
+           `PositionRatio=${(result.metrics.positionRatio * 100).toFixed(1)}%` +
            `${avgRangeInfo}${rangeRatioInfo} | ` +
            `Motivo=${result.blockType}`;
   }
@@ -231,7 +288,8 @@ export class ExhaustionGuard {
     return `Alta probabilidade de reversão por exaustão\n` +
            `• Range: ${result.metrics.range.toFixed(4)}\n` +
            `• Movimento Direcional: ${result.metrics.directionalMove.toFixed(4)}\n` +
-           `• Exhaustion Ratio: ${(result.metrics.exhaustionRatio * 100).toFixed(1)}% (máximo: ${(result.config.exhaustionRatioMax * 100).toFixed(1)}%)` +
+           `• Exhaustion Ratio: ${(result.metrics.exhaustionRatio * 100).toFixed(1)}% (máximo: ${(result.config.exhaustionRatioMax * 100).toFixed(1)}%)\n` +
+           `• Position Ratio: ${(result.metrics.positionRatio * 100).toFixed(1)}% (mínimo para bloqueio: ${(result.config.exhaustionPositionMin * 100).toFixed(1)}%)` +
            `${avgRangeInfo}${rangeRatioInfo}\n` +
            `• Motivo: ${result.reason}`;
   }

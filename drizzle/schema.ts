@@ -73,7 +73,8 @@ export const config = mysqlTable("config", {
   // Configurações do ExhaustionGuard (Filtro de Exaustão)
   exhaustionGuardEnabled: boolean("exhaustionGuardEnabled").default(false).notNull(), // Habilitar filtro de exaustão (DESATIVADO por padrão)
   exhaustionRatioMax: decimal("exhaustionRatioMax", { precision: 10, scale: 4 }).default("0.7000").notNull(), // Limite máximo de exaustão (ex: 0.70 = 70%)
-  exhaustionRangeLookback: int("exhaustionRangeLookback").default(20).notNull(), // Nº de candles para média de range
+  exhaustionPositionMin: decimal("exhaustionPositionMin", { precision: 10, scale: 4 }).default("0.8500").notNull(), // Limite mínimo de posição para bloqueio (ex: 0.85 = 85%) - ADENDO TÉCNICO
+  exhaustionRangeLookback: int("exhaustionRangeLookback").default(10).notNull(), // Nº de candles para média de range (alterado de 20 para 10 - ADENDO TÉCNICO)
   exhaustionRangeMultiplier: decimal("exhaustionRangeMultiplier", { precision: 10, scale: 4 }).default("1.5000").notNull(), // Multiplicador de range anormal
   exhaustionGuardLogEnabled: boolean("exhaustionGuardLogEnabled").default(true).notNull(), // Log detalhado ON/OFF
   createdAt: timestamp("createdAt").defaultNow().notNull(),
