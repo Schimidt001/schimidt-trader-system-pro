@@ -70,6 +70,12 @@ export const config = mysqlTable("config", {
   antiDojiEnabled: boolean("antiDojiEnabled").default(false).notNull(), // Habilitar filtro anti-doji
   antiDojiRangeMin: decimal("antiDojiRangeMin", { precision: 10, scale: 4 }).default("0.0500").notNull(), // Range mínimo aceitável (ex: 0.0500 = 50 pips)
   antiDojiRatioMin: decimal("antiDojiRatioMin", { precision: 10, scale: 4 }).default("0.1800").notNull(), // Proporção mínima body/range (ex: 0.18 = 18%)
+  // Configurações do ExhaustionGuard (Filtro de Exaustão)
+  exhaustionGuardEnabled: boolean("exhaustionGuardEnabled").default(false).notNull(), // Habilitar filtro de exaustão (DESATIVADO por padrão)
+  exhaustionRatioMax: decimal("exhaustionRatioMax", { precision: 10, scale: 4 }).default("0.7000").notNull(), // Limite máximo de exaustão (ex: 0.70 = 70%)
+  exhaustionRangeLookback: int("exhaustionRangeLookback").default(20).notNull(), // Nº de candles para média de range
+  exhaustionRangeMultiplier: decimal("exhaustionRangeMultiplier", { precision: 10, scale: 4 }).default("1.5000").notNull(), // Multiplicador de range anormal
+  exhaustionGuardLogEnabled: boolean("exhaustionGuardLogEnabled").default(true).notNull(), // Log detalhado ON/OFF
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

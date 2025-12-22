@@ -290,6 +290,16 @@ export const appRouter = router({
           barrierLow: "-3.00", // barreira inferior padrão (pontos)
           hedgeEnabled: true, // IA Hedge ativada por padrão
           hedgeConfig: null,
+          // DojiGuard padrão
+          antiDojiEnabled: false,
+          antiDojiRangeMin: "0.0500",
+          antiDojiRatioMin: "0.1800",
+          // ExhaustionGuard padrão (DESATIVADO por padrão)
+          exhaustionGuardEnabled: false,
+          exhaustionRatioMax: "0.7000",
+          exhaustionRangeLookback: 20,
+          exhaustionRangeMultiplier: "1.5000",
+          exhaustionGuardLogEnabled: true,
         };
       }
       
@@ -341,6 +351,12 @@ export const appRouter = router({
           antiDojiEnabled: z.boolean().optional(),
           antiDojiRangeMin: z.number().min(0).optional(),
           antiDojiRatioMin: z.number().min(0).max(1).optional(),
+          // ExhaustionGuard (Filtro de Exaustão)
+          exhaustionGuardEnabled: z.boolean().optional(),
+          exhaustionRatioMax: z.number().min(0).max(1).optional(),
+          exhaustionRangeLookback: z.number().int().min(1).optional(),
+          exhaustionRangeMultiplier: z.number().min(1).optional(),
+          exhaustionGuardLogEnabled: z.boolean().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -359,6 +375,14 @@ export const appRouter = router({
         }
         if (input.antiDojiRatioMin !== undefined) {
           configData.antiDojiRatioMin = input.antiDojiRatioMin.toString();
+        }
+        
+        // Converter campos do ExhaustionGuard para string se existirem
+        if (input.exhaustionRatioMax !== undefined) {
+          configData.exhaustionRatioMax = input.exhaustionRatioMax.toString();
+        }
+        if (input.exhaustionRangeMultiplier !== undefined) {
+          configData.exhaustionRangeMultiplier = input.exhaustionRangeMultiplier.toString();
         }
         
         await upsertConfig(configData);

@@ -82,6 +82,13 @@ export default function Settings() {
   const [antiDojiRangeMin, setAntiDojiRangeMin] = useState("0.0500");
   const [antiDojiRatioMin, setAntiDojiRatioMin] = useState("18"); // Armazenar como % (18 = 18%)
   
+  // Estados para ExhaustionGuard (Filtro de Exaustão)
+  const [exhaustionGuardEnabled, setExhaustionGuardEnabled] = useState(false);
+  const [exhaustionRatioMax, setExhaustionRatioMax] = useState("70"); // Armazenar como % (70 = 70%)
+  const [exhaustionRangeLookback, setExhaustionRangeLookback] = useState("20");
+  const [exhaustionRangeMultiplier, setExhaustionRangeMultiplier] = useState("1.5");
+  const [exhaustionGuardLogEnabled, setExhaustionGuardLogEnabled] = useState(true);
+  
   const [hourlyFilterCustomHours, setHourlyFilterCustomHours] = useState<number[]>([]);
   const [hourlyFilterGoldHours, setHourlyFilterGoldHours] = useState<number[]>([]);
   const [hourlyFilterGoldMultiplier, setHourlyFilterGoldMultiplier] = useState("200");
@@ -218,6 +225,15 @@ export default function Settings() {
       // Converter de decimal (0.18) para % (18)
       const ratioPercent = config.antiDojiRatioMin ? (parseFloat(config.antiDojiRatioMin.toString()) * 100).toFixed(0) : "18";
       setAntiDojiRatioMin(ratioPercent);
+      
+      // Carregar configurações do ExhaustionGuard
+      setExhaustionGuardEnabled(config.exhaustionGuardEnabled ?? false);
+      // Converter de decimal (0.70) para % (70)
+      const exhaustionRatioPercent = config.exhaustionRatioMax ? (parseFloat(config.exhaustionRatioMax.toString()) * 100).toFixed(0) : "70";
+      setExhaustionRatioMax(exhaustionRatioPercent);
+      setExhaustionRangeLookback((config.exhaustionRangeLookback ?? 20).toString());
+      setExhaustionRangeMultiplier(config.exhaustionRangeMultiplier ? config.exhaustionRangeMultiplier.toString() : "1.5");
+      setExhaustionGuardLogEnabled(config.exhaustionGuardLogEnabled ?? true);
       
       if (config.hourlyFilterCustomHours) {
         try {
@@ -474,6 +490,12 @@ export default function Settings() {
       antiDojiEnabled,
       antiDojiRangeMin: parseFloat(antiDojiRangeMin) || 0.0500,
       antiDojiRatioMin: (parseInt(antiDojiRatioMin) || 18) / 100, // Converter % para decimal (18 -> 0.18)
+      // ExhaustionGuard (Filtro de Exaustão)
+      exhaustionGuardEnabled,
+      exhaustionRatioMax: (parseInt(exhaustionRatioMax) || 70) / 100, // Converter % para decimal (70 -> 0.70)
+      exhaustionRangeLookback: parseInt(exhaustionRangeLookback) || 20,
+      exhaustionRangeMultiplier: parseFloat(exhaustionRangeMultiplier) || 1.5,
+      exhaustionGuardLogEnabled,
     });
     
     console.log('[FILTRO] Salvando configurações:', {
@@ -1682,6 +1704,130 @@ export default function Settings() {
                   <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3">
                     <p className="text-xs text-green-400">
                       ✅ <strong>Recomendação:</strong> Forex M60 = Range: 0.0500 | Ratio: 18% (valores testados em USD/JPY e EUR/JPY)
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ExhaustionGuard (Filtro de Exaustão) */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-slate-100">🛡️ Filtro de Exaustão (ExhaustionGuard)</CardTitle>
+              <CardDescription>Bloqueia entrada em candles com alta exaustão direcional (risco de reversão)</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="exhaustionGuardEnabled" className="text-slate-300">
+                    Ativar Filtro de Exaustão
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Bot verifica se o candle apresenta sinais de exaustão excessiva antes de armar entrada
+                  </p>
+                </div>
+                <Switch
+                  id="exhaustionGuardEnabled"
+                  checked={exhaustionGuardEnabled}
+                  onCheckedChange={setExhaustionGuardEnabled}
+                />
+              </div>
+
+              {exhaustionGuardEnabled && (
+                <div className="space-y-4 pt-4 border-t border-slate-700">
+                  <div className="space-y-2">
+                    <Label htmlFor="exhaustionRatioMax" className="text-slate-300">
+                      Limite Máximo de Exaustão (%)
+                    </Label>
+                    <Input
+                      id="exhaustionRatioMax"
+                      type="number"
+                      value={exhaustionRatioMax}
+                      onChange={(e) => setExhaustionRatioMax(e.target.value)}
+                      placeholder="70"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Exemplo: 70 = 70%. Se o movimento direcional for maior que 70% do range total, é bloqueado (alta exaustão)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="exhaustionRangeLookback" className="text-slate-300">
+                      Candles para Média de Range
+                    </Label>
+                    <Input
+                      id="exhaustionRangeLookback"
+                      type="number"
+                      value={exhaustionRangeLookback}
+                      onChange={(e) => setExhaustionRangeLookback(e.target.value)}
+                      placeholder="20"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Número de candles anteriores para calcular a média de range (para detectar range anormal)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="exhaustionRangeMultiplier" className="text-slate-300">
+                      Multiplicador de Range Anormal
+                    </Label>
+                    <Input
+                      id="exhaustionRangeMultiplier"
+                      type="number"
+                      step="0.1"
+                      value={exhaustionRangeMultiplier}
+                      onChange={(e) => setExhaustionRangeMultiplier(e.target.value)}
+                      placeholder="1.5"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Exemplo: 1.5 = 1.5x. Se o range atual for 1.5x maior que a média, é bloqueado (volatilidade anormal)
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="exhaustionGuardLogEnabled" className="text-slate-300">
+                        Log Detalhado
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Exibir logs detalhados das verificações de exaustão no console
+                      </p>
+                    </div>
+                    <Switch
+                      id="exhaustionGuardLogEnabled"
+                      checked={exhaustionGuardLogEnabled}
+                      onCheckedChange={setExhaustionGuardLogEnabled}
+                    />
+                  </div>
+
+                  <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3">
+                    <p className="text-sm text-slate-300">
+                      📊 <strong>Como funciona:</strong>
+                    </p>
+                    <ul className="text-xs text-slate-400 space-y-1 mt-2">
+                      <li>1. Bot captura dados do candle aos 35 minutos (M60)</li>
+                      <li>2. Calcula: <strong>range</strong> = high - low</li>
+                      <li>3. Calcula: <strong>directionalMove</strong> = |close - open|</li>
+                      <li>4. Calcula: <strong>exhaustionRatio</strong> = directionalMove / range</li>
+                      <li>5. Se exhaustionRatio &gt;= limite → <strong>BLOQUEIA</strong></li>
+                      <li>6. Se range atual &gt;= média * multiplicador → <strong>BLOQUEIA</strong></li>
+                      <li>7. Se aprovado → arma gatilho normalmente</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3">
+                    <p className="text-xs text-yellow-400">
+                      ⚠️ <strong>Atenção:</strong> Filtro também é aplicado em re-predições. Se candle ficar "exausto" no meio do caminho, gatilho é cancelado.
+                    </p>
+                  </div>
+                  
+                  <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3">
+                    <p className="text-xs text-green-400">
+                      ✅ <strong>Recomendação:</strong> Forex M60 = Ratio: 70% | Lookback: 20 candles | Multiplicador: 1.5x (valores baseados em estudo de 100 candles USD/JPY)
                     </p>
                   </div>
                 </div>

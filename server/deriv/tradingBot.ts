@@ -10,6 +10,8 @@ import { marketConditionDetector } from "../market-condition-v2/marketConditionD
 import type { MarketConditionResult } from "../market-condition-v2/types";
 import { DojiGuard } from "../doji-guard/dojiGuard";
 import type { DojiGuardConfig, CandleData as DojiCandleData } from "../doji-guard/dojiGuard";
+import { ExhaustionGuard } from "../exhaustion-guard/exhaustionGuard";
+import type { ExhaustionGuardConfig, CandleData as ExhaustionCandleData, HistoricalCandle } from "../exhaustion-guard/exhaustionGuard";
 import type {
   PredictionRequest,
   PredictionResponse,
@@ -132,8 +134,12 @@ export class TradingBot {
   // DojiGuard (Filtro Anti-Doji)
   private dojiGuard: DojiGuard | null = null;
   
+  // ExhaustionGuard (Filtro de Exaustão)
+  private exhaustionGuard: ExhaustionGuard | null = null;
+  
   // ✅ CORREÇÃO: Estruturas de controle de debounce para logs
   private lastDojiCheckByCandle: Map<string, Set<'INITIAL' | 'REPREDICTION'>> = new Map();
+  private lastExhaustionCheckByCandle: Map<string, Set<'INITIAL' | 'REPREDICTION'>> = new Map();
   private triggerHitLogged: Set<number> = new Set();
   private marketConditionLogged: Set<number> = new Set();
   private payoutCheckAttempted: Set<number> = new Set(); // Controle de tentativas de payout check por candle
@@ -332,6 +338,31 @@ export class TradingBot {
         );
       } else {
         console.log(`[DOJI_GUARD] Filtro Anti-Doji Desabilitado`);
+      }
+      
+      // Carregar configurações do ExhaustionGuard (Filtro de Exaustão)
+      const exhaustionGuardEnabled = config.exhaustionGuardEnabled ?? false;
+      const exhaustionRatioMax = config.exhaustionRatioMax ? parseFloat(config.exhaustionRatioMax.toString()) : 0.7000;
+      const exhaustionRangeLookback = config.exhaustionRangeLookback ?? 20;
+      const exhaustionRangeMultiplier = config.exhaustionRangeMultiplier ? parseFloat(config.exhaustionRangeMultiplier.toString()) : 1.5000;
+      const exhaustionGuardLogEnabled = config.exhaustionGuardLogEnabled ?? true;
+      
+      this.exhaustionGuard = new ExhaustionGuard({
+        enabled: exhaustionGuardEnabled,
+        exhaustionRatioMax: exhaustionRatioMax,
+        rangeLookback: exhaustionRangeLookback,
+        rangeMultiplier: exhaustionRangeMultiplier,
+        logEnabled: exhaustionGuardLogEnabled,
+      });
+      
+      if (exhaustionGuardEnabled) {
+        console.log(`[EXHAUSTION_GUARD] Filtro de Exaustão Habilitado | Ratio Máx: ${(exhaustionRatioMax * 100).toFixed(1)}% | Lookback: ${exhaustionRangeLookback} candles | Multiplicador: ${exhaustionRangeMultiplier}x`);
+        await this.logEvent(
+          "EXHAUSTION_GUARD_CONFIG",
+          `🛡️ FILTRO DE EXAUSTÃO ATIVADO | Ratio Máx: ${(exhaustionRatioMax * 100).toFixed(1)}% | Lookback: ${exhaustionRangeLookback} candles | Multiplicador: ${exhaustionRangeMultiplier}x`
+        );
+      } else {
+        console.log(`[EXHAUSTION_GUARD] Filtro de Exaustão Desabilitado`);
       }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -806,6 +837,12 @@ export class TradingBot {
         const sortedKeys = Array.from(this.lastDojiCheckByCandle.keys()).sort();
         const keysToDelete = sortedKeys.slice(0, sortedKeys.length - 5);
         keysToDelete.forEach(key => this.lastDojiCheckByCandle.delete(key));
+      }
+      // Limpar entradas antigas do Map de ExhaustionGuard (manter apenas últimos 5 candles)
+      if (this.lastExhaustionCheckByCandle.size > 5) {
+        const sortedKeys = Array.from(this.lastExhaustionCheckByCandle.keys()).sort();
+        const keysToDelete = sortedKeys.slice(0, sortedKeys.length - 5);
+        keysToDelete.forEach(key => this.lastExhaustionCheckByCandle.delete(key));
       }
 
       // Verificar filtro de horário antes de processar o candle
@@ -1442,6 +1479,82 @@ export class TradingBot {
               `✅ DOJI_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
               `Range=${dojiCheckResult.metrics.range.toFixed(4)} | ` +
               `Ratio=${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}%`
+            );
+          }
+        }
+      }
+
+      // 🛡️ EXHAUSTION GUARD - Verificar se candle deve ser bloqueado por exaustão
+      if (this.exhaustionGuard && this.exhaustionGuard.isEnabled()) {
+        // ✅ DEBOUNCE: verificar se já foi avaliado para este candle/fase
+        const exhaustionCandleKey = `${this.currentCandleTimestamp}`;
+        if (!this.lastExhaustionCheckByCandle.has(exhaustionCandleKey)) {
+          this.lastExhaustionCheckByCandle.set(exhaustionCandleKey, new Set());
+        }
+        const exhaustionPhasesChecked = this.lastExhaustionCheckByCandle.get(exhaustionCandleKey)!;
+        
+        // Verificar se já foi avaliado na fase INITIAL
+        if (!exhaustionPhasesChecked.has('INITIAL')) {
+          // Buscar histórico de candles para cálculo da média de range
+          const timeframeLabel = this.timeframe === 900 ? 'M15' : this.timeframe === 1800 ? 'M30' : 'M60';
+          const historicalCandles = await getCandleHistory(
+            this.symbol,
+            this.exhaustionGuard['config'].rangeLookback + 5, // +5 para margem de segurança
+            timeframeLabel,
+            this.botId
+          );
+          
+          // Converter para formato esperado pelo ExhaustionGuard
+          const historicalForExhaustion: HistoricalCandle[] = historicalCandles.map(c => ({
+            high: parseFloat(c.high),
+            low: parseFloat(c.low),
+          }));
+          
+          const exhaustionCheckResult = this.exhaustionGuard.check(
+            {
+              open: this.currentCandleOpen,
+              high: this.currentCandleHigh,
+              low: this.currentCandleLow,
+              close: this.currentCandleClose, // Preço atual (close parcial)
+            },
+            historicalForExhaustion
+          );
+          
+          // Marcar como avaliado
+          exhaustionPhasesChecked.add('INITIAL');
+          
+          // Log se habilitado
+          if (this.exhaustionGuard.isLogEnabled()) {
+            console.log(this.exhaustionGuard.formatLogMessage(exhaustionCheckResult));
+          }
+          
+          if (exhaustionCheckResult.blocked) {
+            // Candle bloqueado por ExhaustionGuard
+            const avgRangeInfo = exhaustionCheckResult.metrics.avgRange !== null 
+              ? ` | AvgRange(${exhaustionCheckResult.config.rangeLookback})=${exhaustionCheckResult.metrics.avgRange.toFixed(4)}`
+              : '';
+            
+            await this.logEvent(
+              "EXHAUSTION_BLOCKED",
+              `🛑 EXHAUSTION_BLOCKED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
+              `Range=${exhaustionCheckResult.metrics.range.toFixed(4)} | ` +
+              `DirectionalMove=${exhaustionCheckResult.metrics.directionalMove.toFixed(4)} | ` +
+              `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}%` +
+              `${avgRangeInfo} | ` +
+              `Motivo=${exhaustionCheckResult.blockType}`
+            );
+            
+            // Não armar entrada, voltar para WAITING_MIDPOINT
+            this.state = "WAITING_MIDPOINT";
+            await this.updateBotState();
+            return;
+          } else {
+            // Candle aprovado pelo ExhaustionGuard
+            await this.logEvent(
+              "EXHAUSTION_APPROVED",
+              `✅ EXHAUSTION_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
+              `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}% | ` +
+              `Range OK`
             );
           }
         }
@@ -2503,6 +2616,86 @@ export class TradingBot {
               `✅ DOJI_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ` +
               `Range=${dojiCheckResult.metrics.range.toFixed(4)} | ` +
               `Ratio=${(dojiCheckResult.metrics.ratio * 100).toFixed(2)}%`
+            );
+          }
+        }
+      }
+      
+      // 🛡️ EXHAUSTION GUARD - Verificar se candle deve ser bloqueado por exaustão (na re-predição)
+      if (this.exhaustionGuard && this.exhaustionGuard.isEnabled()) {
+        // ✅ DEBOUNCE: verificar se já foi avaliado para este candle/fase
+        const exhaustionCandleKey = `${this.currentCandleTimestamp}`;
+        if (!this.lastExhaustionCheckByCandle.has(exhaustionCandleKey)) {
+          this.lastExhaustionCheckByCandle.set(exhaustionCandleKey, new Set());
+        }
+        const exhaustionPhasesChecked = this.lastExhaustionCheckByCandle.get(exhaustionCandleKey)!;
+        
+        // Verificar se já foi avaliado na fase REPREDICTION
+        if (!exhaustionPhasesChecked.has('REPREDICTION')) {
+          // Buscar histórico de candles para cálculo da média de range
+          const timeframeLabel = this.timeframe === 900 ? 'M15' : this.timeframe === 1800 ? 'M30' : 'M60';
+          const historicalCandles = await getCandleHistory(
+            this.symbol,
+            this.exhaustionGuard['config'].rangeLookback + 5,
+            timeframeLabel,
+            this.botId
+          );
+          
+          // Converter para formato esperado pelo ExhaustionGuard
+          const historicalForExhaustion: HistoricalCandle[] = historicalCandles.map(c => ({
+            high: parseFloat(c.high),
+            low: parseFloat(c.low),
+          }));
+          
+          const exhaustionCheckResult = this.exhaustionGuard.check(
+            {
+              open: this.currentCandleOpen,
+              high: this.currentCandleHigh,
+              low: this.currentCandleLow,
+              close: this.currentCandleClose,
+            },
+            historicalForExhaustion
+          );
+          
+          // Marcar como avaliado
+          exhaustionPhasesChecked.add('REPREDICTION');
+          
+          // Log se habilitado
+          if (this.exhaustionGuard.isLogEnabled()) {
+            console.log(`[REPREDICTION] ${this.exhaustionGuard.formatLogMessage(exhaustionCheckResult)}`);
+          }
+          
+          if (exhaustionCheckResult.blocked) {
+            // Candle bloqueado por ExhaustionGuard em re-predição
+            const avgRangeInfo = exhaustionCheckResult.metrics.avgRange !== null 
+              ? ` | AvgRange(${exhaustionCheckResult.config.rangeLookback})=${exhaustionCheckResult.metrics.avgRange.toFixed(4)}`
+              : '';
+            
+            await this.logEvent(
+              "EXHAUSTION_BLOCKED",
+              `🛑 EXHAUSTION_BLOCKED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ` +
+              `Range=${exhaustionCheckResult.metrics.range.toFixed(4)} | ` +
+              `DirectionalMove=${exhaustionCheckResult.metrics.directionalMove.toFixed(4)} | ` +
+              `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}%` +
+              `${avgRangeInfo} | ` +
+              `Motivo=${exhaustionCheckResult.blockType}`
+            );
+            
+            // Cancelar gatilho armado e voltar para WAITING_MIDPOINT
+            this.prediction = null;
+            this.trigger = 0;
+            this.state = "WAITING_MIDPOINT";
+            await this.updateBotState();
+            
+            console.log(`[EXHAUSTION_GUARD] Gatilho cancelado devido a bloqueio em re-predição`);
+            return;
+          } else {
+            // Candle aprovado pelo ExhaustionGuard em re-predição
+            await this.logEvent(
+              "EXHAUSTION_APPROVED",
+              `✅ EXHAUSTION_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ` +
+              `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}% | ` +
+              `Range OK`
             );
           }
         }
