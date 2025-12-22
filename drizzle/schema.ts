@@ -77,6 +77,11 @@ export const config = mysqlTable("config", {
   exhaustionRangeLookback: int("exhaustionRangeLookback").default(10).notNull(), // Nº de candles para média de range (alterado de 20 para 10 - ADENDO TÉCNICO)
   exhaustionRangeMultiplier: decimal("exhaustionRangeMultiplier", { precision: 10, scale: 4 }).default("1.5000").notNull(), // Multiplicador de range anormal
   exhaustionGuardLogEnabled: boolean("exhaustionGuardLogEnabled").default(true).notNull(), // Log detalhado ON/OFF
+  // Configurações do TTLFilter (Time-To-Close Filter)
+  ttlEnabled: boolean("ttlEnabled").default(false).notNull(), // Habilitar filtro TTL (DESATIVADO por padrão)
+  ttlMinimumSeconds: int("ttlMinimumSeconds").default(900).notNull(), // Tempo mínimo restante exigido em segundos (padrão: 900s = 15min)
+  ttlTriggerDelayBuffer: int("ttlTriggerDelayBuffer").default(300).notNull(), // Buffer adicional de segurança para atraso do gatilho (padrão: 300s = 5min)
+  ttlLogEnabled: boolean("ttlLogEnabled").default(true).notNull(), // Log detalhado ON/OFF
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

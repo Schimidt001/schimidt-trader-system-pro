@@ -12,6 +12,8 @@ import { DojiGuard } from "../doji-guard/dojiGuard";
 import type { DojiGuardConfig, CandleData as DojiCandleData } from "../doji-guard/dojiGuard";
 import { ExhaustionGuard } from "../exhaustion-guard/exhaustionGuard";
 import type { ExhaustionGuardConfig, CandleData as ExhaustionCandleData, HistoricalCandle } from "../exhaustion-guard/exhaustionGuard";
+import { TTLFilter } from "../ttl-filter/ttlFilter";
+import type { TTLFilterConfig } from "../ttl-filter/ttlFilter";
 import type {
   PredictionRequest,
   PredictionResponse,
@@ -137,6 +139,9 @@ export class TradingBot {
   // ExhaustionGuard (Filtro de Exaustão)
   private exhaustionGuard: ExhaustionGuard | null = null;
   
+  // TTLFilter (Time-To-Close Filter)
+  private ttlFilter: TTLFilter | null = null;
+  
   // ✅ CORREÇÃO: Estruturas de controle de debounce para logs
   private lastDojiCheckByCandle: Map<string, Set<'INITIAL' | 'REPREDICTION'>> = new Map();
   private lastExhaustionCheckByCandle: Map<string, Set<'INITIAL' | 'REPREDICTION'>> = new Map();
@@ -144,6 +149,7 @@ export class TradingBot {
   private marketConditionLogged: Set<number> = new Set();
   private payoutCheckAttempted: Set<number> = new Set(); // Controle de tentativas de payout check por candle
   private payoutCheckErrorLogged: Set<number> = new Set(); // Controle de logs de erro de payout por candle
+  private ttlCheckLogged: Set<number> = new Set(); // Controle de logs do TTL por candle
 
   constructor(userId: number, botId: number = 1) {
     this.userId = userId;
@@ -365,6 +371,30 @@ export class TradingBot {
         );
       } else {
         console.log(`[EXHAUSTION_GUARD] Filtro de Exaustão Desabilitado`);
+      }
+      
+      // Carregar configurações do TTLFilter (Time-To-Close Filter)
+      const ttlEnabled = config.ttlEnabled ?? false;
+      const ttlMinimumSeconds = config.ttlMinimumSeconds ?? 900;
+      const ttlTriggerDelayBuffer = config.ttlTriggerDelayBuffer ?? 300;
+      const ttlLogEnabled = config.ttlLogEnabled ?? true;
+      
+      this.ttlFilter = new TTLFilter({
+        enabled: ttlEnabled,
+        minimumSeconds: ttlMinimumSeconds,
+        triggerDelayBuffer: ttlTriggerDelayBuffer,
+        logEnabled: ttlLogEnabled,
+      });
+      
+      if (ttlEnabled) {
+        const totalRequired = ttlMinimumSeconds + ttlTriggerDelayBuffer;
+        console.log(`[TTL_FILTER] Filtro TTL Habilitado | Mínimo: ${ttlMinimumSeconds}s (${Math.floor(ttlMinimumSeconds / 60)}min) | Buffer: ${ttlTriggerDelayBuffer}s (${Math.floor(ttlTriggerDelayBuffer / 60)}min) | Total Exigido: ${totalRequired}s (${Math.floor(totalRequired / 60)}min)`);
+        await this.logEvent(
+          "TTL_FILTER_CONFIG",
+          `🕒 FILTRO TTL ATIVADO | Mínimo: ${ttlMinimumSeconds}s (${Math.floor(ttlMinimumSeconds / 60)}min) | Buffer: ${ttlTriggerDelayBuffer}s (${Math.floor(ttlTriggerDelayBuffer / 60)}min) | Total Exigido: ${totalRequired}s (${Math.floor(totalRequired / 60)}min)`
+        );
+      } else {
+        console.log(`[TTL_FILTER] Filtro TTL Desabilitado`);
       }
 
       const token = this.mode === "DEMO" ? config.tokenDemo : config.tokenReal;
@@ -834,6 +864,7 @@ export class TradingBot {
       this.marketConditionLogged.clear();
       this.payoutCheckAttempted.clear();
       this.payoutCheckErrorLogged.clear();
+      this.ttlCheckLogged.clear();
       // Limpar entradas antigas do Map de DojiGuard (manter apenas últimos 5 candles)
       if (this.lastDojiCheckByCandle.size > 5) {
         const sortedKeys = Array.from(this.lastDojiCheckByCandle.keys()).sort();
@@ -1557,6 +1588,52 @@ export class TradingBot {
               `✅ EXHAUSTION_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
               `ExhaustionRatio=${(exhaustionCheckResult.metrics.exhaustionRatio * 100).toFixed(1)}% | ` +
               `PositionRatio=${(exhaustionCheckResult.metrics.positionRatio * 100).toFixed(1)}%`
+            );
+          }
+        }
+      }
+
+      // 🕒 TTL FILTER - Verificar se ainda há tempo suficiente para armar gatilho
+      if (this.ttlFilter && this.ttlFilter.isEnabled()) {
+        // Debounce - verificar se já foi avaliado para este candle
+        if (!this.ttlCheckLogged.has(this.currentCandleTimestamp)) {
+          // Calcular timestamp de fechamento do candle
+          const candleCloseTimestamp = this.currentCandleTimestamp + this.timeframe;
+          
+          // Obter timestamp atual
+          const currentTimestamp = Math.floor(Date.now() / 1000);
+          
+          // Verificar TTL
+          const ttlCheckResult = this.ttlFilter.check(candleCloseTimestamp, currentTimestamp);
+          
+          // Marcar como avaliado
+          this.ttlCheckLogged.add(this.currentCandleTimestamp);
+          
+          // Log se habilitado
+          if (this.ttlFilter.isLogEnabled()) {
+            console.log(this.ttlFilter.formatLogMessage(ttlCheckResult));
+          }
+          
+          if (ttlCheckResult.blocked) {
+            // Candle bloqueado por TTL Filter
+            await this.logEvent(
+              "TTL_BLOCKED",
+              `🕒 TTL_BLOCKED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
+              `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s | ` +
+              `Required=${ttlCheckResult.metrics.requiredTime}s | ` +
+              `Reason=INSUFFICIENT_TIME`
+            );
+            
+            // Não armar entrada, voltar para WAITING_MIDPOINT
+            this.state = "WAITING_MIDPOINT";
+            await this.updateBotState();
+            return;
+          } else {
+            // Candle aprovado pelo TTL Filter
+            await this.logEvent(
+              "TTL_APPROVED",
+              `✅ TTL_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
+              `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s`
             );
           }
         }
@@ -2700,6 +2777,50 @@ export class TradingBot {
               `PositionRatio=${(exhaustionCheckResult.metrics.positionRatio * 100).toFixed(1)}%`
             );
           }
+        }
+      }
+      
+      // 🕒 TTL FILTER - Verificar se ainda há tempo suficiente para rearmar gatilho (RE-PREDIÇÃO)
+      if (this.ttlFilter && this.ttlFilter.isEnabled()) {
+        // Calcular timestamp de fechamento do candle
+        const candleCloseTimestamp = this.currentCandleTimestamp + this.timeframe;
+        
+        // Obter timestamp atual
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        
+        // Verificar TTL (sem debounce na re-predição, pois já foi verificado na INITIAL)
+        const ttlCheckResult = this.ttlFilter.check(candleCloseTimestamp, currentTimestamp);
+        
+        // Log se habilitado
+        if (this.ttlFilter.isLogEnabled()) {
+          console.log(`[REPREDICTION] ${this.ttlFilter.formatLogMessage(ttlCheckResult)}`);
+        }
+        
+        if (ttlCheckResult.blocked) {
+          // Candle bloqueado por TTL Filter na re-predição
+          await this.logEvent(
+            "TTL_BLOCKED",
+            `🕒 TTL_BLOCKED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ` +
+            `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s | ` +
+            `Required=${ttlCheckResult.metrics.requiredTime}s | ` +
+            `Reason=INSUFFICIENT_TIME`
+          );
+          
+          // Cancelar gatilho e voltar para WAITING_MIDPOINT
+          this.prediction = null;
+          this.trigger = 0;
+          this.state = "WAITING_MIDPOINT";
+          await this.updateBotState();
+          
+          console.log(`[TTL_FILTER] Gatilho cancelado devido a bloqueio TTL em re-predição`);
+          return;
+        } else {
+          // Candle aprovado pelo TTL Filter na re-predição
+          await this.logEvent(
+            "TTL_APPROVED",
+            `✅ TTL_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ` +
+            `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s`
+          );
         }
       }
       
