@@ -302,9 +302,10 @@ export const appRouter = router({
           exhaustionRangeMultiplier: "1.5000",
           exhaustionGuardLogEnabled: true,
           // TTLFilter padrão (DESATIVADO por padrão)
+          // IMPORTANTE: Valores compatíveis com janela operacional de 10 minutos (35-45min no M60)
           ttlEnabled: false,
-          ttlMinimumSeconds: 900,
-          ttlTriggerDelayBuffer: 300,
+          ttlMinimumSeconds: 180, // 3 minutos
+          ttlTriggerDelayBuffer: 120, // 2 minutos
           ttlLogEnabled: true,
         };
       }

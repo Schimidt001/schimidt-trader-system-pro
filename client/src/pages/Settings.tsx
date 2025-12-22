@@ -90,10 +90,10 @@ export default function Settings() {
   const [exhaustionRangeMultiplier, setExhaustionRangeMultiplier] = useState("1.5");
   const [exhaustionGuardLogEnabled, setExhaustionGuardLogEnabled] = useState(true);
   
-  // Estados para TTLFilter (Time-To-Close Filter)
+  // Estados para TTLFilter (Time-To-Live Filter - Janela Operacional)
   const [ttlEnabled, setTtlEnabled] = useState(false);
-  const [ttlMinimumSeconds, setTtlMinimumSeconds] = useState("900"); // 15 minutos em segundos
-  const [ttlTriggerDelayBuffer, setTtlTriggerDelayBuffer] = useState("300"); // 5 minutos em segundos
+  const [ttlMinimumSeconds, setTtlMinimumSeconds] = useState("180"); // 3 minutos em segundos (compatível com janela 35-45min)
+  const [ttlTriggerDelayBuffer, setTtlTriggerDelayBuffer] = useState("120"); // 2 minutos em segundos
   const [ttlLogEnabled, setTtlLogEnabled] = useState(true);
   
   const [hourlyFilterCustomHours, setHourlyFilterCustomHours] = useState<number[]>([]);
@@ -1880,11 +1880,11 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          {/* TTLFilter (Time-To-Close Filter) */}
+          {/* TTLFilter (Time-To-Live Filter - Janela Operacional) */}
           <Card className="bg-slate-900 border-slate-800">
             <CardHeader>
-              <CardTitle className="text-slate-100">🕒 Filtro TTL (Time-To-Close)</CardTitle>
-              <CardDescription>Bloqueia armamento do gatilho quando não há tempo suficiente até o fechamento do candle</CardDescription>
+              <CardTitle className="text-slate-100">🕒 Filtro TTL (Time-To-Live)</CardTitle>
+              <CardDescription>Bloqueia armamento do gatilho quando não há tempo suficiente dentro da janela operacional (35-45min no M60)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
@@ -1893,7 +1893,7 @@ export default function Settings() {
                     Ativar Filtro TTL
                   </Label>
                   <p className="text-xs text-slate-500">
-                    Bot verifica se ainda há tempo operacional suficiente antes de armar o gatilho
+                    Bot verifica se ainda há tempo suficiente na janela operacional antes de armar o gatilho
                   </p>
                 </div>
                 <Switch
@@ -1905,20 +1905,31 @@ export default function Settings() {
 
               {ttlEnabled && (
                 <div className="space-y-4 pt-4 border-t border-slate-700">
+                  <div className="bg-purple-900/30 border border-purple-700/50 rounded-lg p-3">
+                    <p className="text-sm text-purple-300">
+                      📍 <strong>Contexto da Janela Operacional (M60):</strong>
+                    </p>
+                    <ul className="text-xs text-purple-400 space-y-1 mt-2">
+                      <li>• Minuto 0–35: Formação / Análise (NÃO operável)</li>
+                      <li>• <strong>Minuto 35–45: Única janela operável (10 minutos)</strong></li>
+                      <li>• Minuto 45–60: Proibido pela Deriv</li>
+                    </ul>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="ttlMinimumSeconds" className="text-slate-300">
-                      Tempo Mínimo Saudável (segundos)
+                      Tempo Mínimo para Operação (segundos)
                     </Label>
                     <Input
                       id="ttlMinimumSeconds"
                       type="number"
                       value={ttlMinimumSeconds}
                       onChange={(e) => setTtlMinimumSeconds(e.target.value)}
-                      placeholder="900"
+                      placeholder="180"
                       className="bg-slate-800 border-slate-700 text-white"
                     />
                     <p className="text-xs text-slate-500">
-                      Tempo mínimo necessário para o trade ser saudável. Padrão: 900s = 15 minutos
+                      Tempo mínimo restante dentro da janela operacional (35-45min). Padrão: 180s = 3 minutos
                     </p>
                   </div>
 
@@ -1931,17 +1942,17 @@ export default function Settings() {
                       type="number"
                       value={ttlTriggerDelayBuffer}
                       onChange={(e) => setTtlTriggerDelayBuffer(e.target.value)}
-                      placeholder="300"
+                      placeholder="120"
                       className="bg-slate-800 border-slate-700 text-white"
                     />
                     <p className="text-xs text-slate-500">
-                      Buffer conservador para possível atraso no cruzamento do gatilho. Padrão: 300s = 5 minutos
+                      Buffer para possível atraso no cruzamento do gatilho. Padrão: 120s = 2 minutos
                     </p>
                   </div>
 
                   <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-3">
                     <p className="text-xs text-amber-400">
-                      ⚠️ <strong>Tempo Total Exigido:</strong> {parseInt(ttlMinimumSeconds || "900") + parseInt(ttlTriggerDelayBuffer || "300")} segundos ({Math.floor((parseInt(ttlMinimumSeconds || "900") + parseInt(ttlTriggerDelayBuffer || "300")) / 60)} minutos)
+                      ⚠️ <strong>Tempo Total Exigido:</strong> {parseInt(ttlMinimumSeconds || "180") + parseInt(ttlTriggerDelayBuffer || "120")} segundos ({Math.floor((parseInt(ttlMinimumSeconds || "180") + parseInt(ttlTriggerDelayBuffer || "120")) / 60)} minutos) - compatível com janela de 10 min
                     </p>
                   </div>
 
@@ -1967,7 +1978,7 @@ export default function Settings() {
                     </p>
                     <ul className="text-xs text-slate-400 space-y-1 mt-2">
                       <li>1. Após a predição e filtros (DojiGuard, ExhaustionGuard), TTL é verificado</li>
-                      <li>2. Calcula: <strong>timeRemaining</strong> = fechamento do candle - tempo atual</li>
+                      <li>2. Calcula: <strong>timeRemaining</strong> = limite de entrada (min45) - tempo atual</li>
                       <li>3. Calcula: <strong>requiredTime</strong> = tempo mínimo + buffer de atraso</li>
                       <li>4. Se timeRemaining &lt; requiredTime → <strong>BLOQUEIA</strong></li>
                       <li>5. Se aprovado → arma gatilho normalmente</li>
@@ -1976,13 +1987,13 @@ export default function Settings() {
                   
                   <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3">
                     <p className="text-xs text-yellow-400">
-                      ⚠️ <strong>Objetivo:</strong> Evitar entradas tardias que não têm tempo suficiente para se desenvolver, reduzindo LOSS por reversão final.
+                      ⚠️ <strong>Objetivo:</strong> Evitar entradas tardias (após ~42-43min) que não têm tempo suficiente para se desenvolver, reduzindo LOSS por reversão final.
                     </p>
                   </div>
                   
                   <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3">
                     <p className="text-xs text-green-400">
-                      ✅ <strong>Recomendação:</strong> Forex M60 = Mínimo: 900s (15min) | Buffer: 300s (5min) | Total: 1200s (20min)
+                      ✅ <strong>Recomendação M60:</strong> Mínimo: 180s (3min) | Buffer: 120s (2min) | Total: 300s (5min)
                     </p>
                   </div>
                 </div>

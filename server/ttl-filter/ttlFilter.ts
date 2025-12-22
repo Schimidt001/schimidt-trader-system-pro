@@ -1,24 +1,35 @@
 /**
- * TTLFilter - Time-To-Close Filter
+ * TTLFilter - Time-To-Live Filter (Janela Operacional)
  * 
- * Bloqueia o armamento do gatilho quando não há tempo suficiente
- * até o fechamento do candle para executar uma operação saudável.
+ * CONTEXTO CRÍTICO:
+ * No M60, o candle operacional NÃO tem 60 minutos disponíveis.
+ * - Minuto 0–35: formação / análise (NÃO operável)
+ * - Minuto 35–45: ÚNICA janela operável (10 minutos)
+ * - Minuto 45–60: proibido pela Deriv
  * 
- * O TTL NÃO prevê mercado, NÃO altera preço, NÃO cancela contratos,
- * NÃO interfere após o gatilho armado.
+ * O TTL avalia o tempo restante DENTRO da janela operacional (35–45),
+ * e NÃO o candle inteiro.
  * 
- * Ele apenas responde:
- * ✅ Este candle ainda tem tempo operacional suficiente
- * ❌ Este candle deve ser ignorado por falta de tempo
+ * Definição formal:
+ * TTL = tempo restante entre momento atual e limite máximo de entrada permitido (45min)
  * 
- * Versão: 1.0
+ * Regra objetiva:
+ * timeRemaining = lastAllowedEntryTimestamp - currentTimestamp
+ * requiredTime = ttlMinimumSeconds + ttlTriggerDelayBuffer
+ * if (timeRemaining < requiredTime): BLOQUEIA armamento do gatilho
+ * else: PERMITE armamento
+ * 
+ * O TTL NÃO cancela gatilho armado, NÃO interfere após a entrada,
+ * NÃO altera direção, stake ou lógica da IA.
+ * 
+ * Versão: 2.0
  * Ambiente: Produção / Forex M60
  */
 
 export interface TTLFilterConfig {
   enabled: boolean;
-  minimumSeconds: number;      // Tempo mínimo saudável para o trade (ex: 900s = 15min)
-  triggerDelayBuffer: number;  // Buffer conservador para possível atraso no cruzamento do gatilho (ex: 300s = 5min)
+  minimumSeconds: number;      // Tempo mínimo para operação se desenvolver (ex: 180s = 3min)
+  triggerDelayBuffer: number;  // Buffer para possível atraso no cruzamento do gatilho (ex: 120s = 2min)
   logEnabled: boolean;         // Log detalhado ON/OFF
 }
 
@@ -26,8 +37,10 @@ export interface TTLFilterResult {
   blocked: boolean;
   reason?: string;
   metrics: {
-    timeRemaining: number;
-    requiredTime: number;
+    timeRemaining: number;     // Tempo restante até limite de entrada (minuto 45)
+    requiredTime: number;      // Tempo mínimo exigido (minimumSeconds + triggerDelayBuffer)
+    lastAllowedEntryTimestamp: number; // Timestamp do minuto 45 do candle
+    currentTimestamp: number;  // Timestamp atual
   };
   config: {
     minimumSeconds: number;
@@ -36,9 +49,10 @@ export interface TTLFilterResult {
 }
 
 /**
- * Classe TTLFilter - Time-To-Close Filter
+ * Classe TTLFilter - Time-To-Live Filter
  * 
  * Implementação modular e isolada do filtro temporal.
+ * Avalia tempo restante dentro da JANELA OPERACIONAL (35-45min no M60).
  * Não interfere com nenhuma outra funcionalidade existente.
  */
 export class TTLFilter {
@@ -72,12 +86,15 @@ export class TTLFilter {
   /**
    * Verifica se ainda há tempo suficiente para armar o gatilho
    * 
-   * @param candleCloseTimestamp Timestamp Unix (segundos) do fechamento do candle
+   * IMPORTANTE: O parâmetro é lastAllowedEntryTimestamp (minuto 45),
+   * NÃO o fechamento do candle (minuto 60).
+   * 
+   * @param lastAllowedEntryTimestamp Timestamp Unix (segundos) do limite máximo de entrada (minuto 45)
    * @param currentTimestamp Timestamp Unix (segundos) atual
    * @returns Resultado da verificação com métricas e motivo do bloqueio
    */
   public check(
-    candleCloseTimestamp: number,
+    lastAllowedEntryTimestamp: number,
     currentTimestamp: number
   ): TTLFilterResult {
     // Se o filtro está desabilitado, não bloqueia
@@ -87,6 +104,8 @@ export class TTLFilter {
         metrics: {
           timeRemaining: 0,
           requiredTime: 0,
+          lastAllowedEntryTimestamp,
+          currentTimestamp,
         },
         config: {
           minimumSeconds: this.config.minimumSeconds,
@@ -95,16 +114,17 @@ export class TTLFilter {
       };
     }
 
-    // Calcular tempo restante até o fechamento do candle
-    const timeRemaining = candleCloseTimestamp - currentTimestamp;
+    // Calcular tempo restante até o LIMITE MÁXIMO DE ENTRADA (minuto 45)
+    // NÃO até o fechamento do candle (minuto 60)
+    const timeRemaining = lastAllowedEntryTimestamp - currentTimestamp;
     
-    // Calcular tempo mínimo exigido (tempo saudável + buffer de atraso)
+    // Calcular tempo mínimo exigido (tempo para operação + buffer de atraso)
     const requiredTime = this.config.minimumSeconds + this.config.triggerDelayBuffer;
 
-    // Verificar se há tempo suficiente
+    // Verificar se há tempo suficiente dentro da janela operacional
     const blocked = timeRemaining < requiredTime;
     const reason = blocked 
-      ? `Tempo restante insuficiente (${timeRemaining}s < ${requiredTime}s exigidos)`
+      ? `Tempo restante na janela operacional insuficiente (${timeRemaining}s < ${requiredTime}s exigidos)`
       : undefined;
 
     return {
@@ -113,6 +133,8 @@ export class TTLFilter {
       metrics: {
         timeRemaining,
         requiredTime,
+        lastAllowedEntryTimestamp,
+        currentTimestamp,
       },
       config: {
         minimumSeconds: this.config.minimumSeconds,
@@ -126,10 +148,10 @@ export class TTLFilter {
    */
   public formatLogMessage(result: TTLFilterResult): string {
     if (!result.blocked) {
-      return `[TTLFilter] ✅ TTL_APPROVED | TimeRemaining=${result.metrics.timeRemaining}s`;
+      return `[TTLFilter] ✅ TTL_APPROVED | TimeRemaining=${result.metrics.timeRemaining}s (até min45)`;
     }
 
-    return `[TTLFilter] 🕒 TTL_BLOCKED | TimeRemaining=${result.metrics.timeRemaining}s | Required=${result.metrics.requiredTime}s | Reason=INSUFFICIENT_TIME`;
+    return `[TTLFilter] 🕒 TTL_BLOCKED | TimeRemaining=${result.metrics.timeRemaining}s (até min45) | Required=${result.metrics.requiredTime}s | Reason=INSUFFICIENT_TIME_IN_WINDOW`;
   }
 
   /**
@@ -137,14 +159,14 @@ export class TTLFilter {
    */
   public formatPanelMessage(result: TTLFilterResult): string {
     if (!result.blocked) {
-      return "Candle aprovado pelo TTL Filter - Tempo suficiente para operação";
+      return "Candle aprovado pelo TTL Filter - Tempo suficiente na janela operacional";
     }
 
     const remainingMinutes = Math.floor(result.metrics.timeRemaining / 60);
     const requiredMinutes = Math.floor(result.metrics.requiredTime / 60);
 
-    return `Tempo insuficiente até fechamento do candle\n` +
-           `• Tempo restante: ${remainingMinutes} minutos (${result.metrics.timeRemaining}s)\n` +
+    return `Tempo insuficiente na janela operacional (35-45min)\n` +
+           `• Tempo restante até min45: ${remainingMinutes} minutos (${result.metrics.timeRemaining}s)\n` +
            `• Tempo exigido: ${requiredMinutes} minutos (${result.metrics.requiredTime}s)\n` +
            `• Motivo: ${result.reason}`;
   }

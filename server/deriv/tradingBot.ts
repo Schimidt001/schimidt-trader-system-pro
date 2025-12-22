@@ -1593,18 +1593,26 @@ export class TradingBot {
         }
       }
 
-      // 🕒 TTL FILTER - Verificar se ainda há tempo suficiente para armar gatilho
+      // 🕒 TTL FILTER - Verificar se ainda há tempo suficiente na JANELA OPERACIONAL
+      // CONTEXTO CRÍTICO M60:
+      // - Minuto 0–35: formação / análise (NÃO operável)
+      // - Minuto 35–45: Única janela operável (10 minutos)
+      // - Minuto 45–60: proibido pela Deriv
+      // O TTL avalia tempo restante até o MINUTO 45, não até o minuto 60!
       if (this.ttlFilter && this.ttlFilter.isEnabled()) {
         // Debounce - verificar se já foi avaliado para este candle
         if (!this.ttlCheckLogged.has(this.currentCandleTimestamp)) {
-          // Calcular timestamp de fechamento do candle
-          const candleCloseTimestamp = this.currentCandleTimestamp + this.timeframe;
+          // Calcular timestamp do LIMITE MÁXIMO DE ENTRADA (minuto 45 do candle)
+          // Para M60: 45/60 = 0.75 do timeframe
+          // Para M30: 22.5/30 = 0.75 do timeframe
+          // Para M15: 11.25/15 = 0.75 do timeframe
+          const lastAllowedEntryTimestamp = this.currentCandleTimestamp + Math.floor(this.timeframe * 0.75);
           
           // Obter timestamp atual
           const currentTimestamp = Math.floor(Date.now() / 1000);
           
-          // Verificar TTL
-          const ttlCheckResult = this.ttlFilter.check(candleCloseTimestamp, currentTimestamp);
+          // Verificar TTL (tempo restante até minuto 45, NÃO até minuto 60)
+          const ttlCheckResult = this.ttlFilter.check(lastAllowedEntryTimestamp, currentTimestamp);
           
           // Marcar como avaliado
           this.ttlCheckLogged.add(this.currentCandleTimestamp);
@@ -1615,13 +1623,13 @@ export class TradingBot {
           }
           
           if (ttlCheckResult.blocked) {
-            // Candle bloqueado por TTL Filter
+            // Candle bloqueado por TTL Filter - tempo insuficiente na janela operacional
             await this.logEvent(
               "TTL_BLOCKED",
               `🕒 TTL_BLOCKED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
-              `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s | ` +
+              `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s (até min45) | ` +
               `Required=${ttlCheckResult.metrics.requiredTime}s | ` +
-              `Reason=INSUFFICIENT_TIME`
+              `Reason=INSUFFICIENT_TIME_IN_WINDOW`
             );
             
             // Não armar entrada, voltar para WAITING_MIDPOINT
@@ -1629,11 +1637,11 @@ export class TradingBot {
             await this.updateBotState();
             return;
           } else {
-            // Candle aprovado pelo TTL Filter
+            // Candle aprovado pelo TTL Filter - tempo suficiente na janela operacional
             await this.logEvent(
               "TTL_APPROVED",
               `✅ TTL_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=INITIAL) | ` +
-              `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s`
+              `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s (até min45)`
             );
           }
         }
@@ -2780,16 +2788,17 @@ export class TradingBot {
         }
       }
       
-      // 🕒 TTL FILTER - Verificar se ainda há tempo suficiente para rearmar gatilho (RE-PREDIÇÃO)
+      // 🕒 TTL FILTER - Verificar se ainda há tempo suficiente na JANELA OPERACIONAL (RE-PREDIÇÃO)
+      // O TTL avalia tempo restante até o MINUTO 45, não até o minuto 60!
       if (this.ttlFilter && this.ttlFilter.isEnabled()) {
-        // Calcular timestamp de fechamento do candle
-        const candleCloseTimestamp = this.currentCandleTimestamp + this.timeframe;
+        // Calcular timestamp do LIMITE MÁXIMO DE ENTRADA (minuto 45 do candle)
+        const lastAllowedEntryTimestamp = this.currentCandleTimestamp + Math.floor(this.timeframe * 0.75);
         
         // Obter timestamp atual
         const currentTimestamp = Math.floor(Date.now() / 1000);
         
-        // Verificar TTL (sem debounce na re-predição, pois já foi verificado na INITIAL)
-        const ttlCheckResult = this.ttlFilter.check(candleCloseTimestamp, currentTimestamp);
+        // Verificar TTL (tempo restante até minuto 45, NÃO até minuto 60)
+        const ttlCheckResult = this.ttlFilter.check(lastAllowedEntryTimestamp, currentTimestamp);
         
         // Log se habilitado
         if (this.ttlFilter.isLogEnabled()) {
@@ -2797,13 +2806,13 @@ export class TradingBot {
         }
         
         if (ttlCheckResult.blocked) {
-          // Candle bloqueado por TTL Filter na re-predição
+          // Candle bloqueado por TTL Filter na re-predição - tempo insuficiente na janela operacional
           await this.logEvent(
             "TTL_BLOCKED",
             `🕒 TTL_BLOCKED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ` +
-            `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s | ` +
+            `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s (até min45) | ` +
             `Required=${ttlCheckResult.metrics.requiredTime}s | ` +
-            `Reason=INSUFFICIENT_TIME`
+            `Reason=INSUFFICIENT_TIME_IN_WINDOW`
           );
           
           // Cancelar gatilho e voltar para WAITING_MIDPOINT
@@ -2812,14 +2821,14 @@ export class TradingBot {
           this.state = "WAITING_MIDPOINT";
           await this.updateBotState();
           
-          console.log(`[TTL_FILTER] Gatilho cancelado devido a bloqueio TTL em re-predição`);
+          console.log(`[TTL_FILTER] Gatilho cancelado devido a bloqueio TTL em re-predição (tempo insuficiente na janela 35-45min)`);
           return;
         } else {
-          // Candle aprovado pelo TTL Filter na re-predição
+          // Candle aprovado pelo TTL Filter na re-predição - tempo suficiente na janela operacional
           await this.logEvent(
             "TTL_APPROVED",
             `✅ TTL_APPROVED (CANDLE=${this.currentCandleTimestamp}, PHASE=REPREDICTION) | ` +
-            `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s`
+            `TimeRemaining=${ttlCheckResult.metrics.timeRemaining}s (até min45)`
           );
         }
       }
