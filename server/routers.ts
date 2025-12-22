@@ -301,6 +301,11 @@ export const appRouter = router({
           exhaustionRangeLookback: 10, // Alterado de 20 para 10 (ADENDO TÉCNICO)
           exhaustionRangeMultiplier: "1.5000",
           exhaustionGuardLogEnabled: true,
+          // TTLFilter padrão (DESATIVADO por padrão)
+          ttlEnabled: false,
+          ttlMinimumSeconds: 900,
+          ttlTriggerDelayBuffer: 300,
+          ttlLogEnabled: true,
         };
       }
       
@@ -359,6 +364,11 @@ export const appRouter = router({
           exhaustionRangeLookback: z.number().int().min(1).optional(),
           exhaustionRangeMultiplier: z.number().min(1).optional(),
           exhaustionGuardLogEnabled: z.boolean().optional(),
+          // TTLFilter (Time-To-Close Filter)
+          ttlEnabled: z.boolean().optional(),
+          ttlMinimumSeconds: z.number().int().min(0).optional(),
+          ttlTriggerDelayBuffer: z.number().int().min(0).optional(),
+          ttlLogEnabled: z.boolean().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {

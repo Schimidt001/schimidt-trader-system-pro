@@ -90,6 +90,12 @@ export default function Settings() {
   const [exhaustionRangeMultiplier, setExhaustionRangeMultiplier] = useState("1.5");
   const [exhaustionGuardLogEnabled, setExhaustionGuardLogEnabled] = useState(true);
   
+  // Estados para TTLFilter (Time-To-Close Filter)
+  const [ttlEnabled, setTtlEnabled] = useState(false);
+  const [ttlMinimumSeconds, setTtlMinimumSeconds] = useState("900"); // 15 minutos em segundos
+  const [ttlTriggerDelayBuffer, setTtlTriggerDelayBuffer] = useState("300"); // 5 minutos em segundos
+  const [ttlLogEnabled, setTtlLogEnabled] = useState(true);
+  
   const [hourlyFilterCustomHours, setHourlyFilterCustomHours] = useState<number[]>([]);
   const [hourlyFilterGoldHours, setHourlyFilterGoldHours] = useState<number[]>([]);
   const [hourlyFilterGoldMultiplier, setHourlyFilterGoldMultiplier] = useState("200");
@@ -238,6 +244,12 @@ export default function Settings() {
       setExhaustionRangeLookback((config.exhaustionRangeLookback ?? 10).toString()); // Alterado de 20 para 10 (ADENDO TÉCNICO)
       setExhaustionRangeMultiplier(config.exhaustionRangeMultiplier ? config.exhaustionRangeMultiplier.toString() : "1.5");
       setExhaustionGuardLogEnabled(config.exhaustionGuardLogEnabled ?? true);
+      
+      // Carregar configurações do TTLFilter
+      setTtlEnabled(config.ttlEnabled ?? false);
+      setTtlMinimumSeconds((config.ttlMinimumSeconds ?? 900).toString());
+      setTtlTriggerDelayBuffer((config.ttlTriggerDelayBuffer ?? 300).toString());
+      setTtlLogEnabled(config.ttlLogEnabled ?? true);
       
       if (config.hourlyFilterCustomHours) {
         try {
@@ -501,6 +513,11 @@ export default function Settings() {
       exhaustionRangeLookback: parseInt(exhaustionRangeLookback) || 10, // Alterado de 20 para 10 (ADENDO TÉCNICO)
       exhaustionRangeMultiplier: parseFloat(exhaustionRangeMultiplier) || 1.5,
       exhaustionGuardLogEnabled,
+      // TTLFilter (Time-To-Close Filter)
+      ttlEnabled,
+      ttlMinimumSeconds: parseInt(ttlMinimumSeconds) || 900,
+      ttlTriggerDelayBuffer: parseInt(ttlTriggerDelayBuffer) || 300,
+      ttlLogEnabled,
     });
     
     console.log('[FILTRO] Salvando configurações:', {
@@ -1856,6 +1873,116 @@ export default function Settings() {
                   <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3">
                     <p className="text-xs text-green-400">
                       ✅ <strong>Recomendação:</strong> Forex M60 = Ratio: 70% | Position: 85% | Lookback: 10 candles | Multiplicador: 1.5x
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* TTLFilter (Time-To-Close Filter) */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="text-slate-100">🕒 Filtro TTL (Time-To-Close)</CardTitle>
+              <CardDescription>Bloqueia armamento do gatilho quando não há tempo suficiente até o fechamento do candle</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="ttlEnabled" className="text-slate-300">
+                    Ativar Filtro TTL
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Bot verifica se ainda há tempo operacional suficiente antes de armar o gatilho
+                  </p>
+                </div>
+                <Switch
+                  id="ttlEnabled"
+                  checked={ttlEnabled}
+                  onCheckedChange={setTtlEnabled}
+                />
+              </div>
+
+              {ttlEnabled && (
+                <div className="space-y-4 pt-4 border-t border-slate-700">
+                  <div className="space-y-2">
+                    <Label htmlFor="ttlMinimumSeconds" className="text-slate-300">
+                      Tempo Mínimo Saudável (segundos)
+                    </Label>
+                    <Input
+                      id="ttlMinimumSeconds"
+                      type="number"
+                      value={ttlMinimumSeconds}
+                      onChange={(e) => setTtlMinimumSeconds(e.target.value)}
+                      placeholder="900"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Tempo mínimo necessário para o trade ser saudável. Padrão: 900s = 15 minutos
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ttlTriggerDelayBuffer" className="text-slate-300">
+                      Buffer de Atraso do Gatilho (segundos)
+                    </Label>
+                    <Input
+                      id="ttlTriggerDelayBuffer"
+                      type="number"
+                      value={ttlTriggerDelayBuffer}
+                      onChange={(e) => setTtlTriggerDelayBuffer(e.target.value)}
+                      placeholder="300"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Buffer conservador para possível atraso no cruzamento do gatilho. Padrão: 300s = 5 minutos
+                    </p>
+                  </div>
+
+                  <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-3">
+                    <p className="text-xs text-amber-400">
+                      ⚠️ <strong>Tempo Total Exigido:</strong> {parseInt(ttlMinimumSeconds || "900") + parseInt(ttlTriggerDelayBuffer || "300")} segundos ({Math.floor((parseInt(ttlMinimumSeconds || "900") + parseInt(ttlTriggerDelayBuffer || "300")) / 60)} minutos)
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="ttlLogEnabled" className="text-slate-300">
+                        Log Detalhado
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Exibir logs detalhados das verificações de TTL no console
+                      </p>
+                    </div>
+                    <Switch
+                      id="ttlLogEnabled"
+                      checked={ttlLogEnabled}
+                      onCheckedChange={setTtlLogEnabled}
+                    />
+                  </div>
+
+                  <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3">
+                    <p className="text-sm text-slate-300">
+                      📊 <strong>Como funciona:</strong>
+                    </p>
+                    <ul className="text-xs text-slate-400 space-y-1 mt-2">
+                      <li>1. Após a predição e filtros (DojiGuard, ExhaustionGuard), TTL é verificado</li>
+                      <li>2. Calcula: <strong>timeRemaining</strong> = fechamento do candle - tempo atual</li>
+                      <li>3. Calcula: <strong>requiredTime</strong> = tempo mínimo + buffer de atraso</li>
+                      <li>4. Se timeRemaining &lt; requiredTime → <strong>BLOQUEIA</strong></li>
+                      <li>5. Se aprovado → arma gatilho normalmente</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3">
+                    <p className="text-xs text-yellow-400">
+                      ⚠️ <strong>Objetivo:</strong> Evitar entradas tardias que não têm tempo suficiente para se desenvolver, reduzindo LOSS por reversão final.
+                    </p>
+                  </div>
+                  
+                  <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3">
+                    <p className="text-xs text-green-400">
+                      ✅ <strong>Recomendação:</strong> Forex M60 = Mínimo: 900s (15min) | Buffer: 300s (5min) | Total: 1200s (20min)
                     </p>
                   </div>
                 </div>
