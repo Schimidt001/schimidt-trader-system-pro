@@ -180,11 +180,13 @@ export class DerivService {
   private handleMessage(message: any): void {
     const msgType = message.msg_type;
     
-    // Tratar pong (resposta ao ping keep-alive)
-    if (msgType === "ping" && message.ping === "pong") {
+    // ✅ CORREÇÃO: Tratar pong (resposta ao ping keep-alive)
+    // A API Deriv responde com msg_type: "ping" e ping: "pong"
+    // OU apenas com o campo "pong" contendo um timestamp
+    if (msgType === "ping" || message.pong !== undefined) {
       // Ping/pong bem-sucedido, conexão está viva
       this.lastPongTime = Date.now();
-      console.log("[DerivService] Pong received - connection alive");
+      // Log reduzido para não poluir console (apenas a cada 60s)
       return;
     }
     
@@ -231,22 +233,28 @@ export class DerivService {
 
   /**
    * Trata desconexão e reconeexão
+   * ✅ MELHORADO v2: Reconexão mais rápida para evitar perda de dados
+   * - Delay inicial reduzido de 5s para 2s
+   * - Delay máximo reduzido de 60s para 30s
+   * - Logs mais detalhados para debug
    */
   private handleDisconnect(): void {
     this.stopPing();
     
     this.reconnectAttempts++;
     
-    // Delay exponencial: 5s, 10s, 20s, 40s, max 60s
-    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 60000);
+    // ✅ CORREÇÃO: Delay exponencial mais agressivo: 2s, 4s, 8s, 16s, max 30s
+    const baseDelay = 2000; // Reduzido de 5000 para 2000
+    const maxDelay = 30000; // Reduzido de 60000 para 30000
+    const delay = Math.min(baseDelay * Math.pow(2, this.reconnectAttempts - 1), maxDelay);
     
-    console.log(`[DerivService] Connection lost. Reconnecting in ${delay/1000}s... (Attempt ${this.reconnectAttempts})`);
+    console.log(`[DerivService] 🔄 Conexão perdida. Reconectando em ${delay/1000}s... (Tentativa ${this.reconnectAttempts})`);
     
     setTimeout(async () => {
       try {
-        console.log(`[DerivService] Attempting reconnection #${this.reconnectAttempts}...`);
+        console.log(`[DerivService] 🔄 Tentando reconexão #${this.reconnectAttempts}...`);
         await this.connect();
-        console.log("[DerivService] Reconnected successfully!");
+        console.log("[DerivService] ✅ Reconectado com sucesso!");
         
         // Refazer subscrições ativas após reconeexão
         this.resubscribe();
@@ -254,8 +262,9 @@ export class DerivService {
         // Resetar contador após sucesso
         this.reconnectAttempts = 0;
       } catch (error) {
-        console.error(`[DerivService] Reconnection attempt #${this.reconnectAttempts} failed:`, error);
+        console.error(`[DerivService] ❌ Reconexão #${this.reconnectAttempts} falhou:`, error);
         // handleDisconnect será chamado novamente pelo evento 'close'
+        // Se muitas tentativas falharem, o delay exponencial vai aumentar
       }
     }, delay);
   }
@@ -754,19 +763,32 @@ export class DerivService {
 
   /**
    * Refaz subscrições ativas após reconexão
+   * ✅ MELHORADO: Adiciona delay entre resubscrições para evitar sobrecarga
    */
-  private resubscribe(): void {
-    console.log(`[DerivService] Resubscribing to ${this.activeSubscriptions.size} active subscriptions`);
+  private async resubscribe(): Promise<void> {
+    const subscriptionCount = this.activeSubscriptions.size;
+    console.log(`[DerivService] 🔄 Refazendo ${subscriptionCount} subscrições ativas após reconexão...`);
     
-    for (const [key, sub] of this.activeSubscriptions) {
+    let resubscribed = 0;
+    // Usar Array.from para compatibilidade com versões mais antigas do TypeScript
+    const entries = Array.from(this.activeSubscriptions.entries());
+    for (const [key, sub] of entries) {
       if (sub.type === 'ticks') {
-        console.log(`[DerivService] Resubscribing to ticks: ${sub.symbol}`);
+        console.log(`[DerivService] 🔄 Resubscrevendo ticks: ${sub.symbol}`);
         this.send({
           ticks: sub.symbol,
           subscribe: 1,
         });
+        resubscribed++;
+        
+        // Pequeno delay entre subscrições para não sobrecarregar a API
+        if (resubscribed < subscriptionCount) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
     }
+    
+    console.log(`[DerivService] ✅ ${resubscribed} subscrições refeitas com sucesso`);
   }
 
   /**
@@ -802,37 +824,45 @@ export class DerivService {
 
     /**
      * Inicia o envio de pings periódicos para manter a conexão viva
-     * ✅ MELHORADO: Verificação mais frequente (15s) e detecção mais rápida de conexão morta (60s)
+     * ✅ MELHORADO v2: Verificação mais frequente (10s) e detecção mais rápida de conexão morta (45s)
      * A Deriv fecha conexões após 2 minutos de inatividade, então precisamos ser mais agressivos
+     * 
+     * CORREÇÃO PARA DESCONEXÕES FREQUENTES:
+     * - Intervalo de ping reduzido de 15s para 10s
+     * - Threshold de conexão morta reduzido de 60s para 45s
+     * - Threshold de aviso reduzido de 30s para 20s
+     * - Adicionado log de ping enviado para debug
      */
     private startPing(): void {
         if (this.pingInterval) return;
         
         this.lastPongTime = Date.now(); // Inicializar
+        console.log("[DerivService] Ping/pong keep-alive iniciado (intervalo: 10s, timeout: 45s)");
         
         this.pingInterval = setInterval(() => {
             if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                console.warn("[DerivService] WebSocket não está aberto durante ping check - estado:", this.ws?.readyState);
                 return; // Não fazer nada se não estiver conectado
             }
             
             const timeSinceLastPong = Date.now() - this.lastPongTime;
             
-            // Se não recebemos pong em 60s, a conexão está provavelmente morta
-            // (Deriv fecha após 120s de inatividade, então 60s é um bom threshold)
-            if (timeSinceLastPong > 60000) {
-                console.error("[DerivService] No pong received for 60s - connection is likely dead. Forcing reconnect.");
+            // ✅ CORREÇÃO: Se não recebemos pong em 45s, a conexão está provavelmente morta
+            // Reduzido de 60s para 45s para detecção mais rápida
+            if (timeSinceLastPong > 45000) {
+                console.error(`[DerivService] ⚠️ CONEXÃO MORTA: Nenhum pong recebido em ${Math.round(timeSinceLastPong/1000)}s - forçando reconexão`);
                 this.ws.close();
                 return;
             }
             
-            // Se não recebemos pong em 30s, logar aviso mas continuar tentando
-            if (timeSinceLastPong > 30000) {
-                console.warn(`[DerivService] No pong received for ${Math.round(timeSinceLastPong/1000)}s - connection may be unstable`);
+            // ✅ CORREÇÃO: Se não recebemos pong em 20s, logar aviso (reduzido de 30s)
+            if (timeSinceLastPong > 20000) {
+                console.warn(`[DerivService] ⚠️ Possível instabilidade: nenhum pong em ${Math.round(timeSinceLastPong/1000)}s`);
             }
             
-            // Enviar ping (sem log excessivo para não poluir console)
+            // Enviar ping
             this.send({ ping: 1 });
-        }, 15000); // ✅ Verificar a cada 15 segundos (era 30s)
+        }, 10000); // ✅ CORREÇÃO: Verificar a cada 10 segundos (era 15s)
     }
 
     /**

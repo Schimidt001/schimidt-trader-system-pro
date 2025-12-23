@@ -4,12 +4,20 @@
  */
 
 import type { Express } from "express";
-import { db } from "./db";
+import { getDb } from "./db";
 
 export function setupMigrationEndpoint(app: Express) {
   app.get("/api/migrate", async (req, res) => {
     try {
       console.log("[Migration] Iniciando migração...");
+      
+      const db = await getDb();
+      if (!db) {
+        return res.status(500).json({
+          success: false,
+          error: "Database not available",
+        });
+      }
       
       // Verificar se as colunas já existem
       const checkSql = `

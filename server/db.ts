@@ -267,6 +267,12 @@ export async function getTodayPositions(userId: number, botId: number = 1): Prom
       exitTime: positions.exitTime,
       createdAt: positions.createdAt,
       updatedAt: positions.updatedAt,
+      // ✅ CORREÇÃO: Adicionar campos de reconciliação
+      reconciled: positions.reconciled,
+      reconciledAt: positions.reconciledAt,
+      botId: positions.botId,
+      isHedge: positions.isHedge,
+      parentPositionId: positions.parentPositionId,
       // Dados do candle
       candleOpen: candles.open,
       candleHigh: candles.high,
@@ -287,6 +293,48 @@ export async function getTodayPositions(userId: number, botId: number = 1): Prom
         eq(positions.botId, botId),
         gte(positions.createdAt, today),
         not(eq(positions.status, "CANCELLED"))
+      )
+    )
+    .orderBy(desc(positions.createdAt));
+  
+  return results;
+}
+
+/**
+ * Busca todas as posições fechadas e reconciliadas do mês atual
+ * Usado para calcular métricas mensais corretamente
+ */
+export async function getMonthPositions(userId: number, botId: number = 1): Promise<any[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // Primeiro dia do mês atual
+  const now = new Date();
+  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  firstDayOfMonth.setHours(0, 0, 0, 0);
+  
+  const results = await db
+    .select({
+      id: positions.id,
+      userId: positions.userId,
+      contractId: positions.contractId,
+      symbol: positions.symbol,
+      direction: positions.direction,
+      stake: positions.stake,
+      pnl: positions.pnl,
+      status: positions.status,
+      reconciled: positions.reconciled,
+      isHedge: positions.isHedge,
+      createdAt: positions.createdAt,
+    })
+    .from(positions)
+    .where(
+      and(
+        eq(positions.userId, userId),
+        eq(positions.botId, botId),
+        gte(positions.createdAt, firstDayOfMonth),
+        eq(positions.status, "CLOSED"),
+        eq(positions.reconciled, true)
       )
     )
     .orderBy(desc(positions.createdAt));

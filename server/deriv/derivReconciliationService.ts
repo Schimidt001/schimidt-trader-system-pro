@@ -20,6 +20,7 @@ import {
   getPositionByContractId,
   updatePosition,
   getTodayPositions,
+  getMonthPositions,
   upsertMetric,
   getMetric,
   insertEventLog,
@@ -372,22 +373,28 @@ export class DerivReconciliationService {
       pnl: totalPnL,
     });
 
-    // ✅ CORREÇÃO: Para métricas mensais, recalcular do zero também
-    // Isso evita acumulação incorreta
-    // Nota: Em produção, deveria buscar todas as posições do mês
-    // Por ora, apenas atualizar com os valores do dia
+    // ✅ CORREÇÃO: Para métricas mensais, buscar TODAS as posições do mês
+    const monthPositions = await getMonthPositions(userId, botId);
+    
+    // Calcular métricas mensais a partir de todas as posições do mês
+    const monthlyTotalTrades = monthPositions.length;
+    const monthlyWins = monthPositions.filter((p: any) => p.pnl > 0).length;
+    const monthlyLosses = monthPositions.filter((p: any) => p.pnl < 0).length;
+    const monthlyTotalPnL = monthPositions.reduce((sum: number, p: any) => sum + (p.pnl || 0), 0);
+    
     await upsertMetric({
       userId,
       botId,
       date: thisMonth,
       period: "monthly",
-      totalTrades,
-      wins,
-      losses,
-      pnl: totalPnL,
+      totalTrades: monthlyTotalTrades,
+      wins: monthlyWins,
+      losses: monthlyLosses,
+      pnl: monthlyTotalPnL,
     });
 
-    console.log(`[RECONCILIATION] Métricas recalculadas (apenas posições reconciliadas) | Trades: ${totalTrades} | Wins: ${wins} | Losses: ${losses} | PnL: $${(totalPnL / 100).toFixed(2)}`);
+    console.log(`[RECONCILIATION] Métricas diárias recalculadas | Trades: ${totalTrades} | Wins: ${wins} | Losses: ${losses} | PnL: $${(totalPnL / 100).toFixed(2)}`);
+    console.log(`[RECONCILIATION] Métricas mensais recalculadas | Trades: ${monthlyTotalTrades} | Wins: ${monthlyWins} | Losses: ${monthlyLosses} | PnL: $${(monthlyTotalPnL / 100).toFixed(2)}`);
   }
 
   /**

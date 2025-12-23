@@ -30,6 +30,7 @@ import {
   updatePosition,
   getPositionById,
   getTodayPositions,
+  getMonthPositions,
   insertEventLog,
   upsertMetric,
   getMetric,
@@ -540,6 +541,15 @@ export class TradingBot {
     this.state = "IDLE";
     await this.updateBotState();
     await this.logEvent("BOT_STOPPED", "Bot parado pelo usuário");
+  }
+
+  /**
+   * Reseta o PnL diário em memória
+   * Usado quando o usuário reseta os dados diários manualmente
+   */
+  public resetDailyPnL(): void {
+    this.dailyPnL = 0;
+    console.log(`[TradingBot] PnL diário resetado para 0 | Bot: ${this.botId}`);
   }
 
   /**
@@ -2571,13 +2581,14 @@ export class TradingBot {
       pnl: dailyTotalPnL,
     });
     
-    // Atualizar métricas mensais
-    const monthlyMetric = await getMetric(this.userId, thisMonth, "monthly", this.botId);
+    // ✅ CORREÇÃO: Recalcular métricas mensais a partir de TODAS as posições do mês
+    // Isso garante consistência e evita acumulação incorreta
+    const monthPositions = await getMonthPositions(this.userId, this.botId);
     
-    const monthlyTotalTrades = (monthlyMetric?.totalTrades || 0) + tradeCount;
-    const monthlyWins = pnl > 0 ? (monthlyMetric?.wins || 0) + 1 : monthlyMetric?.wins || 0;
-    const monthlyLosses = pnl < 0 ? (monthlyMetric?.losses || 0) + 1 : monthlyMetric?.losses || 0;
-    const monthlyTotalPnL = (monthlyMetric?.pnl || 0) + pnl;
+    const monthlyTotalTrades = monthPositions.length;
+    const monthlyWins = monthPositions.filter((p: any) => p.pnl > 0).length;
+    const monthlyLosses = monthPositions.filter((p: any) => p.pnl < 0).length;
+    const monthlyTotalPnL = monthPositions.reduce((sum: number, p: any) => sum + (p.pnl || 0), 0);
     
     await upsertMetric({
       userId: this.userId,
@@ -2589,6 +2600,8 @@ export class TradingBot {
       losses: monthlyLosses,
       pnl: monthlyTotalPnL,
     });
+    
+    console.log(`[METRICS] Diário: ${dailyTotalTrades} trades, $${(dailyTotalPnL / 100).toFixed(2)} | Mensal: ${monthlyTotalTrades} trades, $${(monthlyTotalPnL / 100).toFixed(2)}`);
   }
 
   /**

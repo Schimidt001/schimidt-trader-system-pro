@@ -274,6 +274,7 @@ export const appRouter = router({
           mode: "DEMO" as const,
           tokenDemo: null,
           tokenReal: null,
+          derivAppId: "1089", // App ID padrão da DERIV
           symbol: "R_100",
           stake: 100, // $1.00 em centavos
           stopDaily: 1000, // $10.00 em centavos
@@ -288,8 +289,23 @@ export const appRouter = router({
           contractType: "RISE_FALL" as const, // tipo de contrato padrão
           barrierHigh: "3.00", // barreira superior padrão (pontos)
           barrierLow: "-3.00", // barreira inferior padrão (pontos)
+          forexMinDurationMinutes: 15, // Duração mínima para Forex em minutos
+          allowEquals: false, // Permitir empate como vitória
+          useCandleDuration: false, // Usar duração dinâmica até o final do candle
           hedgeEnabled: true, // IA Hedge ativada por padrão
           hedgeConfig: null,
+          // Filtro de Horário padrão
+          hourlyFilterEnabled: false,
+          hourlyFilterMode: "COMBINED" as const,
+          hourlyFilterCustomHours: null,
+          hourlyFilterGoldHours: null,
+          hourlyFilterGoldMultiplier: 200,
+          // Market Condition Detector padrão
+          marketConditionEnabled: false,
+          // Payout Mínimo padrão
+          payoutCheckEnabled: true,
+          minPayoutPercent: 80,
+          payoutRecheckDelay: 300,
           // DojiGuard padrão
           antiDojiEnabled: false,
           antiDojiRangeMin: "0.0500",
@@ -534,6 +550,12 @@ export const appRouter = router({
           lastError: null,
           updatedAt: new Date(),
           timeframe: config?.timeframe || 900,
+          marketCondition: null as null | {
+            status: string;
+            score: number;
+            reasons: string[];
+            computedAt: Date;
+          },
         };
       }
       
@@ -780,12 +802,15 @@ export const appRouter = router({
         
         derivService.disconnect();
         
+        // Extrair success do result para evitar duplicação
+        const { success: resultSuccess, ...restResult } = result;
+        
         return {
-          success: result.success,
-          message: result.success 
+          success: resultSuccess,
+          message: resultSuccess 
             ? `Reconciliação concluída: ${result.positionsUpdated} posições atualizadas | ${result.positionsSkipped} já reconciliadas (ignoradas)`
             : `Reconciliação com erros: ${result.errors.join(", ")}`,
-          ...result,
+          ...restResult,
         };
       } catch (error: any) {
         console.error("[Reconciliation] Erro:", error);
@@ -816,11 +841,8 @@ export const appRouter = router({
         // Apenas resetar PnL diário do bot em memória (sem reiniciar)
         const bot = getBotForUser(ctx.user.id, botId);
         if (bot) {
-          // Resetar apenas o PnL acumulado, sem parar/iniciar o bot
-          // @ts-ignore - acessar propriedade privada para resetar PnL
-          if (bot.dailyPnL !== undefined) {
-            bot.dailyPnL = 0;
-          }
+          // Usar método público para resetar PnL
+          bot.resetDailyPnL();
         }
         
         return { 

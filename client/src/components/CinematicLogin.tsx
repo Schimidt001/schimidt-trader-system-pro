@@ -11,12 +11,16 @@ export function CinematicLogin() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // Capturar referências locais para uso nas classes
+    const canvasEl = canvas;
+    const ctxEl = ctx;
+
+    canvasEl.width = window.innerWidth;
+    canvasEl.height = window.innerHeight;
 
     const handleResize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      canvasEl.width = window.innerWidth;
+      canvasEl.height = window.innerHeight;
     };
 
     window.addEventListener('resize', handleResize);
@@ -43,8 +47,8 @@ export function CinematicLogin() {
       pair: typeof tradingPairs[0];
 
       constructor() {
-        this.x = canvas.width + 200;
-        this.y = 100 + Math.random() * (canvas.height - 300);
+        this.x = canvasEl.width + 200;
+        this.y = 100 + Math.random() * (canvasEl.height - 300);
         this.width = 250;
         this.height = 120;
         this.speed = 0.4 + Math.random() * 0.3;
@@ -74,18 +78,18 @@ export function CinematicLogin() {
       }
 
       draw() {
-        ctx.save();
-        ctx.globalAlpha = this.opacity;
+        ctxEl.save();
+        ctxEl.globalAlpha = this.opacity;
         
         // Painel de fundo
-        ctx.fillStyle = 'rgba(0, 20, 30, 0.3)';
-        ctx.fillRect(this.x - 10, this.y - 35, this.width + 20, this.height + 50);
+        ctxEl.fillStyle = 'rgba(0, 20, 30, 0.3)';
+        ctxEl.fillRect(this.x - 10, this.y - 35, this.width + 20, this.height + 50);
         
         // Símbolo e preço
-        ctx.font = '11px monospace';
-        ctx.fillStyle = this.pair.color;
-        ctx.fillText(this.pair.symbol, this.x, this.y - 15);
-        ctx.fillText(
+        ctxEl.font = '11px monospace';
+        ctxEl.fillStyle = this.pair.color;
+        ctxEl.fillText(this.pair.symbol, this.x, this.y - 15);
+        ctxEl.fillText(
           this.pair.price.toFixed(this.pair.symbol.includes('BTC') || this.pair.symbol.includes('ETH') ? 2 : 4), 
           this.x + 80, 
           this.y - 15
@@ -99,9 +103,9 @@ export function CinematicLogin() {
           const isGreen = candle.close > candle.open;
           
           const color = isGreen ? '#00E5FF' : '#D4AF37';
-          ctx.strokeStyle = color;
-          ctx.fillStyle = isGreen ? 'rgba(0, 229, 255, 0.3)' : 'rgba(212, 175, 55, 0.3)';
-          ctx.lineWidth = 1;
+          ctxEl.strokeStyle = color;
+          ctxEl.fillStyle = isGreen ? 'rgba(0, 229, 255, 0.3)' : 'rgba(212, 175, 55, 0.3)';
+          ctxEl.lineWidth = 1;
           
           const scale = this.height / 100;
           const highY = this.y + this.height - candle.high * scale;
@@ -110,26 +114,26 @@ export function CinematicLogin() {
           const closeY = this.y + this.height - candle.close * scale;
           
           // Linha vertical
-          ctx.beginPath();
-          ctx.moveTo(x + candleWidth / 2, highY);
-          ctx.lineTo(x + candleWidth / 2, lowY);
-          ctx.stroke();
+          ctxEl.beginPath();
+          ctxEl.moveTo(x + candleWidth / 2, highY);
+          ctxEl.lineTo(x + candleWidth / 2, lowY);
+          ctxEl.stroke();
           
           // Corpo
           const bodyHeight = Math.abs(closeY - openY);
           const bodyY = Math.min(openY, closeY);
           
           if (bodyHeight > 1) {
-            ctx.fillRect(x + 2, bodyY, candleWidth - 4, bodyHeight);
-            ctx.strokeRect(x + 2, bodyY, candleWidth - 4, bodyHeight);
+            ctxEl.fillRect(x + 2, bodyY, candleWidth - 4, bodyHeight);
+            ctxEl.strokeRect(x + 2, bodyY, candleWidth - 4, bodyHeight);
           }
         });
         
         // Linha de tendência
-        ctx.strokeStyle = this.pair.color;
-        ctx.lineWidth = 1.5;
-        ctx.globalAlpha = this.opacity * 0.6;
-        ctx.beginPath();
+        ctxEl.strokeStyle = this.pair.color;
+        ctxEl.lineWidth = 1.5;
+        ctxEl.globalAlpha = this.opacity * 0.6;
+        ctxEl.beginPath();
         
         this.candles.forEach((candle, i) => {
           const x = this.x + i * candleWidth + candleWidth / 2;
@@ -137,22 +141,22 @@ export function CinematicLogin() {
           const y = this.y + this.height - avgPrice * (this.height / 100);
           
           if (i === 0) {
-            ctx.moveTo(x, y);
+            ctxEl.moveTo(x, y);
           } else {
-            ctx.lineTo(x, y);
+            ctxEl.lineTo(x, y);
           }
         });
         
-        ctx.stroke();
-        ctx.restore();
+        ctxEl.stroke();
+        ctxEl.restore();
       }
 
       update() {
         this.x -= this.speed;
         
         if (this.x + this.width < 0) {
-          this.x = canvas.width + 200;
-          this.y = 100 + Math.random() * (canvas.height - 300);
+          this.x = canvasEl.width + 200;
+          this.y = 100 + Math.random() * (canvasEl.height - 300);
           this.candles = this.generateRealisticCandles();
           this.pair = tradingPairs[Math.floor(Math.random() * tradingPairs.length)];
         }
@@ -170,8 +174,8 @@ export function CinematicLogin() {
       points: number[];
 
       constructor() {
-        this.x = canvas.width + 100;
-        this.y = 150 + Math.random() * (canvas.height - 300);
+        this.x = canvasEl.width + 100;
+        this.y = 150 + Math.random() * (canvasEl.height - 300);
         this.length = 200 + Math.random() * 150;
         this.speed = 0.5 + Math.random() * 0.4;
         this.opacity = 0.1 + Math.random() * 0.1;
@@ -192,11 +196,11 @@ export function CinematicLogin() {
       }
 
       draw() {
-        ctx.save();
-        ctx.globalAlpha = this.opacity;
-        ctx.strokeStyle = this.color;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
+        ctxEl.save();
+        ctxEl.globalAlpha = this.opacity;
+        ctxEl.strokeStyle = this.color;
+        ctxEl.lineWidth = 1.5;
+        ctxEl.beginPath();
         
         const segmentWidth = this.length / this.points.length;
         
@@ -205,22 +209,22 @@ export function CinematicLogin() {
           const y = this.y + point;
           
           if (i === 0) {
-            ctx.moveTo(x, y);
+            ctxEl.moveTo(x, y);
           } else {
-            ctx.lineTo(x, y);
+            ctxEl.lineTo(x, y);
           }
         });
         
-        ctx.stroke();
-        ctx.restore();
+        ctxEl.stroke();
+        ctxEl.restore();
       }
 
       update() {
         this.x -= this.speed;
         
         if (this.x + this.length < 0) {
-          this.x = canvas.width + 100;
-          this.y = 150 + Math.random() * (canvas.height - 300);
+          this.x = canvasEl.width + 100;
+          this.y = 150 + Math.random() * (canvasEl.height - 300);
           this.points = this.generatePricePoints();
         }
       }
@@ -236,8 +240,8 @@ export function CinematicLogin() {
       change: number;
 
       constructor() {
-        this.x = canvas.width + 50;
-        this.y = 80 + Math.random() * (canvas.height - 160);
+        this.x = canvasEl.width + 50;
+        this.y = 80 + Math.random() * (canvasEl.height - 160);
         this.speed = 0.6 + Math.random() * 0.4;
         this.opacity = 0.2 + Math.random() * 0.15;
         this.pair = tradingPairs[Math.floor(Math.random() * tradingPairs.length)];
@@ -245,25 +249,25 @@ export function CinematicLogin() {
       }
 
       draw() {
-        ctx.save();
-        ctx.globalAlpha = this.opacity;
-        ctx.font = '12px monospace';
+        ctxEl.save();
+        ctxEl.globalAlpha = this.opacity;
+        ctxEl.font = '12px monospace';
         
         const isPositive = this.change > 0;
-        ctx.fillStyle = isPositive ? '#00E5FF' : '#D4AF37';
+        ctxEl.fillStyle = isPositive ? '#00E5FF' : '#D4AF37';
         
         const text = `${this.pair.symbol} ${this.pair.price.toFixed(2)} ${isPositive ? '▲' : '▼'} ${Math.abs(this.change).toFixed(2)}%`;
-        ctx.fillText(text, this.x, this.y);
+        ctxEl.fillText(text, this.x, this.y);
         
-        ctx.restore();
+        ctxEl.restore();
       }
 
       update() {
         this.x -= this.speed;
         
         if (this.x < -200) {
-          this.x = canvas.width + 50;
-          this.y = 80 + Math.random() * (canvas.height - 160);
+          this.x = canvasEl.width + 50;
+          this.y = 80 + Math.random() * (canvasEl.height - 160);
           this.pair = tradingPairs[Math.floor(Math.random() * tradingPairs.length)];
           this.change = (Math.random() - 0.5) * 2;
         }
@@ -274,29 +278,29 @@ export function CinematicLogin() {
     const charts: CandlestickChart[] = [];
     for (let i = 0; i < 3; i++) {
       const chart = new CandlestickChart();
-      chart.x = canvas.width + i * 400;
+      chart.x = canvasEl.width + i * 400;
       charts.push(chart);
     }
 
     const priceLines: PriceLine[] = [];
     for (let i = 0; i < 5; i++) {
       const line = new PriceLine();
-      line.x = canvas.width + i * 300;
+      line.x = canvasEl.width + i * 300;
       priceLines.push(line);
     }
 
     const tickers: PriceTicker[] = [];
     for (let i = 0; i < 4; i++) {
       const ticker = new PriceTicker();
-      ticker.x = canvas.width + i * 350;
+      ticker.x = canvasEl.width + i * 350;
       tickers.push(ticker);
     }
 
     // Loop de animação
     let animationId: number;
     function animate() {
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctxEl.fillStyle = '#000000';
+      ctxEl.fillRect(0, 0, canvasEl.width, canvasEl.height);
 
       priceLines.forEach(line => {
         line.update();
