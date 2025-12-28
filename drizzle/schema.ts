@@ -268,6 +268,10 @@ export const marketEvents = mysqlTable("marketEvents", {
 export type MarketEvent = typeof marketEvents.$inferSelect;
 export type InsertMarketEvent = typeof marketEvents.$inferInsert;
 
+// ============= IC MARKETS / cTRADER =============
+// Exportar schemas específicos para IC Markets
+export * from "./icmarkets-config";
+
 /**
  * Configurações do Market Condition Detector por usuário
  */

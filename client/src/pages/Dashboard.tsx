@@ -8,10 +8,13 @@ import { BOT_STATES } from "@/const";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { BotSelector, useBotSelector } from "@/components/BotSelector";
+import { useBroker } from "@/contexts/BrokerContext";
+import { BrokerIndicator } from "@/components/BrokerSwitch";
 
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
   const { selectedBot, setSelectedBot } = useBotSelector();
+  const { broker, isDeriv, isICMarkets, currentConfig } = useBroker();
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -208,7 +211,10 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-6">
             <div>
-              <h1 className="text-3xl font-bold text-white">Schimidt Trader System PRO</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-white">Schimidt Trader System PRO</h1>
+                <BrokerIndicator />
+              </div>
               <p className="text-slate-400 mt-1">Sistema de Trading Automatizado 24/7</p>
             </div>
             <BotSelector selectedBot={selectedBot} onBotChange={setSelectedBot} />

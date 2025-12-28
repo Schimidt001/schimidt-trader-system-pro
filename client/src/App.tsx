@@ -4,8 +4,11 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch, Link, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { BrokerProvider, useBroker } from "./contexts/BrokerContext";
+import { BrokerSwitch, BrokerSwitchCompact } from "./components/BrokerSwitch";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
+import SettingsMultiBroker from "./pages/SettingsMultiBroker";
 import Logs from "./pages/Logs";
 import MarketCalendar from "./pages/MarketCalendar";
 import AdminUsers from "./pages/AdminUsers";
@@ -21,6 +24,7 @@ import { trpc } from "./lib/trpc";
 function Navigation() {
   const [location] = useLocation();
   const { user } = useAuth();
+  const { isDeriv, isICMarkets, currentConfig } = useBroker();
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
       window.location.href = "/";
@@ -46,11 +50,18 @@ function Navigation() {
 
   return (
     <nav className="bg-slate-900/80 border-b border-slate-800 backdrop-blur-sm sticky top-0 z-50">
-      <div className="container mx-auto px-6 py-4">
+      <div className="container mx-auto px-6 py-3">
         <div className="flex items-center justify-between">
+          {/* Logo e Navegação */}
           <div className="flex items-center gap-6">
-            <h2 className="text-xl font-bold text-white">Schimidt Trader PRO</h2>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-bold text-white">Schimidt Trader PRO</h2>
+              {/* Indicador do modo atual (mobile) */}
+              <div className="sm:hidden">
+                <BrokerSwitchCompact />
+              </div>
+            </div>
+            <div className="hidden md:flex gap-2">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location === item.path;
@@ -72,8 +83,19 @@ function Navigation() {
               })}
             </div>
           </div>
+          
+          {/* Global Broker Switch + User Info */}
           <div className="flex items-center gap-4">
-            {user && <span className="text-sm text-slate-400">{user.name || user.email}</span>}
+            {/* Global Broker Switch - Visível apenas em desktop */}
+            <div className="hidden sm:block">
+              <BrokerSwitch />
+            </div>
+            
+            {user && (
+              <span className="hidden lg:inline text-sm text-slate-400">
+                {user.name || user.email}
+              </span>
+            )}
             {oauthConfigured && (
               <Button
                 variant="ghost"
@@ -82,10 +104,34 @@ function Navigation() {
                 className="gap-2 text-slate-400 hover:text-white"
               >
                 <LogOut className="w-4 h-4" />
-                Sair
+                <span className="hidden sm:inline">Sair</span>
               </Button>
             )}
           </div>
+        </div>
+        
+        {/* Navegação mobile */}
+        <div className="md:hidden flex gap-1 mt-3 overflow-x-auto pb-1">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location === item.path;
+            return (
+              <Link key={item.path} href={item.path}>
+                <Button
+                  variant={isActive ? "default" : "ghost"}
+                  size="sm"
+                  className={`gap-1.5 whitespace-nowrap ${
+                    isActive
+                      ? "bg-slate-800 text-white"
+                      : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {item.label}
+                </Button>
+              </Link>
+            );
+          })}
         </div>
       </div>
     </nav>
@@ -121,7 +167,8 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/market" component={MarketCalendar} />
-        <Route path="/settings" component={Settings} />
+        <Route path="/settings" component={SettingsMultiBroker} />
+        <Route path="/settings-legacy" component={Settings} />
         <Route path="/logs" component={Logs} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/404" component={NotFound} />
@@ -135,14 +182,15 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
+        <BrokerProvider defaultBroker="DERIV">
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </BrokerProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );
 }
 
 export default App;
-
