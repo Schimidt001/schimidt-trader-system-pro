@@ -313,3 +313,16 @@ export const marketDetectorConfig = mysqlTable("marketDetectorConfig", {
 
 export type MarketDetectorConfig = typeof marketDetectorConfig.$inferSelect;
 export type InsertMarketDetectorConfig = typeof marketDetectorConfig.$inferInsert;
+
+
+// ============= IC MARKETS / cTRADER TABLES =============
+// Re-exported from icmarkets-config.ts for unified schema access
+
+export { 
+  icmarketsConfig, 
+  forexPositions,
+  type ICMarketsConfig,
+  type InsertICMarketsConfig,
+  type ForexPosition,
+  type InsertForexPosition
+} from "./icmarkets-config";

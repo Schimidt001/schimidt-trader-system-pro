@@ -10,7 +10,12 @@
 import WebSocket from "ws";
 import protobuf from "protobufjs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { EventEmitter } from "events";
+
+// ESM compatibility - __dirname replacement
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Configurações dos endpoints
 const CTRADER_ENDPOINTS = {
