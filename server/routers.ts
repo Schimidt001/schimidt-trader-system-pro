@@ -28,6 +28,7 @@ import { DerivService } from "./deriv/derivService";
 import { DerivReconciliationService } from "./deriv/derivReconciliationService";
 import { predictionService } from "./prediction/predictionService";
 import { engineManager } from "./prediction/engineManager";
+import { icmarketsRouter } from "./icmarkets/icmarketsRouter";
 
 export const appRouter = router({
   // Rota para predição manual (diagnóstico)
@@ -1210,6 +1211,9 @@ export const appRouter = router({
         return events;
       }),
   }),
+
+  // IC Markets / cTrader Router
+  icmarkets: icmarketsRouter,
 });
 
 export type AppRouter = typeof appRouter;

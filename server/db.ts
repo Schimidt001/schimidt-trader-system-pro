@@ -797,3 +797,178 @@ export async function resetMarketDetectorConfig(userId: number): Promise<void> {
 
   await upsertMarketDetectorConfig(defaultConfig);
 }
+
+
+// ============= IC MARKETS / FOREX QUERIES =============
+
+import {
+  icmarketsConfig,
+  ICMarketsConfig,
+  InsertICMarketsConfig,
+  forexPositions,
+  ForexPosition,
+  InsertForexPosition,
+} from "../drizzle/icmarkets-config";
+
+/**
+ * Obtém configuração IC Markets de um usuário
+ */
+export async function getICMarketsConfig(userId: number, botId: number = 1): Promise<ICMarketsConfig | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db
+    .select()
+    .from(icmarketsConfig)
+    .where(and(eq(icmarketsConfig.userId, userId), eq(icmarketsConfig.botId, botId)))
+    .limit(1);
+  
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Cria ou atualiza configuração IC Markets
+ */
+export async function upsertICMarketsConfig(data: InsertICMarketsConfig): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const botId = data.botId ?? 1;
+  const existing = await getICMarketsConfig(data.userId, botId);
+  
+  if (existing) {
+    await db
+      .update(icmarketsConfig)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(icmarketsConfig.userId, data.userId), eq(icmarketsConfig.botId, botId)));
+  } else {
+    await db.insert(icmarketsConfig).values({ ...data, botId });
+  }
+}
+
+/**
+ * Insere uma nova posição Forex
+ */
+export async function insertForexPosition(data: InsertForexPosition): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(forexPositions).values(data);
+  return Number(result[0].insertId);
+}
+
+/**
+ * Atualiza uma posição Forex
+ */
+export async function updateForexPosition(positionId: string, data: Partial<InsertForexPosition>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  await db
+    .update(forexPositions)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(forexPositions.positionId, positionId));
+}
+
+/**
+ * Obtém posição Forex por ID
+ */
+export async function getForexPositionById(positionId: string): Promise<ForexPosition | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db
+    .select()
+    .from(forexPositions)
+    .where(eq(forexPositions.positionId, positionId))
+    .limit(1);
+  
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Obtém posições Forex abertas de um usuário
+ */
+export async function getOpenForexPositions(userId: number, botId: number = 1): Promise<ForexPosition[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db
+    .select()
+    .from(forexPositions)
+    .where(
+      and(
+        eq(forexPositions.userId, userId),
+        eq(forexPositions.botId, botId),
+        eq(forexPositions.status, "OPEN")
+      )
+    )
+    .orderBy(desc(forexPositions.openTime));
+}
+
+/**
+ * Obtém histórico de posições Forex de um usuário
+ */
+export async function getForexPositionHistory(
+  userId: number,
+  limit: number = 50,
+  offset: number = 0,
+  botId: number = 1
+): Promise<ForexPosition[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db
+    .select()
+    .from(forexPositions)
+    .where(and(eq(forexPositions.userId, userId), eq(forexPositions.botId, botId)))
+    .orderBy(desc(forexPositions.createdAt))
+    .limit(limit)
+    .offset(offset);
+}
+
+/**
+ * Obtém estatísticas de posições Forex do dia
+ */
+export async function getForexDailyStats(userId: number, botId: number = 1): Promise<{
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  pnlUsd: number;
+}> {
+  const db = await getDb();
+  if (!db) return { totalTrades: 0, wins: 0, losses: 0, pnlUsd: 0 };
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const positions = await db
+    .select()
+    .from(forexPositions)
+    .where(
+      and(
+        eq(forexPositions.userId, userId),
+        eq(forexPositions.botId, botId),
+        eq(forexPositions.status, "CLOSED"),
+        gte(forexPositions.closeTime, today)
+      )
+    );
+  
+  let wins = 0;
+  let losses = 0;
+  let pnlUsd = 0;
+  
+  for (const pos of positions) {
+    const pnl = Number(pos.pnlUsd || 0);
+    pnlUsd += pnl;
+    if (pnl > 0) wins++;
+    else if (pnl < 0) losses++;
+  }
+  
+  return {
+    totalTrades: positions.length,
+    wins,
+    losses,
+    pnlUsd,
+  };
+}

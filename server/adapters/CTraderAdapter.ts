@@ -5,10 +5,6 @@
  * usando a cTrader Open API com Protocol Buffers.
  * 
  * Documentação oficial: https://help.ctrader.com/open-api/
- * 
- * NOTA: Esta é a estrutura básica (esqueleto) do adaptador.
- * A implementação completa da conexão TCP/WebSocket com Protocol Buffers
- * será feita na próxima fase de desenvolvimento.
  */
 
 import {
@@ -25,41 +21,41 @@ import {
   OpenPosition,
   ConnectionState,
 } from "./IBrokerAdapter";
-
-/**
- * Configurações do servidor cTrader Open API
- */
-const CTRADER_CONFIG = {
-  // Endpoints de produção
-  LIVE_HOST: "live.ctraderapi.com",
-  LIVE_PORT: 5035,
-  
-  // Endpoints de demo
-  DEMO_HOST: "demo.ctraderapi.com",
-  DEMO_PORT: 5035,
-  
-  // Timeouts
-  CONNECTION_TIMEOUT: 30000,
-  REQUEST_TIMEOUT: 10000,
-  HEARTBEAT_INTERVAL: 10000,
-  
-  // Reconexão
-  MAX_RECONNECT_ATTEMPTS: 10,
-  RECONNECT_DELAY: 5000,
-};
+import { CTraderClient, TradeSide, TrendbarPeriod, SpotEvent, ctraderClient } from "./ctrader/CTraderClient";
+import { TrendSniperStrategy, trendSniperStrategy, TrendSniperConfig } from "./ctrader/TrendSniperStrategy";
 
 /**
  * Mapeamento de timeframes para cTrader
  */
-const TIMEFRAME_MAP: Record<string, number> = {
-  "M1": 1,
-  "M5": 5,
-  "M15": 15,
-  "M30": 30,
-  "H1": 60,
-  "H4": 240,
-  "D1": 1440,
-  "W1": 10080,
+const TIMEFRAME_MAP: Record<string, TrendbarPeriod> = {
+  "M1": TrendbarPeriod.M1,
+  "M5": TrendbarPeriod.M5,
+  "M15": TrendbarPeriod.M15,
+  "M30": TrendbarPeriod.M30,
+  "H1": TrendbarPeriod.H1,
+  "H4": TrendbarPeriod.H4,
+  "D1": TrendbarPeriod.D1,
+  "W1": TrendbarPeriod.W1,
+};
+
+/**
+ * Pip values para diferentes pares
+ */
+const PIP_VALUES: Record<string, number> = {
+  "EURUSD": 0.0001,
+  "GBPUSD": 0.0001,
+  "USDJPY": 0.01,
+  "AUDUSD": 0.0001,
+  "USDCAD": 0.0001,
+  "USDCHF": 0.0001,
+  "NZDUSD": 0.0001,
+  "EURGBP": 0.0001,
+  "EURJPY": 0.01,
+  "GBPJPY": 0.01,
+  "AUDJPY": 0.01,
+  "EURAUD": 0.0001,
+  "EURNZD": 0.0001,
+  "GBPAUD": 0.0001,
 };
 
 /**
@@ -67,6 +63,9 @@ const TIMEFRAME_MAP: Record<string, number> = {
  */
 export class CTraderAdapter extends BaseBrokerAdapter {
   readonly brokerType: BrokerType = "ICMARKETS";
+  
+  // Cliente cTrader
+  private client: CTraderClient;
   
   // Credenciais armazenadas
   private credentials: CTraderCredentials | null = null;
@@ -76,6 +75,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   
   // Subscrições de preço ativas
   private priceSubscriptions: Map<string, (tick: PriceTick) => void> = new Map();
+  private symbolSubscriptions: Map<string, number> = new Map(); // symbolName -> symbolId
   
   // Cache de preços
   private priceCache: Map<string, PriceTick> = new Map();
@@ -85,23 +85,103 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   
   // Símbolos disponíveis
   private availableSymbols: string[] = [];
+  private symbolIdMap: Map<string, number> = new Map();
   
-  // TODO: Conexão TCP/WebSocket com Protocol Buffers
-  // private connection: TcpConnection | null = null;
+  // Estratégia Trend Sniper
+  private strategy: TrendSniperStrategy;
   
   constructor() {
     super();
+    this.client = ctraderClient;
+    this.strategy = trendSniperStrategy;
+    
+    // Configurar event handlers do cliente
+    this.setupClientEventHandlers();
+    
     console.log("[CTraderAdapter] Instância criada");
   }
   
   /**
+   * Configura handlers de eventos do cliente cTrader
+   */
+  private setupClientEventHandlers(): void {
+    this.client.on("spot", (spotEvent: SpotEvent) => {
+      this.handleSpotEvent(spotEvent);
+    });
+    
+    this.client.on("execution", (event: any) => {
+      this.handleExecutionEvent(event);
+    });
+    
+    this.client.on("authenticated", (data: any) => {
+      console.log(`[CTraderAdapter] Authenticated with account: ${data.accountId}`);
+    });
+    
+    this.client.on("disconnected", (data: any) => {
+      console.log(`[CTraderAdapter] Disconnected: ${data.code} - ${data.reason}`);
+      this.setConnectionState("DISCONNECTED");
+    });
+    
+    this.client.on("error", (error: Error) => {
+      console.error("[CTraderAdapter] Client error:", error);
+      this.emitError(error);
+    });
+  }
+  
+  /**
+   * Processa eventos de preço
+   */
+  private handleSpotEvent(spotEvent: SpotEvent): void {
+    // Encontrar nome do símbolo pelo ID
+    let symbolName: string | undefined;
+    for (const [name, id] of Array.from(this.symbolIdMap.entries())) {
+      if (id === spotEvent.symbolId) {
+        symbolName = name;
+        break;
+      }
+    }
+    
+    if (!symbolName) return;
+    
+    const tick: PriceTick = {
+      symbol: symbolName,
+      bid: spotEvent.bid,
+      ask: spotEvent.ask,
+      timestamp: spotEvent.timestamp || Date.now(),
+      spread: (spotEvent.ask - spotEvent.bid) / (PIP_VALUES[symbolName] || 0.0001),
+    };
+    
+    // Atualizar cache
+    this.priceCache.set(symbolName, tick);
+    
+    // Chamar callback de subscrição
+    const callback = this.priceSubscriptions.get(symbolName);
+    if (callback) {
+      callback(tick);
+    }
+    
+    // Emitir evento
+    this.eventHandlers.onPriceTick?.(tick);
+  }
+  
+  /**
+   * Processa eventos de execução
+   */
+  private handleExecutionEvent(event: any): void {
+    console.log("[CTraderAdapter] Execution event:", event);
+    
+    // Atualizar posições se necessário
+    if (event.position) {
+      const position = this.convertPosition(event.position);
+      if (position) {
+        this.openPositions.set(position.positionId, position);
+        this.eventHandlers.onPositionUpdate?.(position);
+      }
+    }
+  }
+  
+  /**
    * Conecta à cTrader Open API
-   * 
-   * Fluxo de autenticação:
-   * 1. Estabelecer conexão TCP com o servidor
-   * 2. Enviar ProtoOAApplicationAuthReq (autenticação da aplicação)
-   * 3. Enviar ProtoOAAccountAuthReq (autenticação da conta)
-   * 4. Receber informações da conta
    */
   async connect(credentials: BrokerCredentials): Promise<AccountInfo> {
     if (credentials.brokerType !== "ICMARKETS") {
@@ -117,31 +197,32 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     this.setConnectionState("CONNECTING");
     
     try {
-      // TODO: Implementar conexão real com Protocol Buffers
-      // Por enquanto, simular conexão para validar a estrutura
-      
-      // Simular delay de conexão
-      await this.simulateDelay(1000);
-      
-      // Validar credenciais (básico)
+      // Validar credenciais
       if (!ctraderCreds.clientId || !ctraderCreds.clientSecret || !ctraderCreds.accessToken) {
         throw new Error("Credenciais incompletas: clientId, clientSecret e accessToken são obrigatórios");
       }
       
+      // Conectar ao cliente cTrader
+      await this.client.connect({
+        clientId: ctraderCreds.clientId,
+        clientSecret: ctraderCreds.clientSecret,
+        accessToken: ctraderCreds.accessToken,
+        accountId: ctraderCreds.accountId ? Number(ctraderCreds.accountId) : undefined,
+        isDemo: ctraderCreds.isDemo,
+      });
+      
       this.setConnectionState("CONNECTED");
       
-      // Simular autenticação
-      await this.simulateDelay(500);
+      // Obter informações da conta
+      const trader = await this.client.getTrader();
       
-      // Criar informações da conta simuladas
-      // TODO: Substituir por dados reais da API
       this.accountInfo = {
-        accountId: ctraderCreds.accountId || "DEMO-12345",
-        balance: ctraderCreds.isDemo ? 10000.00 : 0,
-        currency: "USD",
+        accountId: String(this.client.currentAccountId),
+        balance: trader.balance / 100, // Converter de centavos
+        currency: trader.depositAssetId === 1 ? "USD" : "EUR", // Simplificado
         accountType: ctraderCreds.isDemo ? "demo" : "real",
-        leverage: 500,
-        accountName: "IC Markets cTrader",
+        leverage: trader.leverageInCents / 100,
+        accountName: `IC Markets ${ctraderCreds.isDemo ? "Demo" : "Live"}`,
       };
       
       this.setConnectionState("AUTHENTICATED");
@@ -172,7 +253,8 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       await this.unsubscribePrice(symbol);
     }
     
-    // TODO: Fechar conexão TCP
+    // Desconectar cliente
+    await this.client.disconnect();
     
     this.credentials = null;
     this.accountInfo = null;
@@ -192,10 +274,19 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       throw new Error("Não conectado à cTrader");
     }
     
-    // TODO: Buscar informações atualizadas da API
-    // Por enquanto, retornar cache
-    
-    return this.accountInfo;
+    try {
+      const trader = await this.client.getTrader();
+      
+      this.accountInfo = {
+        ...this.accountInfo,
+        balance: trader.balance / 100,
+      };
+      
+      return this.accountInfo;
+    } catch (error) {
+      console.error("[CTraderAdapter] Error getting account info:", error);
+      return this.accountInfo;
+    }
   }
   
   /**
@@ -212,13 +303,37 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       return cached;
     }
     
-    // TODO: Buscar preço real da API
-    // Por enquanto, simular preço
+    // Se não tiver subscrição ativa, criar uma temporária
+    if (!this.priceSubscriptions.has(symbol)) {
+      const symbolId = await this.getSymbolId(symbol);
+      await this.client.subscribeSpots([symbolId]);
+      
+      // Aguardar primeiro tick
+      await new Promise<void>((resolve) => {
+        const checkCache = setInterval(() => {
+          if (this.priceCache.has(symbol)) {
+            clearInterval(checkCache);
+            resolve();
+          }
+        }, 100);
+        
+        // Timeout após 5 segundos
+        setTimeout(() => {
+          clearInterval(checkCache);
+          resolve();
+        }, 5000);
+      });
+      
+      // Cancelar subscrição temporária
+      await this.client.unsubscribeSpots([symbolId]);
+    }
     
-    const mockPrice = this.generateMockPrice(symbol);
-    this.priceCache.set(symbol, mockPrice);
+    const tick = this.priceCache.get(symbol);
+    if (!tick) {
+      throw new Error(`Preço não disponível para ${symbol}`);
+    }
     
-    return mockPrice;
+    return tick;
   }
   
   /**
@@ -231,12 +346,12 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     
     console.log(`[CTraderAdapter] Subscrevendo preço: ${symbol}`);
     
+    const symbolId = await this.getSymbolId(symbol);
+    
     this.priceSubscriptions.set(symbol, callback);
+    this.symbolSubscriptions.set(symbol, symbolId);
     
-    // TODO: Enviar ProtoOASubscribeSpotsReq para a API
-    // Por enquanto, simular ticks
-    
-    this.startMockPriceFeed(symbol);
+    await this.client.subscribeSpots([symbolId]);
   }
   
   /**
@@ -245,9 +360,13 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   async unsubscribePrice(symbol: string): Promise<void> {
     console.log(`[CTraderAdapter] Cancelando subscrição: ${symbol}`);
     
-    this.priceSubscriptions.delete(symbol);
+    const symbolId = this.symbolSubscriptions.get(symbol);
+    if (symbolId) {
+      await this.client.unsubscribeSpots([symbolId]);
+    }
     
-    // TODO: Enviar ProtoOAUnsubscribeSpotsReq para a API
+    this.priceSubscriptions.delete(symbol);
+    this.symbolSubscriptions.delete(symbol);
   }
   
   /**
@@ -260,18 +379,34 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     
     console.log(`[CTraderAdapter] Buscando ${count} candles ${timeframe} de ${symbol}`);
     
-    // TODO: Enviar ProtoOAGetTrendbarsReq para a API
-    // Por enquanto, retornar array vazio
+    const symbolId = await this.getSymbolId(symbol);
+    const period = TIMEFRAME_MAP[timeframe] || TrendbarPeriod.M15;
     
-    return [];
+    const toTimestamp = Date.now();
+    const fromTimestamp = toTimestamp - (count * this.getTimeframeMs(timeframe));
+    
+    const trendbars = await this.client.getTrendbars(
+      symbolId,
+      period,
+      fromTimestamp,
+      toTimestamp,
+      count
+    );
+    
+    return trendbars.map(bar => ({
+      symbol,
+      timeframe,
+      timestamp: Math.floor(bar.timestamp / 1000),
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+      volume: bar.volume,
+    }));
   }
   
   /**
    * Executa uma ordem de compra/venda
-   * 
-   * Implementa a lógica de execução para Forex:
-   * - Ordens de mercado (MARKET)
-   * - Stop Loss e Take Profit
    */
   async placeOrder(order: OrderRequest): Promise<OrderResult> {
     if (!this.isConnected()) {
@@ -298,47 +433,74 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       };
     }
     
-    // TODO: Enviar ProtoOANewOrderReq para a API
-    // Por enquanto, simular execução
-    
-    await this.simulateDelay(500);
-    
-    const orderId = `ORD-${Date.now()}`;
-    const currentPrice = await this.getPrice(order.symbol);
-    const executionPrice = order.direction === "BUY" ? currentPrice.ask : currentPrice.bid;
-    
-    // Criar posição simulada
-    const position: OpenPosition = {
-      positionId: orderId,
-      symbol: order.symbol,
-      direction: order.direction,
-      entryPrice: executionPrice,
-      currentPrice: executionPrice,
-      unrealizedPnL: 0,
-      size: order.lots,
-      stopLoss: order.stopLoss,
-      takeProfit: order.takeProfit,
-      openTime: Date.now(),
-    };
-    
-    this.openPositions.set(orderId, position);
-    
-    console.log(`[CTraderAdapter] Ordem executada: ${orderId} @ ${executionPrice}`);
-    
-    return {
-      success: true,
-      orderId,
-      executionPrice,
-      executionTime: Date.now(),
-    };
+    try {
+      const symbolId = await this.getSymbolId(order.symbol);
+      const tradeSide = order.direction === "BUY" ? TradeSide.BUY : TradeSide.SELL;
+      
+      // Calcular SL/TP se especificado em pips
+      let stopLoss = order.stopLoss;
+      let takeProfit = order.takeProfit;
+      
+      if (order.stopLossPips || order.takeProfitPips) {
+        const currentPrice = await this.getPrice(order.symbol);
+        const pipValue = PIP_VALUES[order.symbol] || 0.0001;
+        const entryPrice = order.direction === "BUY" ? currentPrice.ask : currentPrice.bid;
+        
+        if (order.stopLossPips) {
+          stopLoss = order.direction === "BUY" 
+            ? entryPrice - (order.stopLossPips * pipValue)
+            : entryPrice + (order.stopLossPips * pipValue);
+        }
+        
+        if (order.takeProfitPips) {
+          takeProfit = order.direction === "BUY"
+            ? entryPrice + (order.takeProfitPips * pipValue)
+            : entryPrice - (order.takeProfitPips * pipValue);
+        }
+      }
+      
+      const response = await this.client.createMarketOrder(
+        symbolId,
+        tradeSide,
+        order.lots,
+        stopLoss,
+        takeProfit,
+        false, // trailingStopLoss - será gerido manualmente
+        order.comment
+      );
+      
+      const orderId = response.position?.positionId?.toString() || `ORD-${Date.now()}`;
+      const executionPrice = response.position?.price || response.deal?.executionPrice;
+      
+      // Criar posição local
+      if (response.position) {
+        const position = this.convertPosition(response.position);
+        if (position) {
+          this.openPositions.set(position.positionId, position);
+        }
+      }
+      
+      console.log(`[CTraderAdapter] Ordem executada: ${orderId} @ ${executionPrice}`);
+      
+      return {
+        success: true,
+        orderId,
+        executionPrice,
+        executionTime: Date.now(),
+        rawResponse: response,
+      };
+      
+    } catch (error) {
+      console.error("[CTraderAdapter] Error placing order:", error);
+      return {
+        success: false,
+        errorMessage: (error as Error).message,
+      };
+    }
   }
   
   /**
    * Modifica uma posição aberta (SL/TP)
-   * 
-   * Implementa o Trailing Stop dinâmico:
-   * - Trigger: Ativar quando lucro >= X pips
-   * - Step: Mover SL a cada Y pips de lucro adicional
    */
   async modifyPosition(params: ModifyPositionParams): Promise<boolean> {
     if (!this.isConnected()) {
@@ -353,21 +515,47 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     
     console.log(`[CTraderAdapter] Modificando posição ${params.positionId}:`, params);
     
-    // TODO: Enviar ProtoOAAmendPositionSLTPReq para a API
-    // Por enquanto, atualizar localmente
-    
-    if (params.stopLoss !== undefined) {
-      position.stopLoss = params.stopLoss;
+    try {
+      // Calcular SL/TP se especificado em pips
+      let stopLoss = params.stopLoss;
+      let takeProfit = params.takeProfit;
+      
+      if (params.stopLossPips || params.takeProfitPips) {
+        const currentPrice = await this.getPrice(position.symbol);
+        const pipValue = PIP_VALUES[position.symbol] || 0.0001;
+        
+        if (params.stopLossPips) {
+          stopLoss = position.direction === "BUY"
+            ? currentPrice.bid - (params.stopLossPips * pipValue)
+            : currentPrice.ask + (params.stopLossPips * pipValue);
+        }
+        
+        if (params.takeProfitPips) {
+          takeProfit = position.direction === "BUY"
+            ? currentPrice.bid + (params.takeProfitPips * pipValue)
+            : currentPrice.ask - (params.takeProfitPips * pipValue);
+        }
+      }
+      
+      await this.client.amendPositionSLTP(
+        Number(params.positionId),
+        stopLoss,
+        takeProfit
+      );
+      
+      // Atualizar posição local
+      if (stopLoss !== undefined) position.stopLoss = stopLoss;
+      if (takeProfit !== undefined) position.takeProfit = takeProfit;
+      this.openPositions.set(params.positionId, position);
+      
+      console.log(`[CTraderAdapter] Posição modificada: SL=${stopLoss}, TP=${takeProfit}`);
+      
+      return true;
+      
+    } catch (error) {
+      console.error("[CTraderAdapter] Error modifying position:", error);
+      return false;
     }
-    if (params.takeProfit !== undefined) {
-      position.takeProfit = params.takeProfit;
-    }
-    
-    this.openPositions.set(params.positionId, position);
-    
-    console.log(`[CTraderAdapter] Posição modificada: SL=${position.stopLoss}, TP=${position.takeProfit}`);
-    
-    return true;
   }
   
   /**
@@ -391,28 +579,37 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     
     console.log(`[CTraderAdapter] Fechando posição: ${positionId}`);
     
-    // TODO: Enviar ProtoOAClosePositionReq para a API
-    // Por enquanto, simular fechamento
-    
-    await this.simulateDelay(300);
-    
-    const currentPrice = await this.getPrice(position.symbol);
-    const exitPrice = position.direction === "BUY" ? currentPrice.bid : currentPrice.ask;
-    const pnl = this.calculatePnL(position, exitPrice);
-    
-    this.openPositions.delete(positionId);
-    
-    // Emitir evento de fechamento
-    this.eventHandlers.onPositionClose?.(positionId, pnl);
-    
-    console.log(`[CTraderAdapter] Posição fechada: ${positionId} @ ${exitPrice}, PnL: ${pnl}`);
-    
-    return {
-      success: true,
-      orderId: positionId,
-      executionPrice: exitPrice,
-      executionTime: Date.now(),
-    };
+    try {
+      const response = await this.client.closePosition(Number(positionId));
+      
+      const exitPrice = response.deal?.executionPrice;
+      const pnl = response.position?.swap || 0; // Simplificado
+      
+      this.openPositions.delete(positionId);
+      
+      // Emitir evento de fechamento
+      this.eventHandlers.onPositionClose?.(positionId, pnl);
+      
+      // Processar resultado no compounding
+      this.strategy.processTradeResult(pnl, pnl > 0);
+      
+      console.log(`[CTraderAdapter] Posição fechada: ${positionId} @ ${exitPrice}, PnL: ${pnl}`);
+      
+      return {
+        success: true,
+        orderId: positionId,
+        executionPrice: exitPrice,
+        executionTime: Date.now(),
+        rawResponse: response,
+      };
+      
+    } catch (error) {
+      console.error("[CTraderAdapter] Error closing position:", error);
+      return {
+        success: false,
+        errorMessage: (error as Error).message,
+      };
+    }
   }
   
   /**
@@ -422,9 +619,6 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     if (!this.isConnected()) {
       return [];
     }
-    
-    // TODO: Buscar posições reais da API
-    // Por enquanto, retornar cache local
     
     return Array.from(this.openPositions.values());
   }
@@ -436,93 +630,165 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     return this.availableSymbols;
   }
   
+  // ============= MÉTODOS DA ESTRATÉGIA =============
+  
+  /**
+   * Configura a estratégia Trend Sniper
+   */
+  configureStrategy(config: Partial<TrendSniperConfig>): void {
+    this.strategy.updateConfig(config);
+  }
+  
+  /**
+   * Obtém configuração atual da estratégia
+   */
+  getStrategyConfig(): TrendSniperConfig {
+    return this.strategy.getConfig();
+  }
+  
+  /**
+   * Analisa sinal de trading
+   */
+  async analyzeSignal(symbol: string, timeframe: string = "M15"): Promise<any> {
+    const candles = await this.getCandleHistory(symbol, timeframe, 250);
+    
+    const trendbarData = candles.map(c => ({
+      timestamp: c.timestamp * 1000,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume || 0,
+    }));
+    
+    return this.strategy.analyzeSignal(trendbarData);
+  }
+  
+  /**
+   * Atualiza trailing stop de uma posição
+   */
+  async updateTrailingStop(positionId: string): Promise<boolean> {
+    const position = this.openPositions.get(positionId);
+    if (!position) return false;
+    
+    const currentPrice = await this.getPrice(position.symbol);
+    const pipValue = PIP_VALUES[position.symbol] || 0.0001;
+    
+    const price = position.direction === "BUY" ? currentPrice.bid : currentPrice.ask;
+    
+    const result = this.strategy.calculateTrailingStop(
+      position.entryPrice,
+      price,
+      position.stopLoss || position.entryPrice,
+      position.direction === "BUY" ? TradeSide.BUY : TradeSide.SELL,
+      pipValue
+    );
+    
+    if (result.shouldUpdate) {
+      return await this.modifyPosition({
+        positionId,
+        stopLoss: result.newStopLoss,
+      });
+    }
+    
+    return false;
+  }
+  
   // ============= MÉTODOS AUXILIARES =============
   
   /**
    * Carrega lista de símbolos disponíveis
    */
   private async loadAvailableSymbols(): Promise<void> {
-    // TODO: Buscar da API via ProtoOASymbolsListReq
-    // Por enquanto, usar lista estática
-    
-    this.availableSymbols = [
-      "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
-      "EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "EURAUD", "EURNZD", "GBPAUD",
-    ];
-    
-    console.log(`[CTraderAdapter] ${this.availableSymbols.length} símbolos carregados`);
-  }
-  
-  /**
-   * Calcula PnL de uma posição
-   */
-  private calculatePnL(position: OpenPosition, exitPrice: number): number {
-    const priceDiff = position.direction === "BUY" 
-      ? exitPrice - position.entryPrice 
-      : position.entryPrice - exitPrice;
-    
-    // Simplificado: assumindo 1 lote = 100,000 unidades
-    const pipValue = 10; // USD por pip para 1 lote standard
-    const pips = priceDiff * 10000; // Converter para pips (assumindo 4 decimais)
-    
-    return pips * pipValue * position.size;
-  }
-  
-  /**
-   * Gera preço simulado para testes
-   */
-  private generateMockPrice(symbol: string): PriceTick {
-    // Preços base simulados
-    const basePrices: Record<string, number> = {
-      "EURUSD": 1.0850,
-      "GBPUSD": 1.2650,
-      "USDJPY": 149.50,
-      "AUDUSD": 0.6550,
-      "USDCAD": 1.3550,
-      "USDCHF": 0.8850,
-      "NZDUSD": 0.6150,
-    };
-    
-    const basePrice = basePrices[symbol] || 1.0000;
-    const spread = symbol.includes("JPY") ? 0.02 : 0.0002;
-    const variation = (Math.random() - 0.5) * 0.001;
-    
-    const bid = basePrice + variation;
-    const ask = bid + spread;
-    
-    return {
-      symbol,
-      bid,
-      ask,
-      timestamp: Date.now(),
-      spread: spread * 10000,
-    };
-  }
-  
-  /**
-   * Inicia feed de preços simulado
-   */
-  private startMockPriceFeed(symbol: string): void {
-    // TODO: Remover quando implementar conexão real
-    const interval = setInterval(() => {
-      const callback = this.priceSubscriptions.get(symbol);
-      if (!callback) {
-        clearInterval(interval);
-        return;
+    try {
+      const symbols = await this.client.getSymbolsList();
+      
+      this.availableSymbols = symbols.map(s => s.symbolName);
+      
+      for (const symbol of symbols) {
+        this.symbolIdMap.set(symbol.symbolName, symbol.symbolId);
       }
       
-      const tick = this.generateMockPrice(symbol);
-      this.priceCache.set(symbol, tick);
-      callback(tick);
-      this.eventHandlers.onPriceTick?.(tick);
-    }, 1000);
+      console.log(`[CTraderAdapter] ${this.availableSymbols.length} símbolos carregados`);
+    } catch (error) {
+      console.error("[CTraderAdapter] Error loading symbols:", error);
+      
+      // Fallback para lista estática
+      this.availableSymbols = [
+        "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
+        "EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "EURAUD", "EURNZD", "GBPAUD",
+      ];
+    }
   }
   
   /**
-   * Simula delay para operações assíncronas
+   * Obtém ID do símbolo pelo nome
    */
-  private simulateDelay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  private async getSymbolId(symbolName: string): Promise<number> {
+    if (this.symbolIdMap.has(symbolName)) {
+      return this.symbolIdMap.get(symbolName)!;
+    }
+    
+    // Tentar carregar símbolos
+    await this.loadAvailableSymbols();
+    
+    if (this.symbolIdMap.has(symbolName)) {
+      return this.symbolIdMap.get(symbolName)!;
+    }
+    
+    throw new Error(`Símbolo não encontrado: ${symbolName}`);
+  }
+  
+  /**
+   * Converte posição do formato cTrader para formato interno
+   */
+  private convertPosition(ctraderPosition: any): OpenPosition | null {
+    if (!ctraderPosition) return null;
+    
+    const symbolName = this.getSymbolNameById(ctraderPosition.tradeData?.symbolId);
+    if (!symbolName) return null;
+    
+    return {
+      positionId: String(ctraderPosition.positionId),
+      symbol: symbolName,
+      direction: ctraderPosition.tradeData?.tradeSide === 1 ? "BUY" : "SELL",
+      entryPrice: ctraderPosition.price || 0,
+      currentPrice: ctraderPosition.price || 0,
+      unrealizedPnL: (ctraderPosition.swap || 0) / 100,
+      size: (ctraderPosition.tradeData?.volume || 0) / 100,
+      stopLoss: ctraderPosition.stopLoss,
+      takeProfit: ctraderPosition.takeProfit,
+      openTime: ctraderPosition.tradeData?.openTimestamp || Date.now(),
+      swap: (ctraderPosition.swap || 0) / 100,
+      commission: (ctraderPosition.commission || 0) / 100,
+    };
+  }
+  
+  /**
+   * Obtém nome do símbolo pelo ID
+   */
+  private getSymbolNameById(symbolId: number): string | null {
+    for (const [name, id] of Array.from(this.symbolIdMap.entries())) {
+      if (id === symbolId) return name;
+    }
+    return null;
+  }
+  
+  /**
+   * Obtém duração do timeframe em milissegundos
+   */
+  private getTimeframeMs(timeframe: string): number {
+    const map: Record<string, number> = {
+      "M1": 60 * 1000,
+      "M5": 5 * 60 * 1000,
+      "M15": 15 * 60 * 1000,
+      "M30": 30 * 60 * 1000,
+      "H1": 60 * 60 * 1000,
+      "H4": 4 * 60 * 60 * 1000,
+      "D1": 24 * 60 * 60 * 1000,
+      "W1": 7 * 24 * 60 * 60 * 1000,
+    };
+    return map[timeframe] || 15 * 60 * 1000;
   }
 }
 

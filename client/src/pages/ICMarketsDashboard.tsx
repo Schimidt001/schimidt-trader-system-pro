@@ -1,0 +1,570 @@
+/**
+ * IC Markets Dashboard
+ * 
+ * Página principal para operações Forex via IC Markets/cTrader
+ * Inclui: Preços em tempo real, análise de sinais, posições abertas
+ */
+
+import { useState, useEffect } from "react";
+import { trpc } from "@/lib/trpc";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Loader2,
+  TrendingUp,
+  TrendingDown,
+  Activity,
+  DollarSign,
+  Target,
+  AlertTriangle,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  ArrowUpCircle,
+  ArrowDownCircle,
+} from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
+
+// Símbolos principais para trading
+const FOREX_SYMBOLS = [
+  { value: "USDJPY", label: "USD/JPY", pip: 0.01 },
+  { value: "EURUSD", label: "EUR/USD", pip: 0.0001 },
+  { value: "GBPUSD", label: "GBP/USD", pip: 0.0001 },
+  { value: "AUDUSD", label: "AUD/USD", pip: 0.0001 },
+  { value: "USDCAD", label: "USD/CAD", pip: 0.0001 },
+  { value: "USDCHF", label: "USD/CHF", pip: 0.0001 },
+  { value: "EURJPY", label: "EUR/JPY", pip: 0.01 },
+  { value: "GBPJPY", label: "GBP/JPY", pip: 0.01 },
+];
+
+export default function ICMarketsDashboard() {
+  // Estado de conexão
+  const [selectedSymbol, setSelectedSymbol] = useState("USDJPY");
+  const [selectedTimeframe, setSelectedTimeframe] = useState("M15");
+  const [orderLots, setOrderLots] = useState("0.01");
+  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  
+  // Queries
+  const connectionStatus = trpc.icmarkets.getConnectionStatus.useQuery(undefined, {
+    refetchInterval: 5000,
+  });
+  
+  const priceQuery = trpc.icmarkets.getPrice.useQuery(
+    { symbol: selectedSymbol },
+    {
+      enabled: connectionStatus.data?.connected === true,
+      refetchInterval: 1000,
+    }
+  );
+  
+  const signalQuery = trpc.icmarkets.analyzeSignal.useQuery(
+    { symbol: selectedSymbol, timeframe: selectedTimeframe },
+    {
+      enabled: connectionStatus.data?.connected === true,
+      refetchInterval: 60000, // Atualizar a cada minuto
+    }
+  );
+  
+  const positionsQuery = trpc.icmarkets.getOpenPositions.useQuery(undefined, {
+    enabled: connectionStatus.data?.connected === true,
+    refetchInterval: 5000,
+  });
+  
+  const strategyConfig = trpc.icmarkets.getStrategyConfig.useQuery(undefined, {
+    enabled: connectionStatus.data?.connected === true,
+  });
+  
+  // Mutations
+  const connectMutation = trpc.icmarkets.connect.useMutation({
+    onSuccess: () => {
+      connectionStatus.refetch();
+    },
+  });
+  
+  const disconnectMutation = trpc.icmarkets.disconnect.useMutation({
+    onSuccess: () => {
+      connectionStatus.refetch();
+    },
+  });
+  
+  const placeOrderMutation = trpc.icmarkets.placeOrder.useMutation({
+    onSuccess: () => {
+      positionsQuery.refetch();
+      setIsPlacingOrder(false);
+    },
+    onError: () => {
+      setIsPlacingOrder(false);
+    },
+  });
+  
+  const closePositionMutation = trpc.icmarkets.closePosition.useMutation({
+    onSuccess: () => {
+      positionsQuery.refetch();
+    },
+  });
+  
+  // Handlers
+  const handleConnect = () => {
+    connectMutation.mutate();
+  };
+  
+  const handleDisconnect = () => {
+    disconnectMutation.mutate();
+  };
+  
+  const handlePlaceOrder = (direction: "BUY" | "SELL") => {
+    setIsPlacingOrder(true);
+    placeOrderMutation.mutate({
+      symbol: selectedSymbol,
+      direction,
+      lots: parseFloat(orderLots),
+      stopLossPips: strategyConfig.data?.stopLossPips || 15,
+      comment: `Trend Sniper - ${direction}`,
+    });
+  };
+  
+  const handleClosePosition = (positionId: string) => {
+    closePositionMutation.mutate({ positionId });
+  };
+  
+  // Calcular spread em pips
+  const calculateSpread = () => {
+    if (!priceQuery.data) return 0;
+    const symbolInfo = FOREX_SYMBOLS.find(s => s.value === selectedSymbol);
+    const pipValue = symbolInfo?.pip || 0.0001;
+    return ((priceQuery.data.ask - priceQuery.data.bid) / pipValue).toFixed(1);
+  };
+  
+  const isConnected = connectionStatus.data?.connected === true;
+  
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+              <span className="text-4xl">💹</span>
+              IC Markets Dashboard
+            </h1>
+            <p className="text-slate-400 mt-1">
+              Forex Spot Trading via cTrader Open API
+            </p>
+          </div>
+          
+          {/* Status de Conexão */}
+          <div className="flex items-center gap-4">
+            <Badge
+              variant={isConnected ? "default" : "destructive"}
+              className={`px-4 py-2 text-sm ${
+                isConnected ? "bg-green-500/20 text-green-400 border-green-500/30" : ""
+              }`}
+            >
+              {isConnected ? (
+                <>
+                  <Wifi className="w-4 h-4 mr-2" />
+                  Conectado
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-4 h-4 mr-2" />
+                  Desconectado
+                </>
+              )}
+            </Badge>
+            
+            {isConnected ? (
+              <Button
+                variant="outline"
+                onClick={handleDisconnect}
+                disabled={disconnectMutation.isPending}
+              >
+                {disconnectMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  "Desconectar"
+                )}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleConnect}
+                disabled={connectMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {connectMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                Conectar
+              </Button>
+            )}
+          </div>
+        </div>
+        
+        {/* Informações da Conta */}
+        {isConnected && connectionStatus.data?.accountInfo && (
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                  <div>
+                    <p className="text-slate-400 text-sm">Conta</p>
+                    <p className="text-white font-mono">
+                      {connectionStatus.data.accountInfo.accountId}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Saldo</p>
+                    <p className="text-white font-bold text-lg">
+                      {connectionStatus.data.accountInfo.currency}{" "}
+                      {connectionStatus.data.accountInfo.balance?.toFixed(2)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Alavancagem</p>
+                    <p className="text-white">
+                      1:{connectionStatus.data.accountInfo.leverage}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Tipo</p>
+                    <Badge variant={connectionStatus.data.accountInfo.accountType === "demo" ? "secondary" : "destructive"}>
+                      {connectionStatus.data.accountInfo.accountType?.toUpperCase()}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        
+        {/* Grid Principal */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Coluna 1: Preços e Sinal */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Seletor de Símbolo e Timeframe */}
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-4">
+                  <div className="flex-1">
+                    <Label className="text-slate-400 text-sm">Par de Moedas</Label>
+                    <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
+                      <SelectTrigger className="bg-slate-800 border-slate-700 text-white mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FOREX_SYMBOLS.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1">
+                    <Label className="text-slate-400 text-sm">Timeframe</Label>
+                    <Select value={selectedTimeframe} onValueChange={setSelectedTimeframe}>
+                      <SelectTrigger className="bg-slate-800 border-slate-700 text-white mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="M1">M1</SelectItem>
+                        <SelectItem value="M5">M5</SelectItem>
+                        <SelectItem value="M15">M15</SelectItem>
+                        <SelectItem value="M30">M30</SelectItem>
+                        <SelectItem value="H1">H1</SelectItem>
+                        <SelectItem value="H4">H4</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      priceQuery.refetch();
+                      signalQuery.refetch();
+                    }}
+                    className="mt-6"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${priceQuery.isFetching ? "animate-spin" : ""}`} />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Card de Preço */}
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-blue-400" />
+                  Preço em Tempo Real - {selectedSymbol}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {priceQuery.isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+                  </div>
+                ) : priceQuery.data ? (
+                  <div className="grid grid-cols-3 gap-6">
+                    <div className="text-center p-4 bg-red-500/10 rounded-lg border border-red-500/30">
+                      <p className="text-slate-400 text-sm mb-1">BID (Venda)</p>
+                      <p className="text-3xl font-bold text-red-400 font-mono">
+                        {priceQuery.data.bid.toFixed(selectedSymbol.includes("JPY") ? 3 : 5)}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-slate-800/50 rounded-lg">
+                      <p className="text-slate-400 text-sm mb-1">Spread</p>
+                      <p className="text-2xl font-bold text-yellow-400">
+                        {calculateSpread()} pips
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-green-500/10 rounded-lg border border-green-500/30">
+                      <p className="text-slate-400 text-sm mb-1">ASK (Compra)</p>
+                      <p className="text-3xl font-bold text-green-400 font-mono">
+                        {priceQuery.data.ask.toFixed(selectedSymbol.includes("JPY") ? 3 : 5)}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-slate-400">
+                    {isConnected ? "Carregando preço..." : "Conecte-se para ver preços"}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            
+            {/* Card de Sinal */}
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Target className="w-5 h-5 text-purple-400" />
+                  Análise Trend Sniper Smart
+                </CardTitle>
+                <CardDescription className="text-slate-400">
+                  EMA 200 + RSI 14 | Timeframe: {selectedTimeframe}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {signalQuery.isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+                  </div>
+                ) : signalQuery.data ? (
+                  <div className="space-y-4">
+                    {/* Sinal Principal */}
+                    <div className={`p-4 rounded-lg border ${
+                      signalQuery.data.signal === "BUY"
+                        ? "bg-green-500/10 border-green-500/30"
+                        : signalQuery.data.signal === "SELL"
+                        ? "bg-red-500/10 border-red-500/30"
+                        : "bg-slate-800/50 border-slate-700"
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {signalQuery.data.signal === "BUY" ? (
+                            <ArrowUpCircle className="w-10 h-10 text-green-400" />
+                          ) : signalQuery.data.signal === "SELL" ? (
+                            <ArrowDownCircle className="w-10 h-10 text-red-400" />
+                          ) : (
+                            <Activity className="w-10 h-10 text-slate-400" />
+                          )}
+                          <div>
+                            <p className={`text-2xl font-bold ${
+                              signalQuery.data.signal === "BUY"
+                                ? "text-green-400"
+                                : signalQuery.data.signal === "SELL"
+                                ? "text-red-400"
+                                : "text-slate-400"
+                            }`}>
+                              {signalQuery.data.signal === "NONE" ? "SEM SINAL" : signalQuery.data.signal}
+                            </p>
+                            <p className="text-slate-400 text-sm">
+                              Confiança: {signalQuery.data.confidence}%
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-slate-300 text-sm mt-3">
+                        {signalQuery.data.reason}
+                      </p>
+                    </div>
+                    
+                    {/* Indicadores */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 bg-slate-800/50 rounded-lg">
+                        <p className="text-slate-400 text-xs">EMA 200</p>
+                        <p className="text-white font-mono">
+                          {signalQuery.data.indicators?.ema200?.toFixed(5) || "N/A"}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-slate-800/50 rounded-lg">
+                        <p className="text-slate-400 text-xs">RSI 14</p>
+                        <p className={`font-mono ${
+                          (signalQuery.data.indicators?.rsi || 50) < 30
+                            ? "text-green-400"
+                            : (signalQuery.data.indicators?.rsi || 50) > 70
+                            ? "text-red-400"
+                            : "text-white"
+                        }`}>
+                          {signalQuery.data.indicators?.rsi?.toFixed(2) || "N/A"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-slate-400">
+                    {isConnected ? "Analisando mercado..." : "Conecte-se para análise"}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Coluna 2: Ordens e Posições */}
+          <div className="space-y-6">
+            {/* Card de Nova Ordem */}
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <DollarSign className="w-5 h-5 text-green-400" />
+                  Nova Ordem
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label className="text-slate-400 text-sm">Lotes</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max="10"
+                    value={orderLots}
+                    onChange={(e) => setOrderLots(e.target.value)}
+                    className="bg-slate-800 border-slate-700 text-white mt-1"
+                  />
+                </div>
+                
+                {strategyConfig.data && (
+                  <div className="p-3 bg-slate-800/50 rounded-lg text-sm">
+                    <p className="text-slate-400">Stop Loss: <span className="text-white">{strategyConfig.data.stopLossPips} pips</span></p>
+                    <p className="text-slate-400">Trailing: <span className="text-white">{strategyConfig.data.trailingEnabled ? `+${strategyConfig.data.trailingTriggerPips} pips` : "Desativado"}</span></p>
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    onClick={() => handlePlaceOrder("BUY")}
+                    disabled={!isConnected || isPlacingOrder}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {isPlacingOrder ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <TrendingUp className="w-4 h-4 mr-2" />
+                        COMPRAR
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => handlePlaceOrder("SELL")}
+                    disabled={!isConnected || isPlacingOrder}
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    {isPlacingOrder ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <TrendingDown className="w-4 h-4 mr-2" />
+                        VENDER
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Card de Posições Abertas */}
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-blue-400" />
+                  Posições Abertas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {positionsQuery.isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
+                  </div>
+                ) : positionsQuery.data?.live && positionsQuery.data.live.length > 0 ? (
+                  <div className="space-y-3">
+                    {positionsQuery.data.live.map((position) => (
+                      <div
+                        key={position.positionId}
+                        className={`p-3 rounded-lg border ${
+                          position.direction === "BUY"
+                            ? "bg-green-500/10 border-green-500/30"
+                            : "bg-red-500/10 border-red-500/30"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Badge variant={position.direction === "BUY" ? "default" : "destructive"}>
+                              {position.direction}
+                            </Badge>
+                            <span className="text-white font-medium">{position.symbol}</span>
+                          </div>
+                          <span className="text-slate-400 text-sm">{position.size} lotes</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div>
+                            <p className="text-slate-400">Entrada</p>
+                            <p className="text-white font-mono">{position.entryPrice.toFixed(5)}</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-400">P&L</p>
+                            <p className={`font-mono ${
+                              position.unrealizedPnL >= 0 ? "text-green-400" : "text-red-400"
+                            }`}>
+                              ${position.unrealizedPnL.toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleClosePosition(position.positionId)}
+                          disabled={closePositionMutation.isPending}
+                          className="w-full mt-2"
+                        >
+                          Fechar Posição
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-slate-400">
+                    {isConnected ? "Nenhuma posição aberta" : "Conecte-se para ver posições"}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

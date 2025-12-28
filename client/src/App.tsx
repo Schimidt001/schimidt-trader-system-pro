@@ -12,13 +12,14 @@ import SettingsMultiBroker from "./pages/SettingsMultiBroker";
 import Logs from "./pages/Logs";
 import MarketCalendar from "./pages/MarketCalendar";
 import AdminUsers from "./pages/AdminUsers";
+import ICMarketsDashboard from "./pages/ICMarketsDashboard";
 import { useAuth } from "./_core/hooks/useAuth";
 import { getLoginUrl } from "./const";
 import { CinematicLogin } from "./components/CinematicLogin";
 import LocalLogin from "./pages/LocalLogin";
 import FuturisticLogin from "./pages/FuturisticLogin";
 import { Button } from "./components/ui/button";
-import { BarChart3, Settings as SettingsIcon, FileText, LogOut, Calendar, Users } from "lucide-react";
+import { BarChart3, Settings as SettingsIcon, FileText, LogOut, Calendar, Users, TrendingUp } from "lucide-react";
 import { trpc } from "./lib/trpc";
 
 function Navigation() {
@@ -38,6 +39,7 @@ function Navigation() {
 
   const navItems = [
     { path: "/", label: "Dashboard", icon: BarChart3 },
+    { path: "/forex", label: "Forex", icon: TrendingUp },
     { path: "/market", label: "Mercado", icon: Calendar },
     { path: "/settings", label: "Configurações", icon: SettingsIcon },
     { path: "/logs", label: "Logs", icon: FileText },
@@ -170,6 +172,7 @@ function Router() {
         <Route path="/settings" component={SettingsMultiBroker} />
         <Route path="/settings-legacy" component={Settings} />
         <Route path="/logs" component={Logs} />
+        <Route path="/forex" component={ICMarketsDashboard} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
