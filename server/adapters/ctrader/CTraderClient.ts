@@ -17,6 +17,18 @@ import { EventEmitter } from "events";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Proto files path - works in both dev and production (bundled)
+// In production, esbuild bundles to dist/index.js, so we need to use process.cwd()
+const getProtoDir = (): string => {
+  // Check if running in production (bundled)
+  if (process.env.NODE_ENV === 'production') {
+    // In production, proto files are at dist/adapters/ctrader/proto/
+    return path.join(process.cwd(), 'dist', 'adapters', 'ctrader', 'proto');
+  }
+  // In development, use __dirname relative path
+  return path.join(__dirname, 'proto');
+};
+
 // Configurações dos endpoints
 const CTRADER_ENDPOINTS = {
   DEMO: {
@@ -188,7 +200,8 @@ export class CTraderClient extends EventEmitter {
    */
   private async loadProtoFiles(): Promise<void> {
     try {
-      const protoDir = path.join(__dirname, "proto");
+      const protoDir = getProtoDir();
+      console.log(`[CTraderClient] Loading proto files from: ${protoDir}`);
       
       this.protoRoot = await protobuf.load([
         path.join(protoDir, "OpenApiCommonMessages.proto"),
