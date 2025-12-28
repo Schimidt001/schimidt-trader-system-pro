@@ -1,0 +1,36 @@
+{
+  "timestamp": "2025-12-28T18:04:49.597Z",
+  "config": {
+    "takeProfitPips": 6,
+    "stopLossPips": 8,
+    "lotSize": 0.12,
+    "emaPeriod": 200,
+    "rsiPeriod": 14,
+    "blacklistHours": [
+      13,
+      16
+    ],
+    "startDate": "2025-11-01T00:00:00.000Z",
+    "endDate": "2025-12-27T23:59:59.000Z"
+  },
+  "strategyA": {
+    "name": "FIBONACCI (Atual)",
+    "trades": 1128,
+    "wins": 553,
+    "losses": 575,
+    "winRate": 49.02482269503546,
+    "totalPnL": -123.72000000010985,
+    "maxDrawdown": 322.44000000010715,
+    "finalBalance": 376.27999999989015
+  },
+  "strategyB": {
+    "name": "TREND (EMA+RSI)",
+    "trades": 68,
+    "wins": 56,
+    "losses": 12,
+    "winRate": 82.35294117647058,
+    "totalPnL": 254.16000000002668,
+    "maxDrawdown": 9.6000000000015,
+    "finalBalance": 754.1600000000267
+  }
+}
