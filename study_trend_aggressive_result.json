@@ -1,0 +1,48 @@
+{
+  "timestamp": "2025-12-28T18:24:25.570Z",
+  "config": {
+    "stopLossPips": 15,
+    "trailingStartPips": 10,
+    "trailingStepPips": 5,
+    "baseLotSize": 0.12,
+    "sorosMaxLevel": 3,
+    "emaPeriod": 200,
+    "rsiPeriod": 14,
+    "blacklistHours": [
+      13,
+      16
+    ],
+    "startDate": "2025-11-01T00:00:00.000Z",
+    "endDate": "2025-12-27T23:59:59.000Z"
+  },
+  "scenario1_loteFixo": {
+    "name": "LOTE FIXO (0.12)",
+    "trades": 68,
+    "wins": 56,
+    "losses": 12,
+    "winRate": 82.35294117647058,
+    "totalPnL": 287.5200000000257,
+    "returnPercent": 57.50400000000514,
+    "maxDrawdown": 10.679999999999836,
+    "maxDrawdownPercent": 2.1359999999999673,
+    "finalBalance": 787.5200000000257,
+    "maxWinPips": 12.399999999999523,
+    "avgWinPips": 4.832142857143091,
+    "maxConsecutiveLosses": 2
+  },
+  "scenario2_soros": {
+    "name": "SOROS NÍVEL 3",
+    "trades": 68,
+    "wins": 56,
+    "losses": 12,
+    "winRate": 82.35294117647058,
+    "totalPnL": 426.26424768005063,
+    "returnPercent": 85.25284953601012,
+    "maxDrawdown": 23.00181504000011,
+    "maxDrawdownPercent": 4.600363008000022,
+    "finalBalance": 926.2642476800506,
+    "maxWinPips": 12.399999999999523,
+    "avgWinPips": 4.832142857143091,
+    "maxConsecutiveLosses": 2
+  }
+}
