@@ -3,18 +3,329 @@ import { Button } from "@/components/ui/button";
 import { CandleChart } from "@/components/CandleChart";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, RotateCcw } from "lucide-react";
+import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, RotateCcw, Wifi, WifiOff, AlertTriangle } from "lucide-react";
 import { BOT_STATES } from "@/const";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { BotSelector, useBotSelector } from "@/components/BotSelector";
 import { useBroker } from "@/contexts/BrokerContext";
 import { BrokerIndicator } from "@/components/BrokerSwitch";
+import { Badge } from "@/components/ui/badge";
 
+/**
+ * Dashboard Principal - Renderiza conteúdo baseado no broker selecionado
+ * 
+ * IMPORTANTE: Este componente escuta o BrokerContext e renderiza
+ * conteúdo completamente diferente para cada corretora.
+ */
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
-  const { selectedBot, setSelectedBot } = useBotSelector();
   const { broker, isDeriv, isICMarkets, currentConfig } = useBroker();
+
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Card>
+          <CardHeader>
+            <CardTitle>Acesso Negado</CardTitle>
+            <CardDescription>Você precisa estar autenticado para acessar o dashboard</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  // Renderização condicional baseada no broker
+  if (isICMarkets) {
+    return <ICMarketsDashboardContent />;
+  }
+
+  // Default: Deriv Dashboard
+  return <DerivDashboardContent />;
+}
+
+/**
+ * Dashboard IC Markets - Forex via cTrader
+ */
+function ICMarketsDashboardContent() {
+  const { currentConfig } = useBroker();
+  
+  // Query de status de conexão IC Markets
+  const connectionStatus = trpc.icmarkets.getConnectionStatus.useQuery(undefined, {
+    refetchInterval: 5000,
+  });
+  
+  const isConnected = connectionStatus.data?.connected === true;
+  const accountInfo = connectionStatus.data?.accountInfo;
+  
+  // Mutations
+  const connectMutation = trpc.icmarkets.connect.useMutation({
+    onSuccess: () => {
+      toast.success("Conectado ao IC Markets!");
+      connectionStatus.refetch();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao conectar: ${error.message}`);
+    },
+  });
+  
+  const disconnectMutation = trpc.icmarkets.disconnect.useMutation({
+    onSuccess: () => {
+      toast.success("Desconectado do IC Markets");
+      connectionStatus.refetch();
+    },
+  });
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950/20 to-slate-950">
+      <div className="container mx-auto p-6 space-y-6">
+        {/* Header IC Markets */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-white">💹 IC Markets Dashboard</h1>
+                <BrokerIndicator />
+              </div>
+              <p className="text-slate-400 mt-1">Forex Spot Trading via cTrader Open API</p>
+            </div>
+          </div>
+          
+          {/* Status de Conexão */}
+          <div className="flex items-center gap-4">
+            <Badge
+              variant={isConnected ? "default" : "destructive"}
+              className={`px-4 py-2 text-sm ${
+                isConnected ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"
+              }`}
+            >
+              {isConnected ? (
+                <>
+                  <Wifi className="w-4 h-4 mr-2" />
+                  Conectado
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-4 h-4 mr-2" />
+                  Desconectado
+                </>
+              )}
+            </Badge>
+            
+            {isConnected ? (
+              <Button
+                variant="outline"
+                onClick={() => disconnectMutation.mutate()}
+                disabled={disconnectMutation.isPending}
+                className="border-slate-700 text-slate-300 hover:bg-slate-800"
+              >
+                {disconnectMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  "Desconectar"
+                )}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => connectMutation.mutate()}
+                disabled={connectMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {connectMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : null}
+                Conectar
+              </Button>
+            )}
+          </div>
+        </div>
+        
+        {/* Informações da Conta (quando conectado) */}
+        {isConnected && accountInfo && (
+          <Card className="bg-slate-900/50 border-blue-500/20">
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-8">
+                  <div>
+                    <p className="text-slate-400 text-sm">Conta</p>
+                    <p className="text-white font-mono text-lg">{accountInfo.accountId}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Saldo</p>
+                    <p className="text-green-400 font-bold text-2xl">
+                      {accountInfo.currency} {accountInfo.balance?.toFixed(2)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Alavancagem</p>
+                    <p className="text-white text-lg">1:{accountInfo.leverage}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Tipo</p>
+                    <Badge variant={accountInfo.accountType === "demo" ? "secondary" : "destructive"}>
+                      {accountInfo.accountType?.toUpperCase()}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        
+        {/* Placeholder quando não conectado */}
+        {!isConnected && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Placeholder Gráfico */}
+            <Card className="bg-slate-900/50 border-slate-800 lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-yellow-500" />
+                  Gráfico Forex - Aguardando Conexão
+                </CardTitle>
+                <CardDescription>
+                  Conecte-se ao IC Markets para visualizar o gráfico em tempo real
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[400px] bg-slate-800/50 rounded-lg flex items-center justify-center border border-dashed border-slate-700">
+                  <div className="text-center">
+                    <WifiOff className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                    <p className="text-slate-400 text-lg mb-2">Gráfico não disponível</p>
+                    <p className="text-slate-500 text-sm mb-4">Configure suas credenciais em Configurações → IC Markets</p>
+                    <Button
+                      onClick={() => connectMutation.mutate()}
+                      disabled={connectMutation.isPending}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {connectMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Wifi className="w-4 h-4 mr-2" />
+                      )}
+                      Conectar ao IC Markets
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Cards de métricas placeholder */}
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-white text-sm">Saldo IC Markets</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-slate-500">---</div>
+                <p className="text-slate-500 text-sm mt-1">Conecte para ver o saldo</p>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-white text-sm">Posições Abertas</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-slate-500">---</div>
+                <p className="text-slate-500 text-sm mt-1">Conecte para ver posições</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+        
+        {/* Conteúdo quando conectado */}
+        {isConnected && (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Cards de métricas */}
+            <Card className="bg-slate-900/50 border-green-500/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white text-sm flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-green-400" />
+                  Saldo
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-400">
+                  {accountInfo?.currency} {accountInfo?.balance?.toFixed(2)}
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-slate-900/50 border-blue-500/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white text-sm flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-blue-400" />
+                  Equity
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-400">
+                  {accountInfo?.currency} {accountInfo?.equity?.toFixed(2) || accountInfo?.balance?.toFixed(2)}
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-slate-900/50 border-purple-500/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white text-sm flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-purple-400" />
+                  P&L Hoje
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-purple-400">$0.00</div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-slate-900/50 border-yellow-500/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-white text-sm flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-yellow-400" />
+                  Trades Hoje
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-yellow-400">0</div>
+              </CardContent>
+            </Card>
+            
+            {/* Placeholder do gráfico */}
+            <Card className="bg-slate-900/50 border-slate-800 lg:col-span-4">
+              <CardHeader>
+                <CardTitle className="text-white">Gráfico Forex - USDJPY M15</CardTitle>
+                <CardDescription>Preços em tempo real via cTrader</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[400px] bg-slate-800/50 rounded-lg flex items-center justify-center border border-slate-700">
+                  <div className="text-center">
+                    <Activity className="w-12 h-12 text-blue-400 mx-auto mb-4 animate-pulse" />
+                    <p className="text-slate-300 text-lg">Conectado ao IC Markets</p>
+                    <p className="text-slate-500 text-sm mt-2">Acesse a aba "Forex" para trading completo</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Dashboard Deriv - Binary Options & Synthetic Indices
+ */
+function DerivDashboardContent() {
+  const { user } = useAuth();
+  const { selectedBot, setSelectedBot } = useBotSelector();
+  const { currentConfig } = useBroker();
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -24,7 +335,7 @@ export default function Dashboard() {
     { botId: selectedBot },
     {
       enabled: !!user,
-      refetchInterval: 2000, // Atualizar a cada 2 segundos
+      refetchInterval: 2000,
     }
   );
 
@@ -63,7 +374,7 @@ export default function Dashboard() {
     { symbol: config?.symbol || "R_100", limit: 50, botId: selectedBot },
     {
       enabled: !!user && !!config?.symbol,
-      refetchInterval: 1000, // Atualizar a cada 1 segundo (tempo real)
+      refetchInterval: 1000,
       refetchOnWindowFocus: false,
     }
   );
@@ -105,7 +416,7 @@ export default function Dashboard() {
 
   const resetDailyData = trpc.dashboard.resetDailyData.useMutation({
     onSuccess: () => {
-      toast.success("Dados di\u00e1rios resetados com sucesso!");
+      toast.success("Dados diários resetados com sucesso!");
       refetchMetrics();
       refetchStatus();
     },
@@ -113,8 +424,6 @@ export default function Dashboard() {
       toast.error(`Erro ao resetar dados: ${error.message}`);
     },
   });
-
-
 
   const handleStart = () => {
     setIsStarting(true);
@@ -130,50 +439,17 @@ export default function Dashboard() {
     resetBot.mutate({ botId: selectedBot });
   };
 
-  const handleResetDailyData = () => {
-    resetDailyData.mutate({ botId: selectedBot });
-    if (confirm("Tem certeza que deseja resetar todos os dados di\u00e1rios? Esta a\u00e7\u00e3o n\u00e3o pode ser desfeita.")) {
-      resetDailyData.mutate();
-    }
-  };
-
-
-
-  if (authLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin" />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Card>
-          <CardHeader>
-            <CardTitle>Acesso Negado</CardTitle>
-            <CardDescription>Você precisa estar autenticado para acessar o dashboard</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-    );
-  }
-
-  const isRunning = botStatus?.isRunning || false;
-  const currentState = botStatus?.state || "IDLE";
-  
   // Calcular tempo restante dinamicamente
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   
   useEffect(() => {
+    const currentState = botStatus?.state || "IDLE";
     if (currentState === "WAITING_MIDPOINT" && botStatus?.candleStartTime) {
       const interval = setInterval(() => {
-        const now = Math.floor(Date.now() / 1000); // Timestamp atual em segundos
+        const now = Math.floor(Date.now() / 1000);
         const candleStart = botStatus.candleStartTime || 0;
-        const elapsed = now - candleStart; // Tempo decorrido desde início do candle
-        // Usar waitTime da configuração (em minutos) convertido para segundos
-        const waitTimeSeconds = (config?.waitTime || 8) * 60; // Default 8 minutos se não configurado
+        const elapsed = now - candleStart;
+        const waitTimeSeconds = (config?.waitTime || 8) * 60;
         const remaining = Math.max(0, waitTimeSeconds - elapsed);
         setTimeRemaining(remaining);
       }, 1000);
@@ -182,7 +458,7 @@ export default function Dashboard() {
     } else {
       setTimeRemaining(null);
     }
-  }, [currentState, botStatus?.candleStartTime, config?.waitTime]);
+  }, [botStatus?.state, botStatus?.candleStartTime, config?.waitTime]);
   
   // Atualizar relógio a cada segundo
   useEffect(() => {
@@ -191,6 +467,9 @@ export default function Dashboard() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  const isRunning = botStatus?.isRunning || false;
+  const currentState = botStatus?.state || "IDLE";
   
   // Label dinâmico baseado no tempo restante
   let stateLabel: string = BOT_STATES[currentState as keyof typeof BOT_STATES] || currentState;
@@ -212,10 +491,10 @@ export default function Dashboard() {
           <div className="flex items-center gap-6">
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold text-white">Schimidt Trader System PRO</h1>
+                <h1 className="text-3xl font-bold text-white">📊 Schimidt Trader System PRO</h1>
                 <BrokerIndicator />
               </div>
-              <p className="text-slate-400 mt-1">Sistema de Trading Automatizado 24/7</p>
+              <p className="text-slate-400 mt-1">Sistema de Trading Automatizado 24/7 - Binary Options</p>
             </div>
             <BotSelector selectedBot={selectedBot} onBotChange={setSelectedBot} />
           </div>
@@ -279,272 +558,181 @@ export default function Dashboard() {
                       botStatus.marketCondition.status === "GREEN" ? "text-green-400" : 
                       botStatus.marketCondition.status === "YELLOW" ? "text-yellow-400" : "text-red-400"
                     }`}>
-                      {botStatus.marketCondition.status === "GREEN" ? "Modo Operar" : 
-                       botStatus.marketCondition.status === "YELLOW" ? "Modo Cautela" : "Modo Parar"}
-                      <span className="text-slate-400 ml-1">({botStatus.marketCondition.score}/10)</span>
+                      {botStatus.marketCondition.status}
                     </div>
                   </div>
                 </div>
               </div>
             )}
-            {currentState === "ERROR_API" && (
-              <Button
-                onClick={handleReset}
-                disabled={resetBot.isPending}
-                variant="outline"
-                className="gap-2"
-              >
-                {resetBot.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : null}
-                Limpar Erro
-              </Button>
-            )}
-            <Button
-              onClick={handleResetDailyData}
-              disabled={resetDailyData.isPending || currentState === "ENTERED"}
-              variant="outline"
-              className="gap-2"
-              title={currentState === "ENTERED" ? "N\u00e3o \u00e9 poss\u00edvel resetar com posi\u00e7\u00e3o aberta" : "Resetar dados di\u00e1rios"}
-            >
-              {resetDailyData.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RotateCcw className="w-4 h-4" />
-              )}
-              Resetar Dados
-            </Button>
-
-            {isRunning ? (
-              <Button
-                onClick={handleStop}
-                disabled={isStopping}
-                variant="destructive"
-                className="gap-2"
-              >
-                {isStopping ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Square className="w-4 h-4" />
-                )}
-                Parar Bot
-              </Button>
-            ) : (
-              <Button
-                onClick={handleStart}
-                disabled={isStarting}
-                className="gap-2 bg-green-600 hover:bg-green-700"
-              >
-                {isStarting ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4" />
-                )}
-                Iniciar Bot
-              </Button>
-            )}
           </div>
         </div>
 
-        {/* Métricas principais */}
+        {/* Cards de métricas */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Saldo */}
           <Card className="bg-slate-900/50 border-slate-800">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-slate-300">Saldo</CardTitle>
-              <DollarSign className="h-4 w-4 text-slate-400" />
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
+                <DollarSign className="w-4 h-4" />
+                Saldo DERIV
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-white">
-                ${((balance?.balance || 0) / 100).toFixed(2)}
+                ${balance?.balance ? (balance.balance / 100).toFixed(2) : "0.00"}
               </div>
-              <p className="text-xs text-slate-400 mt-1">{balance?.currency || "USD"}</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {config?.mode === "DEMO" ? "Conta Demo" : "Conta Real"}
+              </p>
             </CardContent>
           </Card>
 
+          {/* P&L Diário */}
           <Card className="bg-slate-900/50 border-slate-800">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-slate-300">PnL Diário</CardTitle>
-              {dailyPnL >= 0 ? (
-                <TrendingUp className="h-4 w-4 text-green-500" />
-              ) : (
-                <TrendingDown className="h-4 w-4 text-red-500" />
-              )}
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
+                {dailyPnL >= 0 ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
+                P&L Diário
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div
-                className={`text-2xl font-bold ${
-                  dailyPnL >= 0 ? "text-green-500" : "text-red-500"
-                }`}
-              >
-                ${(dailyPnL / 100).toFixed(2)}
+              <div className={`text-2xl font-bold ${dailyPnL >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {dailyPnL >= 0 ? "+" : ""}${(dailyPnL / 100).toFixed(2)}
               </div>
-              <p className="text-xs text-slate-400 mt-1">Hoje</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {dailyTrades} trades | {dailyLosses} losses
+              </p>
             </CardContent>
           </Card>
 
+          {/* P&L Mensal */}
           <Card className="bg-slate-900/50 border-slate-800">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-slate-300">PnL Mensal</CardTitle>
-              {monthlyPnL >= 0 ? (
-                <TrendingUp className="h-4 w-4 text-green-500" />
-              ) : (
-                <TrendingDown className="h-4 w-4 text-red-500" />
-              )}
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
+                {monthlyPnL >= 0 ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
+                P&L Mensal
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div
-                className={`text-2xl font-bold ${
-                  monthlyPnL >= 0 ? "text-green-500" : "text-red-500"
-                }`}
-              >
-                ${(monthlyPnL / 100).toFixed(2)}
+              <div className={`text-2xl font-bold ${monthlyPnL >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {monthlyPnL >= 0 ? "+" : ""}${(monthlyPnL / 100).toFixed(2)}
               </div>
-              <p className="text-xs text-slate-400 mt-1">Este mês</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {metrics?.monthly.totalTrades || 0} trades
+              </p>
             </CardContent>
           </Card>
 
+          {/* Controles */}
           <Card className="bg-slate-900/50 border-slate-800">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-slate-300">Trades Hoje</CardTitle>
-              <Activity className="h-4 w-4 text-slate-400" />
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
+                <Activity className="w-4 h-4" />
+                Controles
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-white">{dailyTrades}</div>
-              <p className="text-xs text-slate-400 mt-1">{dailyLosses} perdas</p>
+              <div className="flex gap-2">
+                {!isRunning ? (
+                  <Button
+                    onClick={handleStart}
+                    disabled={isStarting}
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                  >
+                    {isStarting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleStop}
+                    disabled={isStopping}
+                    variant="destructive"
+                    className="flex-1"
+                  >
+                    {isStopping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Square className="w-4 h-4" />}
+                  </Button>
+                )}
+                <Button
+                  onClick={handleReset}
+                  variant="outline"
+                  className="border-slate-700"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Gráfico de Candles */}
+        {/* Gráfico */}
         <Card className="bg-slate-900/50 border-slate-800">
           <CardHeader>
-            <CardTitle className="text-white">Gráfico {config?.timeframe === 900 ? "M15" : config?.timeframe === 1800 ? "M30" : config?.timeframe === 3600 ? "M60" : "M15"} - {config?.symbol || "R_100"}</CardTitle>
-            <CardDescription className="text-slate-400">
-              Candles em tempo real com linhas de referência
+            <CardTitle className="text-white">Gráfico {config?.symbol || "R_100"}</CardTitle>
+            <CardDescription>
+              Timeframe: {config?.timeframe === 900 ? "M15" : config?.timeframe === 1800 ? "M30" : "M60"}
             </CardDescription>
           </CardHeader>
           <CardContent>
             {candles && candles.length > 0 ? (
-              <CandleChart
-                data={candles.map((c: any) => ({
-                  timestamp: Number(c.timestampUtc),
-                  open: parseFloat(c.open),
-                  high: parseFloat(c.high),
-                  low: parseFloat(c.low),
-                  close: parseFloat(c.close),
-                }))}
-              />
+              <CandleChart data={candles} height={400} />
             ) : (
-              <div className="text-center py-12 text-slate-400">
-                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
-                Carregando candles...
+              <div className="h-[400px] bg-slate-800/50 rounded-lg flex items-center justify-center">
+                <div className="text-center">
+                  <Loader2 className="w-8 h-8 text-slate-500 mx-auto mb-2 animate-spin" />
+                  <p className="text-slate-400">Carregando dados...</p>
+                </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Posições de hoje */}
+        {/* Posições do dia */}
         <Card className="bg-slate-900/50 border-slate-800">
           <CardHeader>
             <CardTitle className="text-white">Posições de Hoje</CardTitle>
-            <CardDescription className="text-slate-400">
-              Histórico detalhado de operações realizadas hoje
+            <CardDescription>
+              {todayPositions?.length || 0} posições registradas
             </CardDescription>
           </CardHeader>
           <CardContent>
             {!todayPositions || todayPositions.length === 0 ? (
               <div className="text-center py-8 text-slate-400">
-                Nenhuma posição aberta hoje
+                Nenhuma posição hoje
               </div>
             ) : (
-              <div className="space-y-4">
-                {todayPositions.map((position) => (
+              <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                {todayPositions.map((position: any) => (
                   <div
                     key={position.id}
-                    className="p-4 bg-slate-800/50 rounded-lg border border-slate-700 space-y-3"
+                    className={`p-4 rounded-lg border ${
+                      position.status === "CLOSED"
+                        ? position.pnl && position.pnl > 0
+                          ? "bg-green-500/10 border-green-500/30"
+                          : "bg-red-500/10 border-red-500/30"
+                        : "bg-slate-800/50 border-slate-700"
+                    }`}
                   >
-                    {/* Cabeçalho da posição */}
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
-                        <div
-                          className={`px-3 py-1 rounded text-sm font-bold ${
-                            position.direction === "up"
-                              ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                              : "bg-red-500/20 text-red-400 border border-red-500/30"
-                          }`}
-                        >
-                          {position.direction === "up" ? "CALL" : "PUT"}
-                        </div>
+                        <span className={`text-lg ${position.direction === "up" ? "text-green-400" : "text-red-400"}`}>
+                          {position.direction === "up" ? "📈" : "📉"}
+                        </span>
                         <div>
-                          <div className="text-base font-semibold text-white">{position.symbol}</div>
-                          <div className="text-xs text-slate-400">
-                            {new Date(position.createdAt).toLocaleTimeString('pt-BR')}
-                          </div>
+                          <span className="text-white font-medium">{position.symbol}</span>
+                          <span className="text-slate-400 text-sm ml-2">#{position.id}</span>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div
-                          className={`text-lg font-bold ${
-                            (position.pnl || 0) >= 0 ? "text-green-400" : "text-red-400"
-                          }`}
-                        >
-                          {(position.pnl || 0) >= 0 ? "+" : ""}${((position.pnl || 0) / 100).toFixed(2)}
+                        <div className={`font-bold ${
+                          position.status === "CLOSED"
+                            ? position.pnl && position.pnl > 0 ? "text-green-400" : "text-red-400"
+                            : "text-slate-300"
+                        }`}>
+                          {position.status === "CLOSED" && position.pnl
+                            ? `${position.pnl > 0 ? "+" : ""}$${(position.pnl / 100).toFixed(2)}`
+                            : position.status}
                         </div>
-                        <div className="text-xs text-slate-400">{position.status}</div>
-                      </div>
-                    </div>
-
-                    {/* Grid de informações detalhadas */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-slate-700">
-                      {/* Dados do Candle */}
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Abertura</div>
-                        <div className="text-sm font-medium text-slate-200">
-                          {position.candleOpen ? parseFloat(position.candleOpen).toFixed(4) : "N/A"}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Máxima</div>
-                        <div className="text-sm font-medium text-green-400">
-                          {position.candleHigh ? parseFloat(position.candleHigh).toFixed(4) : "N/A"}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Mínima</div>
-                        <div className="text-sm font-medium text-red-400">
-                          {position.candleLow ? parseFloat(position.candleLow).toFixed(4) : "N/A"}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Entrada</div>
-                        <div className="text-sm font-medium text-blue-400">
-                          {parseFloat(position.entryPrice).toFixed(4)}
-                        </div>
-                      </div>
-                      
-                      {/* Predição e Gatilho */}
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Predição</div>
-                        <div className="text-sm font-medium text-purple-400">
-                          {parseFloat(position.predictedClose).toFixed(4)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Gatilho</div>
-                        <div className="text-sm font-medium text-yellow-400">
-                          {parseFloat(position.trigger).toFixed(4)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Pips</div>
-                        <div className="text-sm font-medium text-cyan-400">
-                          {Math.abs(parseFloat(position.trigger) - parseFloat(position.predictedClose)).toFixed(2)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1">Stake</div>
-                        <div className="text-sm font-medium text-slate-200">
-                          ${(position.stake / 100).toFixed(2)}
+                        <div className="text-xs text-slate-500">
+                          {position.strategy || "Standard"}
                         </div>
                       </div>
                     </div>
@@ -558,4 +746,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
