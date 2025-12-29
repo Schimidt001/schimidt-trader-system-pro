@@ -55,8 +55,8 @@ export default function Dashboard() {
 /**
  * Dashboard IC Markets - Forex via cTrader
  * 
- * NOTA: Inclui seletor Bot 1/Bot 2 para consistência com DERIV.
- * Cada bot pode ter configurações independentes de IC Markets.
+ * NOTA: Layout idêntico ao DERIV para consistência visual.
+ * Inclui seletor Bot 1/Bot 2 e cards de P&L sempre visíveis.
  */
 function ICMarketsDashboardContent() {
   const { currentConfig } = useBroker();
@@ -104,9 +104,9 @@ function ICMarketsDashboardContent() {
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950/20 to-slate-950">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       <div className="container mx-auto p-6 space-y-6">
-        {/* Header IC Markets */}
+        {/* Header - Igual ao DERIV */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-6">
             <div>
@@ -168,56 +168,129 @@ function ICMarketsDashboardContent() {
             )}
           </div>
         </div>
-        
-        {/* Informações da Conta (quando conectado) */}
-        {isConnected && accountInfo && (
-          <Card className="bg-slate-900/50 border-blue-500/20">
-            <CardContent className="py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-8">
-                  <div>
-                    <p className="text-slate-400 text-sm">Conta</p>
-                    <p className="text-white font-mono text-lg">{accountInfo.accountId}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400 text-sm">Saldo</p>
-                    <p className="text-green-400 font-bold text-2xl">
-                      {accountInfo.currency} {accountInfo.balance?.toFixed(2)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400 text-sm">Alavancagem</p>
-                    <p className="text-white text-lg">1:{accountInfo.leverage}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400 text-sm">Tipo</p>
-                    <Badge variant={accountInfo.accountType === "demo" ? "secondary" : "destructive"}>
-                      {accountInfo.accountType?.toUpperCase()}
-                    </Badge>
-                  </div>
-                </div>
+
+        {/* Cards de métricas - SEMPRE VISÍVEIS (igual DERIV) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Saldo IC Markets */}
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
+                <DollarSign className="w-4 h-4" />
+                Saldo IC MARKETS
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-white">
+                {isConnected && accountInfo 
+                  ? `${accountInfo.currency} ${accountInfo.balance?.toFixed(2)}` 
+                  : "---"}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                {isConnected && accountInfo 
+                  ? (accountInfo.accountType === "demo" ? "Conta Demo" : "Conta Real")
+                  : "Conecte para ver o saldo"}
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* P&L Diário */}
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
+                {dailyPnL >= 0 ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
+                P&L Diário
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${dailyPnL >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {dailyPnL >= 0 ? "+" : ""}${dailyPnL.toFixed(2)}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                {dailyTrades} trades | {dailyLosses} losses
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* P&L Mensal */}
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
+                {monthlyPnL >= 0 ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
+                P&L Mensal
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${monthlyPnL >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {monthlyPnL >= 0 ? "+" : ""}${monthlyPnL.toFixed(2)}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                {monthlyTrades} trades
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Controles */}
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
+                <Activity className="w-4 h-4" />
+                Controles
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-2">
+                {!isConnected ? (
+                  <Button
+                    onClick={() => connectMutation.mutate()}
+                    disabled={connectMutation.isPending}
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                  >
+                    {connectMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => disconnectMutation.mutate()}
+                    disabled={disconnectMutation.isPending}
+                    variant="destructive"
+                    className="flex-1"
+                  >
+                    {disconnectMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Square className="w-4 h-4" />}
+                  </Button>
+                )}
+                <Button
+                  onClick={() => connectionStatus.refetch()}
+                  variant="outline"
+                  className="border-slate-700"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </Button>
               </div>
             </CardContent>
           </Card>
-        )}
-        
-        {/* Placeholder quando não conectado */}
-        {!isConnected && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Placeholder Gráfico */}
-            <Card className="bg-slate-900/50 border-slate-800 lg:col-span-2">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-yellow-500" />
-                  Gráfico Forex - Aguardando Conexão
-                </CardTitle>
-                <CardDescription>
-                  Conecte-se ao IC Markets para visualizar o gráfico em tempo real
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[400px] bg-slate-800/50 rounded-lg flex items-center justify-center border border-dashed border-slate-700">
-                  <div className="text-center">
+        </div>
+
+        {/* Gráfico */}
+        <Card className="bg-slate-900/50 border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              {!isConnected && <AlertTriangle className="w-5 h-5 text-yellow-500" />}
+              Gráfico Forex - USDJPY
+            </CardTitle>
+            <CardDescription>
+              {isConnected ? "Preços em tempo real via cTrader" : "Conecte-se ao IC Markets para visualizar o gráfico em tempo real"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[400px] bg-slate-800/50 rounded-lg flex items-center justify-center border border-dashed border-slate-700">
+              <div className="text-center">
+                {isConnected ? (
+                  <>
+                    <Activity className="w-12 h-12 text-blue-400 mx-auto mb-4 animate-pulse" />
+                    <p className="text-slate-300 text-lg">Conectado ao IC Markets</p>
+                    <p className="text-slate-500 text-sm mt-2">Acesse a aba "Forex" para trading completo</p>
+                  </>
+                ) : (
+                  <>
                     <WifiOff className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                     <p className="text-slate-400 text-lg mb-2">Gráfico não disponível</p>
                     <p className="text-slate-500 text-sm mb-4">Configure suas credenciais em Configurações → IC Markets</p>
@@ -233,127 +306,33 @@ function ICMarketsDashboardContent() {
                       )}
                       Conectar ao IC Markets
                     </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            {/* Cards de métricas placeholder */}
-            <Card className="bg-slate-900/50 border-slate-800">
-              <CardHeader>
-                <CardTitle className="text-white text-sm">Saldo IC Markets</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-slate-500">---</div>
-                <p className="text-slate-500 text-sm mt-1">Conecte para ver o saldo</p>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-slate-900/50 border-slate-800">
-              <CardHeader>
-                <CardTitle className="text-white text-sm">Posições Abertas</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-slate-500">---</div>
-                <p className="text-slate-500 text-sm mt-1">Conecte para ver posições</p>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-        
-        {/* Conteúdo quando conectado */}
-        {isConnected && (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Cards de métricas */}
-            <Card className="bg-slate-900/50 border-green-500/20">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-white text-sm flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-green-400" />
-                  Saldo IC MARKETS
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-400">
-                  {accountInfo?.currency} {accountInfo?.balance?.toFixed(2)}
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  {accountInfo?.accountType === "demo" ? "Conta Demo" : "Conta Real"}
-                </p>
-              </CardContent>
-            </Card>
-            
-            {/* P&L Diário */}
-            <Card className="bg-slate-900/50 border-slate-800">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
-                  {dailyPnL >= 0 ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
-                  P&L Diário
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className={`text-2xl font-bold ${dailyPnL >= 0 ? "text-green-400" : "text-red-400"}`}>
-                  {dailyPnL >= 0 ? "+" : ""}${dailyPnL.toFixed(2)}
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  {dailyTrades} trades | {dailyLosses} losses
-                </p>
-              </CardContent>
-            </Card>
-            
-            {/* P&L Mensal */}
-            <Card className="bg-slate-900/50 border-slate-800">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
-                  {monthlyPnL >= 0 ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
-                  P&L Mensal
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className={`text-2xl font-bold ${monthlyPnL >= 0 ? "text-green-400" : "text-red-400"}`}>
-                  {monthlyPnL >= 0 ? "+" : ""}${monthlyPnL.toFixed(2)}
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  {monthlyTrades} trades
-                </p>
-              </CardContent>
-            </Card>
-            
-            {/* Equity */}
-            <Card className="bg-slate-900/50 border-blue-500/20">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-white text-sm flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-blue-400" />
-                  Equity
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-blue-400">
-                  {accountInfo?.currency} {accountInfo?.equity?.toFixed(2) || accountInfo?.balance?.toFixed(2)}
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Alavancagem: 1:{accountInfo?.leverage}
-                </p>
-              </CardContent>
-            </Card>
-            
-            {/* Placeholder do gráfico */}
-            <Card className="bg-slate-900/50 border-slate-800 lg:col-span-4">
-              <CardHeader>
-                <CardTitle className="text-white">Gráfico Forex - USDJPY M15</CardTitle>
-                <CardDescription>Preços em tempo real via cTrader</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[400px] bg-slate-800/50 rounded-lg flex items-center justify-center border border-slate-700">
-                  <div className="text-center">
-                    <Activity className="w-12 h-12 text-blue-400 mx-auto mb-4 animate-pulse" />
-                    <p className="text-slate-300 text-lg">Conectado ao IC Markets</p>
-                    <p className="text-slate-500 text-sm mt-2">Acesse a aba "Forex" para trading completo</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+                  </>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Posições de Hoje */}
+        <Card className="bg-slate-900/50 border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-white">Posições de Hoje</CardTitle>
+            <CardDescription>
+              {dailyTrades} posições registradas
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {dailyTrades === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                Nenhuma posição hoje
+              </div>
+            ) : (
+              <div className="text-center py-8 text-slate-400">
+                Acesse a aba "Logs" para ver o histórico completo
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
