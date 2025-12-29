@@ -747,13 +747,13 @@ export const appRouter = router({
           
           derivService.disconnect();
           
-          // Converter formato DERIV para formato do frontend
+          // Converter formato DERIV para formato do frontend (CandleChart)
           return derivCandles.map(c => ({
-            timestampUtc: c.epoch,
-            open: c.open.toString(),
-            high: c.high.toString(),
-            low: c.low.toString(),
-            close: c.close.toString(),
+            timestamp: c.epoch,
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
           }));
         } catch (error: any) {
           console.error("[Dashboard] Erro ao buscar candles da DERIV:", error);

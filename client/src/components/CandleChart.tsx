@@ -22,6 +22,7 @@ interface CandleChartProps {
   currentOpen?: number | null;
   currentPrice?: number | null;
   openPositions?: Position[];
+  height?: number;
 }
 
 // Tooltip customizado
@@ -70,11 +71,12 @@ export function CandleChart({
   triggerLine, 
   currentOpen,
   currentPrice,
-  openPositions = []
+  openPositions = [],
+  height = 500
 }: CandleChartProps) {
   if (!data || data.length === 0) {
     return (
-      <div className="w-full h-[500px] flex items-center justify-center bg-slate-900/50 rounded-lg border border-slate-800">
+      <div className="w-full flex items-center justify-center bg-slate-900/50 rounded-lg border border-slate-800" style={{ height }}>
         <p className="text-slate-400">Aguardando dados de candles...</p>
       </div>
     );

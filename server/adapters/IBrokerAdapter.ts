@@ -56,6 +56,8 @@ export interface AccountInfo {
   accountId: string;
   /** Saldo atual */
   balance: number;
+  /** Equity (saldo + P&L aberto) */
+  equity?: number;
   /** Moeda da conta */
   currency: string;
   /** Tipo de conta (demo/real) */

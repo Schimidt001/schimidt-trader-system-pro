@@ -111,6 +111,11 @@ export default function SettingsMultiBroker() {
     { enabled: !!user, refetchInterval: false }
   );
 
+  // Query para carregar configurações IC Markets
+  const { data: icConfig } = trpc.icmarkets.getConfig.useQuery(undefined, {
+    enabled: !!user && isICMarkets,
+  });
+
   // ============= MUTATIONS =============
   const testConnection = trpc.config.testConnection.useMutation({
     onSuccess: (data) => {
@@ -154,6 +159,42 @@ export default function SettingsMultiBroker() {
     },
   });
 
+  // Mutation para salvar configurações IC Markets
+  const saveICMarketsConfig = trpc.icmarkets.saveConfig.useMutation({
+    onSuccess: () => {
+      toast.success("Configurações IC Markets salvas com sucesso");
+      setIsSaving(false);
+    },
+    onError: (error) => {
+      toast.error(`Erro ao salvar configurações IC Markets: ${error.message}`);
+      setIsSaving(false);
+    },
+  });
+
+  // Mutation para testar conexão IC Markets
+  const testICMarketsConnection = trpc.icmarkets.testConnection.useMutation({
+    onSuccess: (data) => {
+      if (data.connected) {
+        toast.success(`Conectado ao IC Markets! Saldo: ${data.currency} ${data.balance?.toFixed(2)}`);
+        setIcConnectionStatus({
+          connected: true,
+          balance: data.balance,
+          currency: data.currency,
+          accountId: data.accountId,
+        });
+      } else {
+        toast.error(`Falha na conexão: ${data.error}`);
+        setIcConnectionStatus({ connected: false });
+      }
+      setIsTesting(false);
+    },
+    onError: (error) => {
+      toast.error(`Erro ao conectar: ${error.message}`);
+      setIcConnectionStatus({ connected: false });
+      setIsTesting(false);
+    },
+  });
+
   // ============= EFEITOS =============
   useEffect(() => {
     if (config) {
@@ -181,10 +222,28 @@ export default function SettingsMultiBroker() {
       setUseCandleDuration(config.useCandleDuration ?? false);
       setHedgeEnabled(config.hedgeEnabled ?? true);
       
-      // TODO: Carregar configurações IC Markets quando o schema for atualizado
-      // Por enquanto, usar valores padrão
+
     }
   }, [config]);
+
+  // Carregar configurações IC Markets quando disponíveis
+  useEffect(() => {
+    if (icConfig) {
+      setIcClientId(icConfig.clientId || "");
+      setIcClientSecret(icConfig.clientSecret || "");
+      setIcAccessToken(icConfig.accessToken || "");
+      setIcIsDemo(icConfig.isDemo ?? true);
+      setIcSymbol(icConfig.symbol || "EURUSD");
+      setIcLots(icConfig.lots || ICMARKETS_DEFAULTS.defaultLots.toString());
+      setIcLeverage((icConfig.leverage || ICMARKETS_DEFAULTS.defaultLeverage).toString());
+      setIcTimeframe(icConfig.timeframe || ICMARKETS_DEFAULTS.defaultTimeframe);
+      setIcStopLossPips((icConfig.stopLossPips || ICMARKETS_DEFAULTS.defaultStopLossPips).toString());
+      setIcTakeProfitPips((icConfig.takeProfitPips || ICMARKETS_DEFAULTS.defaultTakeProfitPips).toString());
+      setIcTrailingEnabled(icConfig.trailingEnabled ?? true);
+      setIcTrailingTriggerPips((icConfig.trailingTriggerPips || ICMARKETS_DEFAULTS.trailingTriggerPips).toString());
+      setIcTrailingStepPips((icConfig.trailingStepPips || ICMARKETS_DEFAULTS.trailingStepPips).toString());
+    }
+  }, [icConfig]);
 
   // ============= HANDLERS =============
   const handleTestDerivConnection = async () => {
@@ -206,10 +265,12 @@ export default function SettingsMultiBroker() {
       return;
     }
     
-    // TODO: Implementar teste de conexão IC Markets quando o backend estiver pronto
-    toast.info("Teste de conexão IC Markets será implementado na próxima fase");
-    setIcConnectionStatus({
-      connected: false,
+    setIsTesting(true);
+    testICMarketsConnection.mutate({
+      clientId: icClientId,
+      clientSecret: icClientSecret,
+      accessToken: icAccessToken,
+      isDemo: icIsDemo,
     });
   };
 
@@ -275,9 +336,23 @@ export default function SettingsMultiBroker() {
       });
     } else {
       // Salvar configurações IC Markets
-      // TODO: Implementar quando o schema for atualizado
-      toast.info("Salvamento de configurações IC Markets será implementado na próxima fase");
-      setIsSaving(false);
+      saveICMarketsConfig.mutate({
+        clientId: icClientId,
+        clientSecret: icClientSecret,
+        accessToken: icAccessToken,
+        isDemo: icIsDemo,
+        symbol: icSymbol,
+        lots: icLots,
+        leverage: parseInt(icLeverage),
+        timeframe: icTimeframe,
+        stopLossPips: parseInt(icStopLossPips),
+        takeProfitPips: parseInt(icTakeProfitPips),
+        trailingEnabled: icTrailingEnabled,
+        trailingTriggerPips: parseInt(icTrailingTriggerPips),
+        trailingStepPips: parseInt(icTrailingStepPips),
+        compoundingEnabled: true,
+        baseRisk: 10,
+      });
     }
   };
 
@@ -522,19 +597,7 @@ export default function SettingsMultiBroker() {
                 connectionStatus={icConnectionStatus}
               />
 
-              {/* Aviso de implementação pendente */}
-              <Card className="bg-yellow-500/10 border-yellow-500/30">
-                <CardContent className="p-4 flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-yellow-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="font-medium text-yellow-400">Implementação em Progresso</p>
-                    <p className="text-sm text-yellow-300/80 mt-1">
-                      A conectividade com IC Markets via cTrader Open API será implementada na próxima fase.
-                      Por enquanto, você pode configurar os parâmetros que serão utilizados quando a conexão estiver disponível.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+
             </>
           )}
 

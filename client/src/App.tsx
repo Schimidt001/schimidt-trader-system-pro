@@ -12,16 +12,22 @@ import SettingsMultiBroker from "./pages/SettingsMultiBroker";
 import Logs from "./pages/Logs";
 import MarketCalendar from "./pages/MarketCalendar";
 import AdminUsers from "./pages/AdminUsers";
-import ICMarketsDashboard from "./pages/ICMarketsDashboard";
 import { useAuth } from "./_core/hooks/useAuth";
 import { getLoginUrl } from "./const";
 import { CinematicLogin } from "./components/CinematicLogin";
 import LocalLogin from "./pages/LocalLogin";
 import FuturisticLogin from "./pages/FuturisticLogin";
 import { Button } from "./components/ui/button";
-import { BarChart3, Settings as SettingsIcon, FileText, LogOut, Calendar, Users, TrendingUp } from "lucide-react";
+import { BarChart3, Settings as SettingsIcon, FileText, LogOut, Calendar, Users } from "lucide-react";
 import { trpc } from "./lib/trpc";
 
+/**
+ * Navegação Principal
+ * 
+ * IMPORTANTE: O sistema usa "Contextos Isolados" através do Global Broker Switch.
+ * NÃO há abas separadas para Deriv/Forex - o switch no header alterna o contexto
+ * de toda a aplicação, e cada página renderiza conteúdo apropriado ao contexto.
+ */
 function Navigation() {
   const [location] = useLocation();
   const { user } = useAuth();
@@ -37,9 +43,10 @@ function Navigation() {
   // Só esconder navegação se OAuth está configurado E não tem usuário
   if (!user && oauthConfigured) return null;
 
+  // Menu de navegação - SEM aba separada de Forex
+  // O contexto é controlado pelo Global Broker Switch no header
   const navItems = [
     { path: "/", label: "Dashboard", icon: BarChart3 },
-    { path: "/forex", label: "Forex", icon: TrendingUp },
     { path: "/market", label: "Mercado", icon: Calendar },
     { path: "/settings", label: "Configurações", icon: SettingsIcon },
     { path: "/logs", label: "Logs", icon: FileText },
@@ -140,6 +147,15 @@ function Navigation() {
   );
 }
 
+/**
+ * Router Principal
+ * 
+ * O Dashboard renderiza conteúdo diferente baseado no broker selecionado
+ * através do Global Broker Switch (BrokerContext).
+ * 
+ * - Modo DERIV: Dashboard mostra operações Binary/Synthetics
+ * - Modo IC MARKETS: Dashboard mostra operações Forex Spot
+ */
 function Router() {
   const { user, loading } = useAuth();
 
@@ -172,7 +188,6 @@ function Router() {
         <Route path="/settings" component={SettingsMultiBroker} />
         <Route path="/settings-legacy" component={Settings} />
         <Route path="/logs" component={Logs} />
-        <Route path="/forex" component={ICMarketsDashboard} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
