@@ -2606,11 +2606,13 @@ export class TradingBot {
 
   /**
    * Registra evento no log
+   * NOTA: brokerType é sempre "DERIV" para este bot (Binary Options)
    */
   public async logEvent(eventType: string, message: string, data?: any): Promise<void> {
     await insertEventLog({
       userId: this.userId,
       botId: this.botId,
+      brokerType: "DERIV", // ✅ Isolamento por corretora
       eventType,
       message,
       data: data ? JSON.stringify(data) : null,

@@ -173,12 +173,13 @@ export type InsertMetric = typeof metrics.$inferInsert;
 
 /**
  * Log de eventos do sistema
- * ✅ CORRIGIDO: Adicionado botId
+ * ✅ CORRIGIDO: Adicionado botId e brokerType para isolamento total
  */
 export const eventLogs = mysqlTable("eventLogs", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   botId: int("botId").notNull().default(1), // ✅ ADICIONADO
+  brokerType: mysqlEnum("brokerType", ["DERIV", "ICMARKETS"]).default("DERIV").notNull(), // ✅ NOVO: Isolamento por corretora
   eventType: varchar("eventType", { length: 50 }).notNull(),
   message: text("message").notNull(),
   data: text("data"), // JSON string

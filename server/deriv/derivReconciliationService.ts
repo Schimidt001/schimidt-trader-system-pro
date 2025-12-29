@@ -120,6 +120,7 @@ export class DerivReconciliationService {
             await insertEventLog({
               userId,
               botId,
+              brokerType: "DERIV", // ✅ Isolamento por corretora
               timestampUtc: Math.floor(Date.now() / 1000),
               eventType: "RECONCILIATION_PENDING_CANCELLED",
               message: `Posição PENDING cancelada (timeout): ID=${position.id} | Idade: ${Math.round(pendingAge / 60000)}min`,
@@ -162,6 +163,7 @@ export class DerivReconciliationService {
               await insertEventLog({
                 userId,
                 botId,
+                brokerType: "DERIV", // ✅ Isolamento por corretora
                 timestampUtc: Math.floor(Date.now() / 1000),
                 eventType: "RECONCILIATION_ORPHAN_RECOVERED",
                 message: `Execução órfã recuperada: ${position.contractId} | PnL: $${(pnlInCents / 100).toFixed(2)} | Status DERIV: ${contractInfo.status}`,
@@ -234,6 +236,7 @@ export class DerivReconciliationService {
               await insertEventLog({
                 userId,
                 botId,
+                brokerType: "DERIV", // ✅ Isolamento por corretora
                 eventType: "RECONCILIATION_UPDATE",
                 message: `Posição órfã sincronizada: ${position.contractId} | PnL: $${(pnlInCents / 100).toFixed(2)}`,
                 data: JSON.stringify({

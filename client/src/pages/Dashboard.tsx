@@ -54,9 +54,13 @@ export default function Dashboard() {
 
 /**
  * Dashboard IC Markets - Forex via cTrader
+ * 
+ * NOTA: Inclui seletor Bot 1/Bot 2 para consistência com DERIV.
+ * Cada bot pode ter configurações independentes de IC Markets.
  */
 function ICMarketsDashboardContent() {
   const { currentConfig } = useBroker();
+  const { selectedBot, setSelectedBot } = useBotSelector();
   
   // Query de status de conexão IC Markets
   const connectionStatus = trpc.icmarkets.getConnectionStatus.useQuery(undefined, {
@@ -97,6 +101,8 @@ function ICMarketsDashboardContent() {
               </div>
               <p className="text-slate-400 mt-1">Forex Spot Trading via cTrader Open API</p>
             </div>
+            {/* Seletor Bot 1/Bot 2 para IC Markets */}
+            <BotSelector selectedBot={selectedBot} onBotChange={setSelectedBot} />
           </div>
           
           {/* Status de Conexão */}

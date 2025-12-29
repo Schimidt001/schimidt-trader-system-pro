@@ -884,18 +884,20 @@ export const appRouter = router({
     }),
   }),
 
-  // Logs de eventos
+  // Logs de eventos - Isolados por corretora
   logs: router({
     recent: protectedProcedure
       .input(
         z.object({
           limit: z.number().int().positive().optional().default(100),
           botId: z.number().int().min(1).max(2).optional(),
+          brokerType: z.enum(["DERIV", "ICMARKETS"]).optional().default("DERIV"),
         })
       )
       .query(async ({ ctx, input }) => {
         const botId = input.botId ?? 1;
-        const logs = await getRecentEventLogs(ctx.user.id, botId, input.limit);
+        const brokerType = input.brokerType ?? "DERIV";
+        const logs = await getRecentEventLogs(ctx.user.id, botId, brokerType, input.limit);
         return logs;
       }),
   }),

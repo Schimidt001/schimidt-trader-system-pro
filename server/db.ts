@@ -405,13 +405,29 @@ export async function insertEventLog(data: InsertEventLog): Promise<void> {
   await db.insert(eventLogs).values(data);
 }
 
-export async function getRecentEventLogs(userId: number, botId: number = 1, limit: number = 100): Promise<EventLog[]> {
+/**
+ * Busca logs de eventos recentes filtrados por usuário, bot e corretora
+ * @param userId - ID do usuário
+ * @param botId - ID do bot (1 ou 2)
+ * @param brokerType - Tipo da corretora (DERIV ou ICMARKETS)
+ * @param limit - Número máximo de logs a retornar
+ */
+export async function getRecentEventLogs(
+  userId: number, 
+  botId: number = 1, 
+  brokerType: "DERIV" | "ICMARKETS" = "DERIV",
+  limit: number = 100
+): Promise<EventLog[]> {
   const db = await getDb();
   if (!db) return [];
   return db
     .select()
     .from(eventLogs)
-    .where(and(eq(eventLogs.userId, userId), eq(eventLogs.botId, botId)))
+    .where(and(
+      eq(eventLogs.userId, userId), 
+      eq(eventLogs.botId, botId),
+      eq(eventLogs.brokerType, brokerType)
+    ))
     .orderBy(desc(eventLogs.timestampUtc))
     .limit(limit);
 }
