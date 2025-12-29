@@ -67,8 +67,23 @@ function ICMarketsDashboardContent() {
     refetchInterval: 5000,
   });
   
+  // Query de métricas IC Markets (P&L diário/mensal)
+  const { data: icMetrics } = trpc.icmarkets.getMetrics.useQuery(
+    { botId: selectedBot },
+    {
+      refetchInterval: 10000,
+    }
+  );
+  
   const isConnected = connectionStatus.data?.connected === true;
   const accountInfo = connectionStatus.data?.accountInfo;
+  
+  // Métricas de P&L
+  const dailyPnL = icMetrics?.daily?.pnlUsd ?? 0;
+  const dailyTrades = icMetrics?.daily?.totalTrades ?? 0;
+  const dailyLosses = icMetrics?.daily?.losses ?? 0;
+  const monthlyPnL = icMetrics?.monthly?.pnlUsd ?? 0;
+  const monthlyTrades = icMetrics?.monthly?.totalTrades ?? 0;
   
   // Mutations
   const connectMutation = trpc.icmarkets.connect.useMutation({
@@ -254,16 +269,56 @@ function ICMarketsDashboardContent() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-white text-sm flex items-center gap-2">
                   <DollarSign className="w-4 h-4 text-green-400" />
-                  Saldo
+                  Saldo IC MARKETS
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-400">
                   {accountInfo?.currency} {accountInfo?.balance?.toFixed(2)}
                 </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {accountInfo?.accountType === "demo" ? "Conta Demo" : "Conta Real"}
+                </p>
               </CardContent>
             </Card>
             
+            {/* P&L Diário */}
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
+                  {dailyPnL >= 0 ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
+                  P&L Diário
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${dailyPnL >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {dailyPnL >= 0 ? "+" : ""}${dailyPnL.toFixed(2)}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {dailyTrades} trades | {dailyLosses} losses
+                </p>
+              </CardContent>
+            </Card>
+            
+            {/* P&L Mensal */}
+            <Card className="bg-slate-900/50 border-slate-800">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
+                  {monthlyPnL >= 0 ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
+                  P&L Mensal
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${monthlyPnL >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {monthlyPnL >= 0 ? "+" : ""}${monthlyPnL.toFixed(2)}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {monthlyTrades} trades
+                </p>
+              </CardContent>
+            </Card>
+            
+            {/* Equity */}
             <Card className="bg-slate-900/50 border-blue-500/20">
               <CardHeader className="pb-2">
                 <CardTitle className="text-white text-sm flex items-center gap-2">
@@ -275,30 +330,9 @@ function ICMarketsDashboardContent() {
                 <div className="text-2xl font-bold text-blue-400">
                   {accountInfo?.currency} {accountInfo?.equity?.toFixed(2) || accountInfo?.balance?.toFixed(2)}
                 </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-slate-900/50 border-purple-500/20">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-white text-sm flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-purple-400" />
-                  P&L Hoje
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-purple-400">$0.00</div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-slate-900/50 border-yellow-500/20">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-white text-sm flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-yellow-400" />
-                  Trades Hoje
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-yellow-400">0</div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Alavancagem: 1:{accountInfo?.leverage}
+                </p>
               </CardContent>
             </Card>
             

@@ -46,13 +46,16 @@ export default function Logs() {
     refetchInterval: 5000,
   });
 
-  const { data: icPositions } = trpc.icmarkets.getOpenPositions.useQuery(undefined, {
-    enabled: !!user && isICMarkets && icConnectionStatus?.connected === true,
-    refetchInterval: 5000,
-  });
+  const { data: icPositions } = trpc.icmarkets.getOpenPositions.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: !!user && isICMarkets && icConnectionStatus?.connected === true,
+      refetchInterval: 5000,
+    }
+  );
 
   const { data: icPositionHistory } = trpc.icmarkets.getPositionHistory.useQuery(
-    { limit: 50 },
+    { limit: 50, botId: selectedBot },
     {
       enabled: !!user && isICMarkets,
       refetchInterval: 10000,
@@ -113,6 +116,8 @@ export default function Logs() {
       connectionStatus={icConnectionStatus}
       positions={icPositions?.stored}
       positionHistory={icPositionHistory}
+      selectedBot={selectedBot}
+      setSelectedBot={setSelectedBot}
     />;
   }
 
@@ -339,9 +344,11 @@ interface ICMarketsLogsContentProps {
   connectionStatus: any;
   positions: any[] | undefined;
   positionHistory: any[] | undefined;
+  selectedBot: number;
+  setSelectedBot: (bot: number) => void;
 }
 
-function ICMarketsLogsContent({ connectionStatus, positions, positionHistory }: ICMarketsLogsContentProps) {
+function ICMarketsLogsContent({ connectionStatus, positions, positionHistory, selectedBot, setSelectedBot }: ICMarketsLogsContentProps) {
   const isConnected = connectionStatus?.connected === true;
 
   const formatDateTime = (date: Date | string | null) => {
@@ -392,25 +399,30 @@ function ICMarketsLogsContent({ connectionStatus, positions, positionHistory }: 
             <BrokerIndicator />
           </div>
           
-          {/* Status de Conexão */}
-          <Badge
-            variant={isConnected ? "default" : "destructive"}
-            className={`px-4 py-2 text-sm ${
-              isConnected ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"
-            }`}
-          >
-            {isConnected ? (
-              <>
-                <Wifi className="w-4 h-4 mr-2" />
-                Conectado
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-4 h-4 mr-2" />
-                Desconectado
-              </>
-            )}
-          </Badge>
+          <div className="flex items-center gap-4">
+            {/* Seletor de Bot */}
+            <BotSelector selectedBot={selectedBot} onBotChange={setSelectedBot} />
+            
+            {/* Status de Conexão */}
+            <Badge
+              variant={isConnected ? "default" : "destructive"}
+              className={`px-4 py-2 text-sm ${
+                isConnected ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"
+              }`}
+            >
+              {isConnected ? (
+                <>
+                  <Wifi className="w-4 h-4 mr-2" />
+                  Conectado
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-4 h-4 mr-2" />
+                  Desconectado
+                </>
+              )}
+            </Badge>
+          </div>
         </div>
 
         {/* SEÇÃO: Posições Abertas */}

@@ -16,6 +16,8 @@ import {
   updateForexPosition,
   getOpenForexPositions,
   getForexPositionHistory,
+  getForexDailyStats,
+  getForexMonthlyStats,
 } from "../db";
 
 // Schema de validação para configuração IC Markets
@@ -457,18 +459,24 @@ export const icmarketsRouter = router({
   /**
    * Obtém posições abertas
    */
-  getOpenPositions: protectedProcedure.query(async ({ ctx }) => {
-    // Obter do adaptador (tempo real)
-    const adapterPositions = await ctraderAdapter.getOpenPositions();
-    
-    // Obter do banco de dados
-    const dbPositions = await getOpenForexPositions(ctx.user.id);
-    
-    return {
-      live: adapterPositions,
-      stored: dbPositions,
-    };
-  }),
+  getOpenPositions: protectedProcedure
+    .input(z.object({
+      botId: z.number().default(1),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      
+      // Obter do adaptador (tempo real)
+      const adapterPositions = await ctraderAdapter.getOpenPositions();
+      
+      // Obter do banco de dados (filtrado por botId)
+      const dbPositions = await getOpenForexPositions(ctx.user.id, botId);
+      
+      return {
+        live: adapterPositions,
+        stored: dbPositions,
+      };
+    }),
   
   /**
    * Obtém histórico de posições
@@ -477,10 +485,51 @@ export const icmarketsRouter = router({
     .input(z.object({
       limit: z.number().default(50),
       offset: z.number().default(0),
+      botId: z.number().default(1),
     }))
     .query(async ({ ctx, input }) => {
-      const positions = await getForexPositionHistory(ctx.user.id, input.limit, input.offset);
+      const positions = await getForexPositionHistory(ctx.user.id, input.limit, input.offset, input.botId);
       return positions;
+    }),
+  
+  // ============= MÉTRICAS =============
+  
+  /**
+   * Obtém métricas de P&L diário e mensal para IC Markets
+   */
+  getMetrics: protectedProcedure
+    .input(z.object({
+      botId: z.number().default(1),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      
+      // Obter estatísticas diárias
+      const dailyStats = await getForexDailyStats(ctx.user.id, botId);
+      
+      // Obter estatísticas mensais
+      const monthlyStats = await getForexMonthlyStats(ctx.user.id, botId);
+      
+      return {
+        daily: {
+          totalTrades: dailyStats.totalTrades,
+          wins: dailyStats.wins,
+          losses: dailyStats.losses,
+          pnlUsd: dailyStats.pnlUsd,
+          winRate: dailyStats.totalTrades > 0 
+            ? ((dailyStats.wins / dailyStats.totalTrades) * 100).toFixed(1) 
+            : "0.0",
+        },
+        monthly: {
+          totalTrades: monthlyStats.totalTrades,
+          wins: monthlyStats.wins,
+          losses: monthlyStats.losses,
+          pnlUsd: monthlyStats.pnlUsd,
+          winRate: monthlyStats.totalTrades > 0 
+            ? ((monthlyStats.wins / monthlyStats.totalTrades) * 100).toFixed(1) 
+            : "0.0",
+        },
+      };
     }),
 });
 

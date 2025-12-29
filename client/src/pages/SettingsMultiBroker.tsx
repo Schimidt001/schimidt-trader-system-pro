@@ -73,6 +73,40 @@ export default function SettingsMultiBroker() {
   const [useCandleDuration, setUseCandleDuration] = useState(false);
   const [hedgeEnabled, setHedgeEnabled] = useState(true);
   
+  // ============= FILTROS AVANÇADOS DERIV =============
+  // Filtro de Horário
+  const [hourlyFilterEnabled, setHourlyFilterEnabled] = useState(false);
+  const [hourlyFilterCustomHours, setHourlyFilterCustomHours] = useState<number[]>([]);
+  const [hourlyFilterGoldHours, setHourlyFilterGoldHours] = useState<number[]>([]);
+  const [hourlyFilterGoldMultiplier, setHourlyFilterGoldMultiplier] = useState("200");
+  
+  // Market Condition Detector
+  const [marketConditionEnabled, setMarketConditionEnabled] = useState(false);
+  
+  // Payout Mínimo
+  const [payoutCheckEnabled, setPayoutCheckEnabled] = useState(true);
+  const [minPayoutPercent, setMinPayoutPercent] = useState("80");
+  const [payoutRecheckDelay, setPayoutRecheckDelay] = useState("300");
+  
+  // DojiGuard (Filtro Anti-Doji)
+  const [antiDojiEnabled, setAntiDojiEnabled] = useState(false);
+  const [antiDojiRangeMin, setAntiDojiRangeMin] = useState("0.0500");
+  const [antiDojiRatioMin, setAntiDojiRatioMin] = useState("18");
+  
+  // ExhaustionGuard (Filtro de Exaustão)
+  const [exhaustionGuardEnabled, setExhaustionGuardEnabled] = useState(false);
+  const [exhaustionRatioMax, setExhaustionRatioMax] = useState("70");
+  const [exhaustionPositionMin, setExhaustionPositionMin] = useState("85");
+  const [exhaustionRangeLookback, setExhaustionRangeLookback] = useState("10");
+  const [exhaustionRangeMultiplier, setExhaustionRangeMultiplier] = useState("1.5");
+  const [exhaustionGuardLogEnabled, setExhaustionGuardLogEnabled] = useState(true);
+  
+  // TTLFilter (Time-To-Live Filter)
+  const [ttlEnabled, setTtlEnabled] = useState(false);
+  const [ttlMinimumSeconds, setTtlMinimumSeconds] = useState("180");
+  const [ttlTriggerDelayBuffer, setTtlTriggerDelayBuffer] = useState("120");
+  const [ttlLogEnabled, setTtlLogEnabled] = useState(true);
+  
   // ============= ESTADOS IC MARKETS =============
   const [icConnectionStatus, setIcConnectionStatus] = useState<{
     connected: boolean;
@@ -222,7 +256,53 @@ export default function SettingsMultiBroker() {
       setUseCandleDuration(config.useCandleDuration ?? false);
       setHedgeEnabled(config.hedgeEnabled ?? true);
       
-
+      // Carregar Filtros Avançados DERIV
+      setHourlyFilterEnabled(config.hourlyFilterEnabled ?? false);
+      if (config.hourlyFilterCustomHours) {
+        try {
+          setHourlyFilterCustomHours(JSON.parse(config.hourlyFilterCustomHours));
+        } catch (e) {
+          setHourlyFilterCustomHours([]);
+        }
+      }
+      if (config.hourlyFilterGoldHours) {
+        try {
+          setHourlyFilterGoldHours(JSON.parse(config.hourlyFilterGoldHours));
+        } catch (e) {
+          setHourlyFilterGoldHours([]);
+        }
+      }
+      setHourlyFilterGoldMultiplier((config.hourlyFilterGoldMultiplier || 200).toString());
+      
+      // Market Condition Detector
+      setMarketConditionEnabled(config.marketConditionEnabled ?? false);
+      
+      // Payout Mínimo
+      setPayoutCheckEnabled(config.payoutCheckEnabled ?? true);
+      setMinPayoutPercent((config.minPayoutPercent || 80).toString());
+      setPayoutRecheckDelay((config.payoutRecheckDelay || 300).toString());
+      
+      // DojiGuard
+      setAntiDojiEnabled(config.antiDojiEnabled ?? false);
+      setAntiDojiRangeMin(config.antiDojiRangeMin ? config.antiDojiRangeMin.toString() : "0.0500");
+      const ratioPercent = config.antiDojiRatioMin ? (parseFloat(config.antiDojiRatioMin.toString()) * 100).toFixed(0) : "18";
+      setAntiDojiRatioMin(ratioPercent);
+      
+      // ExhaustionGuard
+      setExhaustionGuardEnabled(config.exhaustionGuardEnabled ?? false);
+      const exhaustionRatioPercent = config.exhaustionRatioMax ? (parseFloat(config.exhaustionRatioMax.toString()) * 100).toFixed(0) : "70";
+      setExhaustionRatioMax(exhaustionRatioPercent);
+      const exhaustionPositionPercent = config.exhaustionPositionMin ? (parseFloat(config.exhaustionPositionMin.toString()) * 100).toFixed(0) : "85";
+      setExhaustionPositionMin(exhaustionPositionPercent);
+      setExhaustionRangeLookback((config.exhaustionRangeLookback ?? 10).toString());
+      setExhaustionRangeMultiplier(config.exhaustionRangeMultiplier ? config.exhaustionRangeMultiplier.toString() : "1.5");
+      setExhaustionGuardLogEnabled(config.exhaustionGuardLogEnabled ?? true);
+      
+      // TTLFilter
+      setTtlEnabled(config.ttlEnabled ?? false);
+      setTtlMinimumSeconds((config.ttlMinimumSeconds ?? 180).toString());
+      setTtlTriggerDelayBuffer((config.ttlTriggerDelayBuffer ?? 120).toString());
+      setTtlLogEnabled(config.ttlLogEnabled ?? true);
     }
   }, [config]);
 
@@ -309,6 +389,13 @@ export default function SettingsMultiBroker() {
         return;
       }
 
+      // VALIDAÇÃO CRÍTICA: Filtro de Horário não pode ter array vazio
+      if (hourlyFilterEnabled && hourlyFilterCustomHours.length === 0) {
+        toast.error("Selecione pelo menos 1 horário permitido ou desative o filtro de horário");
+        setIsSaving(false);
+        return;
+      }
+
       updateConfig.mutate({
         botId: selectedBot,
         mode,
@@ -333,6 +420,32 @@ export default function SettingsMultiBroker() {
         allowEquals,
         useCandleDuration,
         hedgeEnabled,
+        // Filtros Avançados DERIV
+        hourlyFilterEnabled,
+        hourlyFilterMode: "CUSTOM" as const,
+        hourlyFilterCustomHours: JSON.stringify(hourlyFilterCustomHours),
+        hourlyFilterGoldHours: JSON.stringify(hourlyFilterGoldHours),
+        hourlyFilterGoldMultiplier: parseInt(hourlyFilterGoldMultiplier) || 200,
+        marketConditionEnabled,
+        payoutCheckEnabled,
+        minPayoutPercent: parseInt(minPayoutPercent) || 80,
+        payoutRecheckDelay: parseInt(payoutRecheckDelay) || 300,
+        // DojiGuard
+        antiDojiEnabled,
+        antiDojiRangeMin: parseFloat(antiDojiRangeMin) || 0.0500,
+        antiDojiRatioMin: (parseInt(antiDojiRatioMin) || 18) / 100,
+        // ExhaustionGuard
+        exhaustionGuardEnabled,
+        exhaustionRatioMax: (parseInt(exhaustionRatioMax) || 70) / 100,
+        exhaustionPositionMin: (parseInt(exhaustionPositionMin) || 85) / 100,
+        exhaustionRangeLookback: parseInt(exhaustionRangeLookback) || 10,
+        exhaustionRangeMultiplier: parseFloat(exhaustionRangeMultiplier) || 1.5,
+        exhaustionGuardLogEnabled,
+        // TTLFilter
+        ttlEnabled,
+        ttlMinimumSeconds: parseInt(ttlMinimumSeconds) || 180,
+        ttlTriggerDelayBuffer: parseInt(ttlTriggerDelayBuffer) || 120,
+        ttlLogEnabled,
       });
     } else {
       // Salvar configurações IC Markets
@@ -465,7 +578,6 @@ export default function SettingsMultiBroker() {
                       />
                     </div>
                   </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="stopDaily" className="text-slate-300">Stop Diário (USD)</Label>
@@ -490,7 +602,6 @@ export default function SettingsMultiBroker() {
                       />
                     </div>
                   </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="triggerOffset" className="text-slate-300">Trigger Offset (Pips)</Label>
@@ -561,6 +672,521 @@ export default function SettingsMultiBroker() {
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
+
+              {/* ============= FILTROS AVANÇADOS DERIV ============= */}
+              
+              {/* Filtro de Horário */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-white">🕒 Filtro de Horário</CardTitle>
+                  <CardDescription>Restringe operações a horários específicos para operação (ideal para Forex)</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="hourlyFilterEnabled" className="text-slate-300">
+                        Ativar Filtro de Horário
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Bot opera apenas nos horários permitidos (GMT - padrão Deriv)
+                      </p>
+                    </div>
+                    <Switch
+                      id="hourlyFilterEnabled"
+                      checked={hourlyFilterEnabled}
+                      onCheckedChange={setHourlyFilterEnabled}
+                    />
+                  </div>
+                  {hourlyFilterEnabled && (
+                    <div className="space-y-4 pt-4 border-t border-slate-700">
+                      {/* Indicador de Horário Atual */}
+                      <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 mb-4">
+                        <div className="flex items-center justify-between text-sm">
+                          <div>
+                            <span className="text-slate-400">Horário GMT Atual:</span>
+                            <span className="ml-2 text-blue-400 font-semibold">
+                              {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} ({new Date().getUTCHours()}h GMT)
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Seu Horário:</span>
+                            <span className="ml-2 text-green-400 font-semibold">
+                              {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Grade de Horários */}
+                      <div className="space-y-2">
+                        <Label className="text-slate-300">
+                          Horários Permitidos (GMT)
+                        </Label>
+                        <p className="text-xs text-slate-500 mb-3">
+                          Clique nos horários para permitir/bloquear operações
+                        </p>
+                        <div className="grid grid-cols-6 gap-2">
+                          {Array.from({ length: 24 }, (_, i) => i).map((hour) => {
+                            const isSelected = hourlyFilterCustomHours.includes(hour);
+                            const isGold = hourlyFilterGoldHours.includes(hour);
+                            return (
+                              <button
+                                key={hour}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    const newHours = hourlyFilterCustomHours.filter(h => h !== hour);
+                                    setHourlyFilterCustomHours(newHours);
+                                    setHourlyFilterGoldHours(hourlyFilterGoldHours.filter(h => h !== hour));
+                                  } else {
+                                    const newHours = [...hourlyFilterCustomHours, hour].sort((a, b) => a - b);
+                                    setHourlyFilterCustomHours(newHours);
+                                  }
+                                }}
+                                className={`
+                                  px-3 py-2 rounded-lg font-semibold text-sm transition-all
+                                  ${isGold 
+                                    ? 'bg-yellow-500 text-black hover:bg-yellow-400 ring-2 ring-yellow-300' 
+                                    : isSelected 
+                                      ? 'bg-green-600 text-white hover:bg-green-500' 
+                                      : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                                  }
+                                `}
+                              >
+                                {isGold && '⭐ '}{hour}h
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2">
+                          {hourlyFilterCustomHours.length} horário(s) selecionado(s)
+                        </p>
+                      </div>
+                      {/* Horários GOLD */}
+                      <div className="space-y-2 pt-4 border-t border-slate-700">
+                        <Label className="text-slate-300">
+                          ⭐ Horários GOLD (opcional)
+                        </Label>
+                        <p className="text-xs text-slate-500 mb-3">
+                          Clique em um horário permitido para marcá-lo como GOLD (stake multiplicado)
+                        </p>
+                        <div className="grid grid-cols-6 gap-2">
+                          {hourlyFilterCustomHours.map((hour) => {
+                            const isGold = hourlyFilterGoldHours.includes(hour);
+                            return (
+                              <button
+                                key={hour}
+                                type="button"
+                                onClick={() => {
+                                  if (isGold) {
+                                    setHourlyFilterGoldHours(hourlyFilterGoldHours.filter(h => h !== hour));
+                                  } else {
+                                    if (hourlyFilterGoldHours.length < 2) {
+                                      setHourlyFilterGoldHours([...hourlyFilterGoldHours, hour].sort((a, b) => a - b));
+                                    }
+                                  }
+                                }}
+                                className={`
+                                  px-3 py-2 rounded-lg font-semibold text-sm transition-all
+                                  ${isGold 
+                                    ? 'bg-yellow-500 text-black hover:bg-yellow-400 ring-2 ring-yellow-300' 
+                                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                                  }
+                                `}
+                              >
+                                {isGold && '⭐ '}{hour}h
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {hourlyFilterGoldHours.length > 0 && (
+                          <p className="text-xs text-yellow-400 mt-2">
+                            {hourlyFilterGoldHours.length} horário(s) GOLD selecionado(s)
+                          </p>
+                        )}
+                      </div>
+                      {/* Multiplicador GOLD */}
+                      {hourlyFilterGoldHours.length > 0 && (
+                        <div className="space-y-2 pt-4 border-t border-slate-700">
+                          <Label htmlFor="hourlyFilterGoldMultiplier" className="text-slate-300">
+                            Multiplicador de Stake GOLD
+                          </Label>
+                          <div className="flex items-center gap-4">
+                            <Input
+                              id="hourlyFilterGoldMultiplier"
+                              type="number"
+                              value={hourlyFilterGoldMultiplier}
+                              onChange={(e) => setHourlyFilterGoldMultiplier(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="100"
+                              step="50"
+                            />
+                            <span className="text-yellow-400 font-semibold">
+                              {parseInt(hourlyFilterGoldMultiplier) / 100}x
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            Stake será multiplicado nos horários GOLD (100 = 1x, 200 = 2x, 300 = 3x)
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Market Condition Detector */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-white">🌐 Market Condition Detector</CardTitle>
+                  <CardDescription>Analisa condições de mercado e bloqueia operações em momentos de alto risco</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="marketConditionEnabled" className="text-slate-300">
+                        Ativar Market Condition Detector
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Analisa volatilidade, notícias e condições técnicas antes de operar
+                      </p>
+                    </div>
+                    <Switch
+                      id="marketConditionEnabled"
+                      checked={marketConditionEnabled}
+                      onCheckedChange={setMarketConditionEnabled}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Payout Mínimo */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-slate-100">💰 Payout Mínimo</CardTitle>
+                  <CardDescription>Verifica se o payout oferecido pela Deriv atinge o mínimo aceitável</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="payoutCheckEnabled" className="text-slate-300">
+                        Ativar Verificação de Payout
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Bot verifica payout antes de fazer predição
+                      </p>
+                    </div>
+                    <Switch
+                      id="payoutCheckEnabled"
+                      checked={payoutCheckEnabled}
+                      onCheckedChange={setPayoutCheckEnabled}
+                    />
+                  </div>
+                  {payoutCheckEnabled && (
+                    <div className="space-y-4 pt-4 border-t border-slate-700">
+                      <div className="space-y-2">
+                        <Label htmlFor="minPayoutPercent" className="text-slate-300">
+                          Payout Mínimo Aceitável (%)
+                        </Label>
+                        <Input
+                          id="minPayoutPercent"
+                          type="number"
+                          value={minPayoutPercent}
+                          onChange={(e) => setMinPayoutPercent(e.target.value)}
+                          placeholder="80"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 80 = 80%. Se payout for menor, aguarda e tenta novamente
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="payoutRecheckDelay" className="text-slate-300">
+                          Tempo de Espera para Retry (segundos)
+                        </Label>
+                        <Input
+                          id="payoutRecheckDelay"
+                          type="number"
+                          value={payoutRecheckDelay}
+                          onChange={(e) => setPayoutRecheckDelay(e.target.value)}
+                          placeholder="300"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Tempo de espera antes de verificar payout novamente (padrão: 300s = 5 min)
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* DojiGuard (Filtro Anti-Doji) */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-slate-100">🛡️ Filtro Anti-Doji (DojiGuard)</CardTitle>
+                  <CardDescription>Bloqueia entrada em candles com alta probabilidade de indecisão (doji)</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="antiDojiEnabled" className="text-slate-300">
+                        Ativar Filtro Anti-Doji
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Bot verifica se o candle tem características de doji antes de armar entrada
+                      </p>
+                    </div>
+                    <Switch
+                      id="antiDojiEnabled"
+                      checked={antiDojiEnabled}
+                      onCheckedChange={setAntiDojiEnabled}
+                    />
+                  </div>
+                  {antiDojiEnabled && (
+                    <div className="space-y-4 pt-4 border-t border-slate-700">
+                      <div className="space-y-2">
+                        <Label htmlFor="antiDojiRangeMin" className="text-slate-300">
+                          Range Mínimo Aceitável (pips)
+                        </Label>
+                        <Input
+                          id="antiDojiRangeMin"
+                          type="number"
+                          step="0.0001"
+                          value={antiDojiRangeMin}
+                          onChange={(e) => setAntiDojiRangeMin(e.target.value)}
+                          placeholder="0.0500"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 0.0500 = 50 pips. Candles com range menor que isso são bloqueados (volatilidade insuficiente)
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="antiDojiRatioMin" className="text-slate-300">
+                          Proporção Mínima Body/Range (%)
+                        </Label>
+                        <Input
+                          id="antiDojiRatioMin"
+                          type="number"
+                          value={antiDojiRatioMin}
+                          onChange={(e) => setAntiDojiRatioMin(e.target.value)}
+                          placeholder="18"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 18 = 18%. Se o corpo do candle for menor que 18% do range total, é bloqueado (doji)
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ExhaustionGuard (Filtro de Exaustão) */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-slate-100">⚡ Filtro de Exaustão (ExhaustionGuard)</CardTitle>
+                  <CardDescription>Bloqueia entrada quando o candle apresenta sinais de exaustão excessiva</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="exhaustionGuardEnabled" className="text-slate-300">
+                        Ativar Filtro de Exaustão
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Bot verifica se o candle apresenta sinais de exaustão excessiva antes de armar entrada
+                      </p>
+                    </div>
+                    <Switch
+                      id="exhaustionGuardEnabled"
+                      checked={exhaustionGuardEnabled}
+                      onCheckedChange={setExhaustionGuardEnabled}
+                    />
+                  </div>
+                  {exhaustionGuardEnabled && (
+                    <div className="space-y-4 pt-4 border-t border-slate-700">
+                      <div className="space-y-2">
+                        <Label htmlFor="exhaustionRatioMax" className="text-slate-300">
+                          Limite Máximo de Exaustão (%)
+                        </Label>
+                        <Input
+                          id="exhaustionRatioMax"
+                          type="number"
+                          value={exhaustionRatioMax}
+                          onChange={(e) => setExhaustionRatioMax(e.target.value)}
+                          placeholder="70"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 70 = 70%. Se o movimento direcional for maior que 70% do range total
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="exhaustionPositionMin" className="text-slate-300">
+                          Limite Mínimo de Posição (%)
+                        </Label>
+                        <Input
+                          id="exhaustionPositionMin"
+                          type="number"
+                          value={exhaustionPositionMin}
+                          onChange={(e) => setExhaustionPositionMin(e.target.value)}
+                          placeholder="85"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 85 = 85%. Preço deve estar próximo do extremo do range para bloquear (evita falsos bloqueios)
+                        </p>
+                      </div>
+                      <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-3">
+                        <p className="text-xs text-amber-400">
+                          ⚠️ <strong>Regra de Bloqueio (ADENDO TÉCNICO):</strong> Bloqueio por exaustão requer AMBOS: ExhaustionRatio &gt;= {exhaustionRatioMax}% <strong>E</strong> PositionRatio &gt;= {exhaustionPositionMin}%
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="exhaustionRangeLookback" className="text-slate-300">
+                          Candles para Média de Range (Opcional)
+                        </Label>
+                        <Input
+                          id="exhaustionRangeLookback"
+                          type="number"
+                          value={exhaustionRangeLookback}
+                          onChange={(e) => setExhaustionRangeLookback(e.target.value)}
+                          placeholder="10"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Número de candles anteriores para calcular a média de range (critério separado e opcional)
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="exhaustionRangeMultiplier" className="text-slate-300">
+                          Multiplicador de Range Anormal
+                        </Label>
+                        <Input
+                          id="exhaustionRangeMultiplier"
+                          type="number"
+                          step="0.1"
+                          value={exhaustionRangeMultiplier}
+                          onChange={(e) => setExhaustionRangeMultiplier(e.target.value)}
+                          placeholder="1.5"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 1.5 = 1.5x. Se o range atual for 1.5x maior que a média, é bloqueado (volatilidade anormal)
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="exhaustionGuardLogEnabled" className="text-slate-300">
+                            Log Detalhado
+                          </Label>
+                          <p className="text-xs text-slate-500">
+                            Exibir logs detalhados das verificações de exaustão no console
+                          </p>
+                        </div>
+                        <Switch
+                          id="exhaustionGuardLogEnabled"
+                          checked={exhaustionGuardLogEnabled}
+                          onCheckedChange={setExhaustionGuardLogEnabled}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* TTLFilter (Time-To-Live Filter) */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-slate-100">🕒 Filtro TTL (Time-To-Live)</CardTitle>
+                  <CardDescription>Bloqueia armamento do gatilho quando não há tempo suficiente dentro da janela operacional (35-45min no M60)</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="ttlEnabled" className="text-slate-300">
+                        Ativar Filtro TTL
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Bot verifica se ainda há tempo suficiente na janela operacional antes de armar o gatilho
+                      </p>
+                    </div>
+                    <Switch
+                      id="ttlEnabled"
+                      checked={ttlEnabled}
+                      onCheckedChange={setTtlEnabled}
+                    />
+                  </div>
+                  {ttlEnabled && (
+                    <div className="space-y-4 pt-4 border-t border-slate-700">
+                      <div className="bg-purple-900/30 border border-purple-700/50 rounded-lg p-3">
+                        <p className="text-sm text-purple-300">
+                          📍 <strong>Contexto da Janela Operacional (M60):</strong>
+                        </p>
+                        <ul className="text-xs text-purple-400 space-y-1 mt-2">
+                          <li>• Minuto 0–35: Formação / Análise (NÃO operável)</li>
+                          <li>• <strong>Minuto 35–45: Única janela operável (10 minutos)</strong></li>
+                          <li>• Minuto 45–60: Proibido pela Deriv</li>
+                        </ul>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="ttlMinimumSeconds" className="text-slate-300">
+                          Tempo Mínimo para Operação (segundos)
+                        </Label>
+                        <Input
+                          id="ttlMinimumSeconds"
+                          type="number"
+                          value={ttlMinimumSeconds}
+                          onChange={(e) => setTtlMinimumSeconds(e.target.value)}
+                          placeholder="180"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Tempo mínimo restante dentro da janela operacional (35-45min). Padrão: 180s = 3 minutos
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="ttlTriggerDelayBuffer" className="text-slate-300">
+                          Buffer de Atraso do Gatilho (segundos)
+                        </Label>
+                        <Input
+                          id="ttlTriggerDelayBuffer"
+                          type="number"
+                          value={ttlTriggerDelayBuffer}
+                          onChange={(e) => setTtlTriggerDelayBuffer(e.target.value)}
+                          placeholder="120"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Buffer para possível atraso no cruzamento do gatilho. Padrão: 120s = 2 minutos
+                        </p>
+                      </div>
+                      <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-3">
+                        <p className="text-xs text-amber-400">
+                          ⚠️ <strong>Tempo Total Exigido:</strong> {parseInt(ttlMinimumSeconds || "180") + parseInt(ttlTriggerDelayBuffer || "120")} segundos ({Math.floor((parseInt(ttlMinimumSeconds || "180") + parseInt(ttlTriggerDelayBuffer || "120")) / 60)} minutos) - compatível com janela de 10 min
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="ttlLogEnabled" className="text-slate-300">
+                            Log Detalhado
+                          </Label>
+                          <p className="text-xs text-slate-500">
+                            Exibir logs detalhados das verificações de TTL no console
+                          </p>
+                        </div>
+                        <Switch
+                          id="ttlLogEnabled"
+                          checked={ttlLogEnabled}
+                          onCheckedChange={setTtlLogEnabled}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </>
           ) : (
             <>

@@ -988,3 +988,52 @@ export async function getForexDailyStats(userId: number, botId: number = 1): Pro
     pnlUsd,
   };
 }
+
+
+/**
+ * Obtém estatísticas de posições Forex do mês
+ */
+export async function getForexMonthlyStats(userId: number, botId: number = 1): Promise<{
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  pnlUsd: number;
+}> {
+  const db = await getDb();
+  if (!db) return { totalTrades: 0, wins: 0, losses: 0, pnlUsd: 0 };
+  
+  // Primeiro dia do mês atual
+  const now = new Date();
+  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  firstDayOfMonth.setHours(0, 0, 0, 0);
+  
+  const positions = await db
+    .select()
+    .from(forexPositions)
+    .where(
+      and(
+        eq(forexPositions.userId, userId),
+        eq(forexPositions.botId, botId),
+        eq(forexPositions.status, "CLOSED"),
+        gte(forexPositions.closeTime, firstDayOfMonth)
+      )
+    );
+  
+  let wins = 0;
+  let losses = 0;
+  let pnlUsd = 0;
+  
+  for (const pos of positions) {
+    const pnl = Number(pos.pnlUsd || 0);
+    pnlUsd += pnl;
+    if (pnl > 0) wins++;
+    else if (pnl < 0) losses++;
+  }
+  
+  return {
+    totalTrades: positions.length,
+    wins,
+    losses,
+    pnlUsd,
+  };
+}
