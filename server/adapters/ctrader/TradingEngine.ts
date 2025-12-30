@@ -315,15 +315,22 @@ export class TradingEngine extends EventEmitter {
     
     try {
       // Buscar candles para análise
+      // IMPORTANTE: Solicitamos 500 candles para garantir margem de segurança
+      // A corretora pode retornar menos devido a horários de mercado fechado
       const candles = await ctraderAdapter.getCandleHistory(
         this.config.symbol,
         this.config.timeframe,
-        250 // Precisamos de pelo menos 200 candles para EMA 200
+        500 // Buffer aumentado: garante > 210 mesmo com gaps de mercado
       );
       
       if (candles.length < 210) {
         console.log(`[TradingEngine] ⚠️ Dados insuficientes: ${candles.length} candles (mínimo: 210)`);
         return;
+      }
+      
+      // Log de confirmação de dados OK (apenas na primeira análise)
+      if (this.analysisCount === 1) {
+        console.log(`[TradingEngine] ✅ Dados OK: ${candles.length} candles recebidos. Analisando mercado...`);
       }
       
       // Converter para formato da estratégia
