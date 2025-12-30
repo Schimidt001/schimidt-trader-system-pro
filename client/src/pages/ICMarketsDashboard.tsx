@@ -5,8 +5,9 @@
  * Inclui: Preços em tempo real, análise de sinais, posições abertas
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import { CandleChart } from "@/components/CandleChart";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +86,28 @@ export default function ICMarketsDashboard() {
   const strategyConfig = trpc.icmarkets.getStrategyConfig.useQuery(undefined, {
     enabled: connectionStatus.data?.connected === true,
   });
+  
+  // Query para buscar candles (trendbars) para o gráfico
+  const candlesQuery = trpc.icmarkets.getCandleHistory.useQuery(
+    { symbol: selectedSymbol, timeframe: selectedTimeframe, count: 50 },
+    {
+      enabled: connectionStatus.data?.connected === true,
+      refetchInterval: 60000, // Atualizar a cada minuto
+      staleTime: 30000,
+    }
+  );
+  
+  // Preparar dados do gráfico - memoizado para evitar re-renders desnecessários
+  const chartData = useMemo(() => {
+    if (!candlesQuery.data) return [];
+    return candlesQuery.data.map((candle: any) => ({
+      timestamp: candle.timestamp,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+    }));
+  }, [candlesQuery.data]);
   
   // Mutations
   const connectMutation = trpc.icmarkets.connect.useMutation({
@@ -302,6 +325,35 @@ export default function ICMarketsDashboard() {
                 </div>
               </CardContent>
             </Card>
+            
+            {/* Gráfico de Candles */}
+            {isConnected && (
+              <Card className="bg-slate-900/50 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-cyan-400" />
+                    Gráfico {selectedSymbol} - {selectedTimeframe}
+                  </CardTitle>
+                  <CardDescription className="text-slate-400">
+                    Últimos 50 candles | Atualização a cada minuto
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {candlesQuery.isLoading ? (
+                    <div className="flex items-center justify-center py-16">
+                      <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
+                    </div>
+                  ) : (
+                    <CandleChart
+                      data={chartData}
+                      currentPrice={priceQuery.data?.bid || null}
+                      currentOpen={chartData.length > 0 ? chartData[chartData.length - 1]?.open : null}
+                      height={400}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            )}
             
             {/* Card de Preço */}
             <Card className="bg-slate-900/50 border-slate-800">

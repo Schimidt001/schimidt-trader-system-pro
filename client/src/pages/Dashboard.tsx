@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { trpc } from "@/lib/trpc";
 import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, RotateCcw, Wifi, WifiOff, AlertTriangle } from "lucide-react";
 import { BOT_STATES } from "@/const";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import { BotSelector, useBotSelector } from "@/components/BotSelector";
 import { useBroker } from "@/contexts/BrokerContext";
@@ -62,6 +62,10 @@ function ICMarketsDashboardContent() {
   const { currentConfig } = useBroker();
   const { selectedBot, setSelectedBot } = useBotSelector();
   
+  // Estado para símbolo e timeframe
+  const selectedSymbol = "USDJPY";
+  const selectedTimeframe = "M15";
+  
   // Query de status de conexão IC Markets
   const connectionStatus = trpc.icmarkets.getConnectionStatus.useQuery(undefined, {
     refetchInterval: 5000,
@@ -74,6 +78,37 @@ function ICMarketsDashboardContent() {
       refetchInterval: 10000,
     }
   );
+  
+  // Query para buscar candles para o gráfico
+  const candlesQuery = trpc.icmarkets.getCandleHistory.useQuery(
+    { symbol: selectedSymbol, timeframe: selectedTimeframe, count: 50 },
+    {
+      enabled: connectionStatus.data?.connected === true,
+      refetchInterval: 60000,
+      staleTime: 30000,
+    }
+  );
+  
+  // Query de preço atual
+  const priceQuery = trpc.icmarkets.getPrice.useQuery(
+    { symbol: selectedSymbol },
+    {
+      enabled: connectionStatus.data?.connected === true,
+      refetchInterval: 1000,
+    }
+  );
+  
+  // Preparar dados do gráfico
+  const chartData = useMemo(() => {
+    if (!candlesQuery.data) return [];
+    return candlesQuery.data.map((candle: any) => ({
+      timestamp: candle.timestamp,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+    }));
+  }, [candlesQuery.data]);
   
   const isConnected = connectionStatus.data?.connected === true;
   const accountInfo = connectionStatus.data?.accountInfo;
@@ -274,42 +309,51 @@ function ICMarketsDashboardContent() {
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               {!isConnected && <AlertTriangle className="w-5 h-5 text-yellow-500" />}
-              Gráfico Forex - USDJPY
+              Gráfico Forex - {selectedSymbol}
             </CardTitle>
             <CardDescription>
               {isConnected ? "Preços em tempo real via cTrader" : "Conecte-se ao IC Markets para visualizar o gráfico em tempo real"}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[400px] bg-slate-800/50 rounded-lg flex items-center justify-center border border-dashed border-slate-700">
-              <div className="text-center">
-                {isConnected ? (
-                  <>
-                    <Activity className="w-12 h-12 text-blue-400 mx-auto mb-4 animate-pulse" />
-                    <p className="text-slate-300 text-lg">Conectado ao IC Markets</p>
-                    <p className="text-slate-500 text-sm mt-2">Acesse a aba "Forex" para trading completo</p>
-                  </>
-                ) : (
-                  <>
-                    <WifiOff className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                    <p className="text-slate-400 text-lg mb-2">Gráfico não disponível</p>
-                    <p className="text-slate-500 text-sm mb-4">Configure suas credenciais em Configurações → IC Markets</p>
-                    <Button
-                      onClick={() => connectMutation.mutate()}
-                      disabled={connectMutation.isPending}
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      {connectMutation.isPending ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      ) : (
-                        <Wifi className="w-4 h-4 mr-2" />
-                      )}
-                      Conectar ao IC Markets
-                    </Button>
-                  </>
-                )}
+            {isConnected ? (
+              candlesQuery.isLoading ? (
+                <div className="h-[400px] flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
+                </div>
+              ) : chartData.length > 0 ? (
+                <CandleChart
+                  data={chartData}
+                  currentPrice={priceQuery.data?.bid || null}
+                  currentOpen={chartData.length > 0 ? chartData[chartData.length - 1]?.open : null}
+                  height={400}
+                />
+              ) : (
+                <div className="h-[400px] flex items-center justify-center text-slate-400">
+                  Aguardando dados do gráfico...
+                </div>
+              )
+            ) : (
+              <div className="h-[400px] bg-slate-800/50 rounded-lg flex items-center justify-center border border-dashed border-slate-700">
+                <div className="text-center">
+                  <WifiOff className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                  <p className="text-slate-400 text-lg mb-2">Gráfico não disponível</p>
+                  <p className="text-slate-500 text-sm mb-4">Configure suas credenciais em Configurações → IC Markets</p>
+                  <Button
+                    onClick={() => connectMutation.mutate()}
+                    disabled={connectMutation.isPending}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {connectMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <Wifi className="w-4 h-4 mr-2" />
+                    )}
+                    Conectar ao IC Markets
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 
