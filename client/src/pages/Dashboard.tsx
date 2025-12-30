@@ -4,7 +4,7 @@ import { CandleChart } from "@/components/CandleChart";
 import { SmartChart } from "@/components/SmartChart";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, RotateCcw, Wifi, WifiOff, AlertTriangle } from "lucide-react";
+import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, RotateCcw, Wifi, WifiOff, AlertTriangle, Bot, Power } from "lucide-react";
 import { BOT_STATES } from "@/const";
 import { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
@@ -70,6 +70,11 @@ function ICMarketsDashboardContent() {
   // Query de status de conexão IC Markets
   const connectionStatus = trpc.icmarkets.getConnectionStatus.useQuery(undefined, {
     refetchInterval: 5000,
+  });
+  
+  // Query de status do BOT (INDEPENDENTE da conexão)
+  const botStatus = trpc.icmarkets.getBotStatus.useQuery(undefined, {
+    refetchInterval: 2000,
   });
   
   // Query de métricas IC Markets (P&L diário/mensal)
@@ -145,8 +150,33 @@ function ICMarketsDashboardContent() {
     onSuccess: () => {
       toast.success("Desconectado do IC Markets");
       connectionStatus.refetch();
+      botStatus.refetch();
     },
   });
+  
+  // Mutations do BOT (INDEPENDENTES da conexão)
+  const startBotMutation = trpc.icmarkets.startBot.useMutation({
+    onSuccess: () => {
+      toast.success("🤖 Robô iniciado! Monitorando mercado...");
+      botStatus.refetch();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao iniciar robô: ${error.message}`);
+    },
+  });
+  
+  const stopBotMutation = trpc.icmarkets.stopBot.useMutation({
+    onSuccess: () => {
+      toast.info("🛑 Robô parado");
+      botStatus.refetch();
+    },
+    onError: (error) => {
+      toast.error(`Erro ao parar robô: ${error.message}`);
+    },
+  });
+  
+  // Estado derivado do bot
+  const isBotRunning = botStatus.data?.isRunning === true;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
@@ -165,38 +195,64 @@ function ICMarketsDashboardContent() {
             <BotSelector selectedBot={selectedBot} onBotChange={setSelectedBot} />
           </div>
           
-          {/* Status de Conexão */}
-          <div className="flex items-center gap-4">
+          {/* Status de Conexão e Bot */}
+          <div className="flex items-center gap-3">
+            {/* Badge de Conexão */}
             <Badge
               variant={isConnected ? "default" : "destructive"}
-              className={`px-4 py-2 text-sm ${
+              className={`px-3 py-1.5 text-sm ${
                 isConnected ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"
               }`}
             >
               {isConnected ? (
                 <>
-                  <Wifi className="w-4 h-4 mr-2" />
+                  <Wifi className="w-4 h-4 mr-1.5" />
                   Conectado
                 </>
               ) : (
                 <>
-                  <WifiOff className="w-4 h-4 mr-2" />
+                  <WifiOff className="w-4 h-4 mr-1.5" />
                   Desconectado
                 </>
               )}
             </Badge>
             
+            {/* Badge de Status do Bot - SÓ APARECE SE CONECTADO */}
+            {isConnected && (
+              <Badge
+                variant={isBotRunning ? "default" : "secondary"}
+                className={`px-3 py-1.5 text-sm ${
+                  isBotRunning 
+                    ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/30 animate-pulse" 
+                    : "bg-slate-700/50 text-slate-400 border-slate-600"
+                }`}
+              >
+                <Bot className="w-4 h-4 mr-1.5" />
+                {isBotRunning ? "Robô Ativo" : "Robô Parado"}
+              </Badge>
+            )}
+            
+            {/* Botão de Conectar/Desconectar */}
             {isConnected ? (
               <Button
                 variant="outline"
-                onClick={() => disconnectMutation.mutate()}
+                onClick={() => {
+                  // Se o bot estiver rodando, parar primeiro
+                  if (isBotRunning) {
+                    stopBotMutation.mutate();
+                  }
+                  disconnectMutation.mutate();
+                }}
                 disabled={disconnectMutation.isPending}
-                className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                className="border-red-500/30 text-red-400 hover:bg-red-500/10"
               >
                 {disconnectMutation.isPending ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  "Desconectar"
+                  <>
+                    <Power className="w-4 h-4 mr-1.5" />
+                    Desconectar
+                  </>
                 )}
               </Button>
             ) : (
@@ -207,9 +263,43 @@ function ICMarketsDashboardContent() {
               >
                 {connectMutation.isPending ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : null}
+                ) : (
+                  <Wifi className="w-4 h-4 mr-1.5" />
+                )}
                 Conectar
               </Button>
+            )}
+            
+            {/* Botão de Iniciar/Parar Robô - SÓ APARECE SE CONECTADO */}
+            {isConnected && (
+              isBotRunning ? (
+                <Button
+                  variant="destructive"
+                  onClick={() => stopBotMutation.mutate()}
+                  disabled={stopBotMutation.isPending}
+                  className="bg-red-600 hover:bg-red-700"
+                >
+                  {stopBotMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                  ) : (
+                    <Square className="w-4 h-4 mr-1.5" />
+                  )}
+                  Parar Robô
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => startBotMutation.mutate({ symbol: selectedSymbol, timeframe: selectedTimeframe })}
+                  disabled={startBotMutation.isPending}
+                  className="bg-cyan-600 hover:bg-cyan-700"
+                >
+                  {startBotMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-1.5" />
+                  )}
+                  Iniciar Robô
+                </Button>
+              )
             )}
           </div>
         </div>
@@ -274,41 +364,72 @@ function ICMarketsDashboardContent() {
             </CardContent>
           </Card>
 
-          {/* Controles */}
+          {/* Controles do Robô - SEPARADOS */}
           <Card className="bg-slate-900/50 border-slate-800">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-slate-400 flex items-center gap-2">
-                <Activity className="w-4 h-4" />
-                Controles
+                <Bot className="w-4 h-4" />
+                Controle do Robô
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex gap-2">
-                {!isConnected ? (
+              <div className="space-y-2">
+                {/* Status do Bot */}
+                <div className={`text-center py-2 rounded-lg text-sm font-medium ${
+                  !isConnected 
+                    ? "bg-slate-800 text-slate-500" 
+                    : isBotRunning 
+                      ? "bg-cyan-500/20 text-cyan-400 animate-pulse" 
+                      : "bg-slate-700/50 text-slate-400"
+                }`}>
+                  {!isConnected ? "Desconectado" : isBotRunning ? "🤖 Robô Ativo" : "Robô Parado"}
+                </div>
+                
+                {/* Botões de Controle */}
+                <div className="flex gap-2">
+                  {!isConnected ? (
+                    // Botão de Conectar (quando desconectado)
+                    <Button
+                      onClick={() => connectMutation.mutate()}
+                      disabled={connectMutation.isPending}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                    >
+                      {connectMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                    </Button>
+                  ) : (
+                    // Botões quando conectado: Iniciar/Parar Robô
+                    <>
+                      {isBotRunning ? (
+                        <Button
+                          onClick={() => stopBotMutation.mutate()}
+                          disabled={stopBotMutation.isPending}
+                          variant="destructive"
+                          className="flex-1"
+                        >
+                          {stopBotMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Square className="w-4 h-4" />}
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={() => startBotMutation.mutate({ symbol: selectedSymbol, timeframe: selectedTimeframe })}
+                          disabled={startBotMutation.isPending}
+                          className="flex-1 bg-cyan-600 hover:bg-cyan-700"
+                        >
+                          {startBotMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                        </Button>
+                      )}
+                    </>
+                  )}
                   <Button
-                    onClick={() => connectMutation.mutate()}
-                    disabled={connectMutation.isPending}
-                    className="flex-1 bg-green-600 hover:bg-green-700"
+                    onClick={() => {
+                      connectionStatus.refetch();
+                      botStatus.refetch();
+                    }}
+                    variant="outline"
+                    className="border-slate-700"
                   >
-                    {connectMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                    <RotateCcw className="w-4 h-4" />
                   </Button>
-                ) : (
-                  <Button
-                    onClick={() => disconnectMutation.mutate()}
-                    disabled={disconnectMutation.isPending}
-                    variant="destructive"
-                    className="flex-1"
-                  >
-                    {disconnectMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Square className="w-4 h-4" />}
-                  </Button>
-                )}
-                <Button
-                  onClick={() => connectionStatus.refetch()}
-                  variant="outline"
-                  className="border-slate-700"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
