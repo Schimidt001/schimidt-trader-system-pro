@@ -8,7 +8,7 @@
  * @version 1.0.0
  */
 
-import { useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   createChart,
   ColorType,
@@ -134,6 +134,47 @@ export function SmartChart({
     low: number;
     close: number;
   } | null>(null);
+
+  // State para o cronômetro de vela (Candle Timer)
+  const [timeLeft, setTimeLeft] = useState<string>("--:--");
+
+  // Calcular segundos por candle baseado no timeframe
+  const getSecondsPerCandle = useCallback((tf: string): number => {
+    const match = tf.match(/^M(\d+)$/i);
+    if (match) {
+      return parseInt(match[1]) * 60; // M1 = 60s, M5 = 300s, M15 = 900s, etc.
+    }
+    // Fallback para timeframes comuns
+    const timeframes: Record<string, number> = {
+      'M1': 60, 'M5': 300, 'M15': 900, 'M30': 1800,
+      'H1': 3600, 'H4': 14400, 'D1': 86400
+    };
+    return timeframes[tf.toUpperCase()] || 60;
+  }, []);
+
+  // useEffect para o cronômetro de vela
+  useEffect(() => {
+    const secondsPerCandle = getSecondsPerCandle(timeframe);
+    
+    const updateTimer = () => {
+      const now = Math.floor(Date.now() / 1000); // Timestamp atual em segundos
+      const secondsIntoCandle = now % secondsPerCandle;
+      const secondsRemaining = secondsPerCandle - secondsIntoCandle;
+      
+      // Formatar como MM:SS
+      const minutes = Math.floor(secondsRemaining / 60);
+      const seconds = secondsRemaining % 60;
+      setTimeLeft(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+    };
+
+    // Atualizar imediatamente
+    updateTimer();
+    
+    // Atualizar a cada segundo
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [timeframe, getSecondsPerCandle]);
 
   // Converter dados para formato lightweight-charts
   const chartData = useMemo((): CandlestickData<Time>[] => {
@@ -502,12 +543,21 @@ export function SmartChart({
         </div>
       </div>
 
-      {/* Container do gráfico */}
-      <div
-        ref={chartContainerRef}
-        className="w-full rounded-lg overflow-hidden border border-slate-800"
-        style={{ height }}
-      />
+      {/* Container do gráfico com Timer */}
+      <div className="relative w-full" style={{ height }}>
+        {/* Cronômetro de Vela (Candle Timer) */}
+        <div className="absolute top-3 right-16 z-20 pointer-events-none flex items-center gap-2">
+          <div className="bg-slate-800/90 border border-slate-700 text-slate-200 px-3 py-1 rounded text-xs font-mono font-bold shadow-sm">
+            Fecha em: <span className="text-yellow-400">{timeLeft}</span>
+          </div>
+        </div>
+        
+        {/* Gráfico */}
+        <div
+          ref={chartContainerRef}
+          className="w-full h-full rounded-lg overflow-hidden border border-slate-800"
+        />
+      </div>
 
       {/* Footer com informações de posições */}
       {openPositions.length > 0 && (
