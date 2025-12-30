@@ -339,6 +339,7 @@ export function SmartChart({
   }, [chartData]);
 
   // Atualizar o último candle com preço em tempo real (tick-by-tick streaming)
+  // Inclui GAP DETECTION: cria nova vela se o tempo atual exceder a última vela do histórico
   useEffect(() => {
     if (
       !candleSeriesRef.current ||
@@ -350,32 +351,69 @@ export function SmartChart({
     const lastCandle = chartData[chartData.length - 1];
     if (!lastCandle) return;
 
-    // Verificar se estamos no mesmo candle ou se mudou
-    const isSameCandle = currentCandleRef.current?.time === lastCandle.time;
+    const lastCandleTime = lastCandle.time as number;
+    
+    // Calcular o intervalo em segundos baseado no timeframe
+    const intervalSeconds = getSecondsPerCandle(timeframe);
+    
+    // Calcular qual deveria ser o tempo da vela ATUAL baseada no relógio
+    // (Arredonda para baixo para o início do intervalo mais próximo)
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const currentIntervalTime = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
 
-    if (isSameCandle && currentCandleRef.current) {
-      // Mesmo candle: atualizar high/low/close preservando os extremos
-      currentCandleRef.current = {
-        time: lastCandle.time,
-        open: currentCandleRef.current.open, // Manter abertura original
-        high: Math.max(currentCandleRef.current.high, currentPrice),
-        low: Math.min(currentCandleRef.current.low, currentPrice),
-        close: currentPrice,
-      };
+    // GAP DETECTION: Verifica se estamos numa vela nova (tempo atual > última vela do histórico)
+    if (currentIntervalTime > lastCandleTime) {
+      // CRIAR NOVA VELA - O tempo atual excede a última vela do histórico
+      // Verifica se já estamos rastreando essa nova vela
+      const isTrackingNewCandle = currentCandleRef.current?.time === currentIntervalTime;
+      
+      if (isTrackingNewCandle && currentCandleRef.current) {
+        // Já estamos na nova vela: atualizar high/low/close preservando extremos
+        currentCandleRef.current = {
+          time: currentIntervalTime as Time,
+          open: currentCandleRef.current.open, // Manter abertura original
+          high: Math.max(currentCandleRef.current.high, currentPrice),
+          low: Math.min(currentCandleRef.current.low, currentPrice),
+          close: currentPrice,
+        };
+      } else {
+        // Primeira vez nesta nova vela: criar com preço atual como OHLC
+        currentCandleRef.current = {
+          time: currentIntervalTime as Time,
+          open: currentPrice,
+          high: currentPrice,
+          low: currentPrice,
+          close: currentPrice,
+        };
+      }
     } else {
-      // Novo candle: inicializar com os dados do backend + preço atual
-      currentCandleRef.current = {
-        time: lastCandle.time,
-        open: currentOpen ?? lastCandle.open,
-        high: Math.max(lastCandle.high, currentPrice),
-        low: Math.min(lastCandle.low, currentPrice),
-        close: currentPrice,
-      };
+      // ATUALIZAR VELA EXISTENTE - Estamos dentro do intervalo da última vela do histórico
+      const isSameCandle = currentCandleRef.current?.time === lastCandleTime;
+
+      if (isSameCandle && currentCandleRef.current) {
+        // Mesmo candle: atualizar high/low/close preservando os extremos
+        currentCandleRef.current = {
+          time: lastCandleTime as Time,
+          open: currentCandleRef.current.open, // Manter abertura original
+          high: Math.max(currentCandleRef.current.high, currentPrice),
+          low: Math.min(currentCandleRef.current.low, currentPrice),
+          close: currentPrice,
+        };
+      } else {
+        // Inicializar com os dados do backend + preço atual
+        currentCandleRef.current = {
+          time: lastCandleTime as Time,
+          open: currentOpen ?? lastCandle.open,
+          high: Math.max(lastCandle.high, currentPrice),
+          low: Math.min(lastCandle.low, currentPrice),
+          close: currentPrice,
+        };
+      }
     }
 
     // A MÁGICA: Isso faz o gráfico se mexer sem recarregar
     candleSeriesRef.current.update(currentCandleRef.current as CandlestickData<Time>);
-  }, [currentPrice, currentOpen, chartData]);
+  }, [currentPrice, currentOpen, chartData, timeframe, getSecondsPerCandle]);
 
   // Atualizar price lines das posições
   useEffect(() => {
