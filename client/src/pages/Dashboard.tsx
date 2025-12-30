@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { CandleChart } from "@/components/CandleChart";
+import { SmartChart } from "@/components/SmartChart";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, RotateCcw, Wifi, WifiOff, AlertTriangle } from "lucide-react";
@@ -95,6 +96,15 @@ function ICMarketsDashboardContent() {
     {
       enabled: connectionStatus.data?.connected === true,
       refetchInterval: 1000,
+    }
+  );
+  
+  // Query de posições abertas IC Markets
+  const openPositionsQuery = trpc.icmarkets.getOpenPositions.useQuery(
+    { botId: selectedBot },
+    {
+      enabled: connectionStatus.data?.connected === true,
+      refetchInterval: 3000,
     }
   );
   
@@ -322,11 +332,14 @@ function ICMarketsDashboardContent() {
                   <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
                 </div>
               ) : chartData.length > 0 ? (
-                <CandleChart
+                <SmartChart
                   data={chartData}
                   currentPrice={priceQuery.data?.bid || null}
                   currentOpen={chartData.length > 0 ? chartData[chartData.length - 1]?.open : null}
-                  height={400}
+                  openPositions={(openPositionsQuery.data?.live || openPositionsQuery.data?.stored || []) as any}
+                  symbol={selectedSymbol}
+                  timeframe={selectedTimeframe}
+                  height={450}
                 />
               ) : (
                 <div className="h-[400px] flex items-center justify-center text-slate-400">
