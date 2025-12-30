@@ -125,6 +125,15 @@ export function SmartChart({
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const priceLinesRef = useRef<Map<string, IPriceLine>>(new Map());
+  
+  // Ref para rastrear o candle atual em formação (preserva high/low entre ticks)
+  const currentCandleRef = useRef<{
+    time: Time;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+  } | null>(null);
 
   // Converter dados para formato lightweight-charts
   const chartData = useMemo((): CandlestickData<Time>[] => {
@@ -278,6 +287,9 @@ export function SmartChart({
     if (!candleSeriesRef.current || chartData.length === 0) return;
 
     candleSeriesRef.current.setData(chartData);
+    
+    // Resetar o candle atual quando os dados mudam (novo candle do backend)
+    currentCandleRef.current = null;
 
     // Ajustar visualização para mostrar os últimos candles
     if (chartRef.current) {
@@ -285,7 +297,7 @@ export function SmartChart({
     }
   }, [chartData]);
 
-  // Atualizar o último candle com preço em tempo real
+  // Atualizar o último candle com preço em tempo real (tick-by-tick streaming)
   useEffect(() => {
     if (
       !candleSeriesRef.current ||
@@ -297,16 +309,31 @@ export function SmartChart({
     const lastCandle = chartData[chartData.length - 1];
     if (!lastCandle) return;
 
-    // Atualizar o candle atual com o novo preço
-    const updatedCandle: CandlestickData<Time> = {
-      time: lastCandle.time,
-      open: currentOpen ?? lastCandle.open,
-      high: Math.max(lastCandle.high, currentPrice),
-      low: Math.min(lastCandle.low, currentPrice),
-      close: currentPrice,
-    };
+    // Verificar se estamos no mesmo candle ou se mudou
+    const isSameCandle = currentCandleRef.current?.time === lastCandle.time;
 
-    candleSeriesRef.current.update(updatedCandle);
+    if (isSameCandle && currentCandleRef.current) {
+      // Mesmo candle: atualizar high/low/close preservando os extremos
+      currentCandleRef.current = {
+        time: lastCandle.time,
+        open: currentCandleRef.current.open, // Manter abertura original
+        high: Math.max(currentCandleRef.current.high, currentPrice),
+        low: Math.min(currentCandleRef.current.low, currentPrice),
+        close: currentPrice,
+      };
+    } else {
+      // Novo candle: inicializar com os dados do backend + preço atual
+      currentCandleRef.current = {
+        time: lastCandle.time,
+        open: currentOpen ?? lastCandle.open,
+        high: Math.max(lastCandle.high, currentPrice),
+        low: Math.min(lastCandle.low, currentPrice),
+        close: currentPrice,
+      };
+    }
+
+    // A MÁGICA: Isso faz o gráfico se mexer sem recarregar
+    candleSeriesRef.current.update(currentCandleRef.current as CandlestickData<Time>);
   }, [currentPrice, currentOpen, chartData]);
 
   // Atualizar price lines das posições
