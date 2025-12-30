@@ -351,18 +351,43 @@ export function SmartChart({
     const lastCandle = chartData[chartData.length - 1];
     if (!lastCandle) return;
 
-    const lastCandleTime = lastCandle.time as number;
+    // IMPORTANTE: O backend retorna timestamp em MILISSEGUNDOS (utcTimestampInMinutes * 60 * 1000)
+    // Precisamos normalizar para SEGUNDOS para comparar com Date.now()/1000
+    const lastCandleTimeRaw = lastCandle.time as number;
+    
+    // Detectar se o timestamp está em milissegundos (valor muito grande) ou segundos
+    // Timestamps em segundos desde 1970 são ~1.7 bilhões, em ms são ~1.7 trilhões
+    const isMilliseconds = lastCandleTimeRaw > 1e12;
+    const lastCandleTimeSeconds = isMilliseconds ? Math.floor(lastCandleTimeRaw / 1000) : lastCandleTimeRaw;
     
     // Calcular o intervalo em segundos baseado no timeframe
     const intervalSeconds = getSecondsPerCandle(timeframe);
     
-    // Calcular qual deveria ser o tempo da vela ATUAL baseada no relógio
+    // Calcular qual deveria ser o tempo da vela ATUAL baseada no relógio UTC
     // (Arredonda para baixo para o início do intervalo mais próximo)
     const nowSeconds = Math.floor(Date.now() / 1000);
-    const currentIntervalTime = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
+    const currentIntervalTimeSeconds = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
+    
+    // Converter de volta para o formato original (ms ou s) para consistência com lightweight-charts
+    const currentIntervalTime = isMilliseconds ? currentIntervalTimeSeconds * 1000 : currentIntervalTimeSeconds;
+    const lastCandleTime = lastCandleTimeRaw; // Manter no formato original
+
+    // DEBUG: Descomentar para verificar os valores
+    // console.log('[SmartChart] Gap Detection:', {
+    //   lastCandleTimeRaw,
+    //   isMilliseconds,
+    //   lastCandleTimeSeconds,
+    //   nowSeconds,
+    //   currentIntervalTimeSeconds,
+    //   currentIntervalTime,
+    //   shouldCreateNewCandle: currentIntervalTimeSeconds > lastCandleTimeSeconds,
+    //   timeframe,
+    //   intervalSeconds
+    // });
 
     // GAP DETECTION: Verifica se estamos numa vela nova (tempo atual > última vela do histórico)
-    if (currentIntervalTime > lastCandleTime) {
+    // Comparar em SEGUNDOS para evitar problemas de formato
+    if (currentIntervalTimeSeconds > lastCandleTimeSeconds) {
       // CRIAR NOVA VELA - O tempo atual excede a última vela do histórico
       // Verifica se já estamos rastreando essa nova vela
       const isTrackingNewCandle = currentCandleRef.current?.time === currentIntervalTime;
