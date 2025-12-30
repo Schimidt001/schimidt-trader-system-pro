@@ -389,6 +389,14 @@ export default function ICMarketsDashboard() {
                     <p className="text-slate-400 text-sm">Análises</p>
                     <p className="text-white">{botStatus.data.analysisCount || 0}</p>
                   </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Ticks</p>
+                    <p className="text-cyan-400 font-mono">{botStatus.data.tickCount || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Trades</p>
+                    <p className="text-yellow-400 font-bold">{botStatus.data.tradesExecuted || 0}</p>
+                  </div>
                 </div>
               </div>
             </CardContent>

@@ -39,6 +39,7 @@ export interface BotStatus {
   analysisCount: number;
   tradesExecuted: number;
   startTime: number | null;
+  tickCount: number; // Contador de ticks processados
 }
 
 // Configuração padrão
@@ -115,6 +116,8 @@ export class TradingEngine extends EventEmitter {
     this.startTime = Date.now();
     this.analysisCount = 0;
     this.tradesExecuted = 0;
+    this.tickCount = 0;
+    this.lastTickLogTime = 0;
     
     // Carregar configurações da estratégia do banco de dados
     await this.loadStrategyConfig();
@@ -187,6 +190,7 @@ export class TradingEngine extends EventEmitter {
       analysisCount: this.analysisCount,
       tradesExecuted: this.tradesExecuted,
       startTime: this.startTime,
+      tickCount: this.tickCount,
     };
   }
   
@@ -243,20 +247,43 @@ export class TradingEngine extends EventEmitter {
     }
   }
   
+  // Contador de ticks para throttling de logs
+  private tickCount: number = 0;
+  private lastTickLogTime: number = 0;
+
   /**
    * Processa tick de preço recebido
+   * IMPORTANTE: Este é o "elo perdido" - cada tick é processado aqui
    */
   private onPriceTick(tick: { symbol: string; bid: number; ask: number; timestamp: number }): void {
     if (!this._isRunning) return;
     
     this.lastTickPrice = tick.bid;
     this.lastTickTime = tick.timestamp;
+    this.tickCount++;
     
-    // Log de batimento cardíaco a cada 10 segundos
     const now = Date.now();
-    if (now - (this.lastAnalysisTime || 0) > 10000) {
-      console.log(`[TradingEngine] 💓 Tick recebido: ${this.config.symbol} = ${tick.bid.toFixed(5)} | Spread: ${((tick.ask - tick.bid) * 10000).toFixed(1)} pips`);
+    const spread = (tick.ask - tick.bid);
+    const spreadPips = this.config.symbol.includes('JPY') 
+      ? spread * 100  // Para pares JPY (2 decimais)
+      : spread * 10000; // Para outros pares (4-5 decimais)
+    
+    // LOG DE BATIMENTO CARDÍACO - A cada 5 segundos ou a cada 50 ticks
+    // Isso garante visibilidade no terminal sem sobrecarregar
+    if (now - this.lastTickLogTime > 5000 || this.tickCount % 50 === 0) {
+      console.log(`[BOT] 💓 Analisando Tick #${this.tickCount}: ${this.config.symbol} = ${tick.bid.toFixed(5)} | Spread: ${spreadPips.toFixed(1)} pips | Sinal: ${this.lastSignal || 'AGUARDANDO'}`);
+      this.lastTickLogTime = now;
     }
+    
+    // Emitir evento de tick para outros componentes
+    this.emit("tick", {
+      symbol: this.config.symbol,
+      bid: tick.bid,
+      ask: tick.ask,
+      spread: spreadPips,
+      timestamp: tick.timestamp,
+      tickCount: this.tickCount,
+    });
   }
   
   /**
