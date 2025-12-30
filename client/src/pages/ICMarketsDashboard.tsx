@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { CandleChart } from "@/components/CandleChart";
+import { SmartChart } from "@/components/SmartChart";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -344,10 +344,13 @@ export default function ICMarketsDashboard() {
                       <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
                     </div>
                   ) : (
-                    <CandleChart
+                    <SmartChart
                       data={chartData}
                       currentPrice={priceQuery.data?.bid || null}
                       currentOpen={chartData.length > 0 ? chartData[chartData.length - 1]?.open : null}
+                      openPositions={(positionsQuery.data || []) as any}
+                      symbol={selectedSymbol}
+                      timeframe={selectedTimeframe}
                       height={400}
                     />
                   )}
