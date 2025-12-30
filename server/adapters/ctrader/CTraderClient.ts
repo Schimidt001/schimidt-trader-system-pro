@@ -230,19 +230,35 @@ export class CTraderClient extends EventEmitter {
     console.log(`[CTraderClient] Connecting to ${endpoint.url}...`);
     
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(endpoint.url);
+      // Local Variable Lock - Anti-Race Condition
+      const socket = new WebSocket(endpoint.url);
+      this.ws = socket;
       
-      this.ws.on("open", async () => {
+      socket.on("open", async () => {
+        // Verificar se este socket ainda é o atual (Anti-Race Condition)
+        if (this.ws !== socket) {
+          console.log("[CTraderClient] Socket obsoleto detectado no open, ignorando...");
+          socket.close();
+          return;
+        }
+        
         console.log("[CTraderClient] WebSocket connected");
         this.isConnected = true;
         this.reconnectAttempts = 0;
         
         try {
+          // TRACE: Início da autenticação
+          console.log("[CTraderClient] [TRACE] Iniciando fluxo de autenticação...");
+          
           // Autenticar aplicação
+          console.log("[CTraderClient] [TRACE] Etapa 1/3: authenticateApplication() - Iniciando...");
           await this.authenticateApplication();
+          console.log("[CTraderClient] [TRACE] Etapa 1/3: authenticateApplication() - Concluída com sucesso");
           
           // Obter contas disponíveis
+          console.log("[CTraderClient] [TRACE] Etapa 2/3: getAccountsByAccessToken() - Iniciando...");
           const accounts = await this.getAccountsByAccessToken();
+          console.log(`[CTraderClient] [TRACE] Etapa 2/3: getAccountsByAccessToken() - Concluída. Encontradas ${accounts.length} contas`);
           
           if (accounts.length === 0) {
             throw new Error("No trading accounts found for this access token");
@@ -250,9 +266,12 @@ export class CTraderClient extends EventEmitter {
           
           // Usar a primeira conta ou a especificada
           this.accountId = credentials.accountId || accounts[0].ctidTraderAccountId;
+          console.log(`[CTraderClient] [TRACE] Account ID selecionado: ${this.accountId}`);
           
           // Autenticar conta
+          console.log("[CTraderClient] [TRACE] Etapa 3/3: authenticateAccount() - Iniciando...");
           await this.authenticateAccount();
+          console.log("[CTraderClient] [TRACE] Etapa 3/3: authenticateAccount() - Concluída com sucesso");
           
           // Iniciar heartbeat
           this.startHeartbeat();
@@ -260,23 +279,42 @@ export class CTraderClient extends EventEmitter {
           this.isAuthenticated = true;
           this.emit("authenticated", { accountId: this.accountId });
           
+          console.log("[CTraderClient] Account authenticated");
+          console.log("[CTraderClient] [TRACE] Fluxo de autenticação completo!");
+          
           resolve();
         } catch (error) {
-          reject(error);
+          console.error("[CTraderClient] [TRACE] Erro durante autenticação:", error);
+          // Sanitizar erro antes de rejeitar
+          const msg = error instanceof Error ? error.message : "Erro desconhecido durante autenticação cTrader";
+          reject(new Error(msg));
         }
       });
       
-      this.ws.on("message", (data: Buffer) => {
+      socket.on("message", (data: Buffer) => {
+        // Verificar se este socket ainda é o atual (Anti-Race Condition)
+        if (this.ws !== socket) return;
         this.handleMessage(data);
       });
       
-      this.ws.on("error", (error) => {
-        console.error("[CTraderClient] WebSocket error:", error);
-        this.emit("error", error);
-        reject(error);
+      socket.on("error", (evt) => {
+        // Verificar se este socket ainda é o atual (Anti-Race Condition)
+        if (this.ws !== socket) return;
+        
+        // Sanitizar erro - CRUCIAL para não quebrar o TRPC
+        const msg = evt instanceof Error ? evt.message : "Erro desconhecido de conexão cTrader";
+        console.error("[CTraderClient] WebSocket error:", msg);
+        this.emit("error", new Error(msg));
+        reject(new Error(msg)); // Enviar apenas o erro limpo
       });
       
-      this.ws.on("close", (code, reason) => {
+      socket.on("close", (code, reason) => {
+        // Verificar se este socket ainda é o atual (Anti-Race Condition)
+        if (this.ws !== socket) {
+          console.log("[CTraderClient] Socket obsoleto fechado, ignorando...");
+          return;
+        }
+        
         console.log(`[CTraderClient] WebSocket closed: ${code} - ${reason}`);
         this.isConnected = false;
         this.isAuthenticated = false;
@@ -316,12 +354,16 @@ export class CTraderClient extends EventEmitter {
     if (!this.credentials) throw new Error("No credentials provided");
     
     console.log("[CTraderClient] Authenticating application...");
+    console.log(`[CTraderClient] [TRACE] Enviando ProtoOAApplicationAuthReq com clientId: ${this.credentials.clientId.substring(0, 8)}...`);
     
+    const startTime = Date.now();
     const response = await this.sendRequest("ProtoOAApplicationAuthReq", {
       clientId: this.credentials.clientId,
       clientSecret: this.credentials.clientSecret,
     }, PayloadType.PROTO_OA_APPLICATION_AUTH_RES);
     
+    const elapsed = Date.now() - startTime;
+    console.log(`[CTraderClient] [TRACE] ProtoOAApplicationAuthRes recebido em ${elapsed}ms`);
     console.log("[CTraderClient] Application authenticated");
   }
   
@@ -332,13 +374,25 @@ export class CTraderClient extends EventEmitter {
     if (!this.credentials) throw new Error("No credentials provided");
     
     console.log("[CTraderClient] Getting accounts by access token...");
+    console.log(`[CTraderClient] [TRACE] Enviando ProtoOAGetAccountListByAccessTokenReq...`);
     
+    const startTime = Date.now();
     const response = await this.sendRequest("ProtoOAGetAccountListByAccessTokenReq", {
       accessToken: this.credentials.accessToken,
     }, PayloadType.PROTO_OA_GET_ACCOUNTS_BY_ACCESS_TOKEN_RES);
     
+    const elapsed = Date.now() - startTime;
+    console.log(`[CTraderClient] [TRACE] ProtoOAGetAccountListByAccessTokenRes recebido em ${elapsed}ms`);
+    
     const accounts = response.ctidTraderAccount || [];
     console.log(`[CTraderClient] Found ${accounts.length} trading accounts`);
+    
+    // Log detalhado das contas encontradas
+    if (accounts.length > 0) {
+      accounts.forEach((acc: any, idx: number) => {
+        console.log(`[CTraderClient] [TRACE] Conta ${idx + 1}: ID=${acc.ctidTraderAccountId}, isLive=${acc.isLive}`);
+      });
+    }
     
     return accounts;
   }
@@ -352,12 +406,16 @@ export class CTraderClient extends EventEmitter {
     }
     
     console.log(`[CTraderClient] Authenticating account ${this.accountId}...`);
+    console.log(`[CTraderClient] [TRACE] Enviando ProtoOAAccountAuthReq para conta ${this.accountId}...`);
     
+    const startTime = Date.now();
     const response = await this.sendRequest("ProtoOAAccountAuthReq", {
       ctidTraderAccountId: this.accountId,
       accessToken: this.credentials.accessToken,
     }, PayloadType.PROTO_OA_ACCOUNT_AUTH_RES);
     
+    const elapsed = Date.now() - startTime;
+    console.log(`[CTraderClient] [TRACE] ProtoOAAccountAuthRes recebido em ${elapsed}ms`);
     console.log("[CTraderClient] Account authenticated");
   }
   
