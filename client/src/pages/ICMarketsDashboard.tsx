@@ -3,6 +3,10 @@
  * 
  * Página principal para operações Forex via IC Markets/cTrader
  * Inclui: Preços em tempo real, análise de sinais, posições abertas
+ * 
+ * IMPORTANTE: Botões de Conectar e Iniciar Robô são INDEPENDENTES
+ * - Conectar: Apenas estabelece conexão WebSocket
+ * - Iniciar Robô: Ativa o loop de trading automático (requer conexão)
  */
 
 import { useState, useEffect, useMemo } from "react";
@@ -34,9 +38,14 @@ import {
   WifiOff,
   ArrowUpCircle,
   ArrowDownCircle,
+  Bot,
+  Power,
+  Play,
+  Square,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { toast } from "sonner";
 
 // Símbolos principais para trading
 const FOREX_SYMBOLS = [
@@ -51,7 +60,7 @@ const FOREX_SYMBOLS = [
 ];
 
 export default function ICMarketsDashboard() {
-  // Estado de conexão
+  // Estado de conexão e trading - INDEPENDENTES
   const [selectedSymbol, setSelectedSymbol] = useState("USDJPY");
   const [selectedTimeframe, setSelectedTimeframe] = useState("M15");
   const [orderLots, setOrderLots] = useState("0.01");
@@ -59,7 +68,12 @@ export default function ICMarketsDashboard() {
   
   // Queries
   const connectionStatus = trpc.icmarkets.getConnectionStatus.useQuery(undefined, {
-    refetchInterval: 5000,
+    refetchInterval: 3000,
+  });
+  
+  // Query para status do bot (separado da conexão)
+  const botStatus = trpc.icmarkets.getBotStatus.useQuery(undefined, {
+    refetchInterval: 2000,
   });
   
   const priceQuery = trpc.icmarkets.getPrice.useQuery(
@@ -109,16 +123,43 @@ export default function ICMarketsDashboard() {
     }));
   }, [candlesQuery.data]);
   
-  // Mutations
+  // Mutations - CONEXÃO
   const connectMutation = trpc.icmarkets.connect.useMutation({
     onSuccess: () => {
       connectionStatus.refetch();
+      toast.success("Conectado ao IC Markets com sucesso!");
+    },
+    onError: (error) => {
+      toast.error(`Erro ao conectar: ${error.message}`);
     },
   });
   
   const disconnectMutation = trpc.icmarkets.disconnect.useMutation({
     onSuccess: () => {
       connectionStatus.refetch();
+      botStatus.refetch();
+      toast.info("Desconectado do IC Markets");
+    },
+  });
+  
+  // Mutations - BOT (INDEPENDENTE DA CONEXÃO)
+  const startBotMutation = trpc.icmarkets.startBot.useMutation({
+    onSuccess: () => {
+      botStatus.refetch();
+      toast.success("🤖 Robô iniciado! Monitorando mercado...");
+    },
+    onError: (error) => {
+      toast.error(`Erro ao iniciar robô: ${error.message}`);
+    },
+  });
+  
+  const stopBotMutation = trpc.icmarkets.stopBot.useMutation({
+    onSuccess: () => {
+      botStatus.refetch();
+      toast.info("🛑 Robô parado");
+    },
+    onError: (error) => {
+      toast.error(`Erro ao parar robô: ${error.message}`);
     },
   });
   
@@ -126,25 +167,44 @@ export default function ICMarketsDashboard() {
     onSuccess: () => {
       positionsQuery.refetch();
       setIsPlacingOrder(false);
+      toast.success("Ordem executada com sucesso!");
     },
-    onError: () => {
+    onError: (error) => {
       setIsPlacingOrder(false);
+      toast.error(`Erro ao executar ordem: ${error.message}`);
     },
   });
   
   const closePositionMutation = trpc.icmarkets.closePosition.useMutation({
     onSuccess: () => {
       positionsQuery.refetch();
+      toast.success("Posição fechada");
     },
   });
   
-  // Handlers
+  // Handlers - CONEXÃO (apenas WebSocket)
   const handleConnect = () => {
     connectMutation.mutate();
   };
   
   const handleDisconnect = () => {
+    // Se o bot estiver rodando, parar primeiro
+    if (botStatus.data?.isRunning) {
+      stopBotMutation.mutate();
+    }
     disconnectMutation.mutate();
+  };
+  
+  // Handlers - BOT (trading automático)
+  const handleStartBot = () => {
+    startBotMutation.mutate({
+      symbol: selectedSymbol,
+      timeframe: selectedTimeframe,
+    });
+  };
+  
+  const handleStopBot = () => {
+    stopBotMutation.mutate();
   };
   
   const handlePlaceOrder = (direction: "BUY" | "SELL") => {
@@ -171,6 +231,7 @@ export default function ICMarketsDashboard() {
   };
   
   const isConnected = connectionStatus.data?.connected === true;
+  const isBotRunning = botStatus.data?.isRunning === true;
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6">
@@ -187,8 +248,9 @@ export default function ICMarketsDashboard() {
             </p>
           </div>
           
-          {/* Status de Conexão */}
+          {/* Controles de Conexão e Bot - SEPARADOS */}
           <div className="flex items-center gap-4">
+            {/* Status de Conexão */}
             <Badge
               variant={isConnected ? "default" : "destructive"}
               className={`px-4 py-2 text-sm ${
@@ -208,16 +270,36 @@ export default function ICMarketsDashboard() {
               )}
             </Badge>
             
+            {/* Status do Bot */}
+            {isConnected && (
+              <Badge
+                variant={isBotRunning ? "default" : "secondary"}
+                className={`px-4 py-2 text-sm ${
+                  isBotRunning 
+                    ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/30 animate-pulse" 
+                    : "bg-slate-700/50 text-slate-400"
+                }`}
+              >
+                <Bot className="w-4 h-4 mr-2" />
+                {isBotRunning ? "Robô Ativo" : "Robô Parado"}
+              </Badge>
+            )}
+            
+            {/* Botão de Conexão */}
             {isConnected ? (
               <Button
                 variant="outline"
                 onClick={handleDisconnect}
                 disabled={disconnectMutation.isPending}
+                className="border-red-500/30 text-red-400 hover:bg-red-500/10"
               >
                 {disconnectMutation.isPending ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  "Desconectar"
+                  <>
+                    <Power className="w-4 h-4 mr-2" />
+                    Desconectar
+                  </>
                 )}
               </Button>
             ) : (
@@ -228,12 +310,90 @@ export default function ICMarketsDashboard() {
               >
                 {connectMutation.isPending ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : null}
+                ) : (
+                  <Wifi className="w-4 h-4 mr-2" />
+                )}
                 Conectar
               </Button>
             )}
+            
+            {/* Botão do Bot - INDEPENDENTE (só aparece se conectado) */}
+            {isConnected && (
+              isBotRunning ? (
+                <Button
+                  variant="destructive"
+                  onClick={handleStopBot}
+                  disabled={stopBotMutation.isPending}
+                  className="bg-red-600 hover:bg-red-700"
+                >
+                  {stopBotMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <Square className="w-4 h-4 mr-2" />
+                  )}
+                  Parar Robô
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleStartBot}
+                  disabled={startBotMutation.isPending}
+                  className="bg-cyan-600 hover:bg-cyan-700"
+                >
+                  {startBotMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  Iniciar Robô
+                </Button>
+              )
+            )}
           </div>
         </div>
+        
+        {/* Card de Status do Bot (quando ativo) */}
+        {isConnected && isBotRunning && botStatus.data && (
+          <Card className="bg-cyan-900/20 border-cyan-500/30">
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-cyan-400 rounded-full animate-pulse"></div>
+                    <span className="text-cyan-400 font-medium">Robô em Execução</span>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Símbolo</p>
+                    <p className="text-white font-mono">{botStatus.data.symbol || selectedSymbol}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Timeframe</p>
+                    <p className="text-white">{botStatus.data.timeframe || selectedTimeframe}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Último Tick</p>
+                    <p className="text-white font-mono">
+                      {botStatus.data.lastTickPrice?.toFixed(5) || "Aguardando..."}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Último Sinal</p>
+                    <p className={`font-bold ${
+                      botStatus.data.lastSignal === "BUY" ? "text-green-400" :
+                      botStatus.data.lastSignal === "SELL" ? "text-red-400" :
+                      "text-slate-400"
+                    }`}>
+                      {botStatus.data.lastSignal || "NEUTRO"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Análises</p>
+                    <p className="text-white">{botStatus.data.analysisCount || 0}</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
         
         {/* Informações da Conta */}
         {isConnected && connectionStatus.data?.accountInfo && (
@@ -348,7 +508,7 @@ export default function ICMarketsDashboard() {
                       data={chartData}
                       currentPrice={priceQuery.data?.bid || null}
                       currentOpen={chartData.length > 0 ? chartData[chartData.length - 1]?.open : null}
-                      openPositions={(positionsQuery.data || []) as any}
+                      openPositions={(positionsQuery.data?.live || []) as any}
                       symbol={selectedSymbol}
                       timeframe={selectedTimeframe}
                       height={400}
@@ -494,8 +654,11 @@ export default function ICMarketsDashboard() {
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <DollarSign className="w-5 h-5 text-green-400" />
-                  Nova Ordem
+                  Nova Ordem Manual
                 </CardTitle>
+                <CardDescription className="text-slate-400">
+                  {isBotRunning ? "⚠️ Robô ativo - ordens manuais podem conflitar" : "Execute ordens manualmente"}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>

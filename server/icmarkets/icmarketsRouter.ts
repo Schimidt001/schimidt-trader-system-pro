@@ -9,6 +9,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { ctraderAdapter } from "../adapters/CTraderAdapter";
 import { CTraderCredentials } from "../adapters/IBrokerAdapter";
+import { tradingEngine } from "../adapters/ctrader/TradingEngine";
 import {
   getICMarketsConfig,
   upsertICMarketsConfig,
@@ -531,6 +532,107 @@ export const icmarketsRouter = router({
         },
       };
     }),
+  
+  // ============= CONTROLE DO BOT (INDEPENDENTE DA CONEXÃO) =============
+  
+  /**
+   * Inicia o robô de trading automático
+   * IMPORTANTE: Requer conexão prévia, mas é independente dela
+   */
+  startBot: protectedProcedure
+    .input(z.object({
+      symbol: z.string().optional(),
+      timeframe: z.string().optional(),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      // Verificar se está conectado
+      if (!ctraderAdapter.isConnected()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Não conectado ao IC Markets. Conecte primeiro antes de iniciar o robô.",
+        });
+      }
+      
+      // Verificar se já está rodando
+      if (tradingEngine.isRunning) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "O robô já está em execução",
+        });
+      }
+      
+      try {
+        // Carregar configuração do usuário
+        const config = await getICMarketsConfig(ctx.user.id);
+        
+        // Usar símbolo/timeframe do input ou da configuração salva
+        const symbol = input?.symbol || config?.symbol || "USDJPY";
+        const timeframe = input?.timeframe || config?.timeframe || "M15";
+        const lots = parseFloat(config?.lots || "0.01");
+        
+        // Atualizar configuração do engine
+        tradingEngine.updateConfig({
+          symbol,
+          timeframe,
+          lots,
+          maxPositions: 1,
+          cooldownMs: 60000, // 1 minuto entre operações
+        });
+        
+        // Iniciar o robô
+        await tradingEngine.start(symbol, timeframe);
+        
+        console.log(`[ICMarketsRouter] 🤖 Robô iniciado por usuário ${ctx.user.id}`);
+        
+        return {
+          success: true,
+          message: "Robô iniciado com sucesso",
+          status: tradingEngine.getStatus(),
+        };
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erro ao iniciar robô: ${(error as Error).message}`,
+        });
+      }
+    }),
+  
+  /**
+   * Para o robô de trading automático
+   */
+  stopBot: protectedProcedure.mutation(async ({ ctx }) => {
+    if (!tradingEngine.isRunning) {
+      return {
+        success: true,
+        message: "O robô já está parado",
+      };
+    }
+    
+    try {
+      await tradingEngine.stop();
+      
+      console.log(`[ICMarketsRouter] 🛑 Robô parado por usuário ${ctx.user.id}`);
+      
+      return {
+        success: true,
+        message: "Robô parado com sucesso",
+      };
+    } catch (error) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: `Erro ao parar robô: ${(error as Error).message}`,
+      });
+    }
+  }),
+  
+  /**
+   * Obtém status do robô de trading
+   * IMPORTANTE: Separado do status de conexão
+   */
+  getBotStatus: protectedProcedure.query(async () => {
+    const status = tradingEngine.getStatus();
+    return status;
+  }),
 });
 
 export type ICMarketsRouter = typeof icmarketsRouter;
