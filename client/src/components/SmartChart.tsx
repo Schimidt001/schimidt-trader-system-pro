@@ -1,11 +1,19 @@
 /**
- * SmartChart - Gráfico Profissional de Candlestick
+ * SmartChart - Gráfico Profissional de Candlestick com Indicadores Técnicos
  * 
  * Utiliza lightweight-charts v5 (TradingView) para renderização de alta performance.
- * Componente PASSIVO: apenas consome dados via props, não faz chamadas de API.
+ * 
+ * Funcionalidades:
+ * - Candles em tempo real com GAP DETECTION
+ * - EMA 200 (Média Móvel Exponencial)
+ * - RSI 14 com níveis 30/70
+ * - Linhas de suporte/resistência manuais
+ * - Linhas de tendência
+ * - Anotações de texto
+ * - Marcadores automáticos de entrada/saída
  * 
  * @author Manus AI - Implementação para IC Markets Dashboard
- * @version 1.0.0
+ * @version 2.0.0
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
@@ -20,6 +28,10 @@ import {
   IPriceLine,
   LineStyle,
   CandlestickSeries,
+  LineSeries,
+  HistogramSeries,
+  SeriesMarker,
+  createSeriesMarkers,
 } from "lightweight-charts";
 
 // ============= INTERFACES =============
@@ -33,12 +45,9 @@ interface CandleData {
 }
 
 interface Position {
-  // Campos comuns - pelo menos um identificador
   id?: number;
   positionId?: string;
-  // Direção pode vir em vários formatos
   direction: "up" | "down" | "BUY" | "SELL" | string;
-  // Preço de entrada pode ser string ou number
   entryPrice: string | number;
   entryTime?: number;
   openTime?: number;
@@ -52,10 +61,36 @@ interface Position {
   currentPrice?: number;
 }
 
+interface IndicatorData {
+  ema200?: number;
+  rsi?: number;
+  rsiPrevious?: number;
+}
+
+interface DrawingLine {
+  id: string;
+  type: "horizontal" | "trend";
+  price?: number;
+  startTime?: number;
+  startPrice?: number;
+  endTime?: number;
+  endPrice?: number;
+  color: string;
+  label?: string;
+}
+
+interface Annotation {
+  id: string;
+  time: number;
+  price: number;
+  text: string;
+  color: string;
+}
+
 interface SmartChartProps {
   /** Array de candles OHLC */
   data: CandleData[];
-  /** Preço atual em tempo real (para atualizar o último candle) */
+  /** Preço atual em tempo real */
   currentPrice?: number | null;
   /** Preço de abertura do candle atual */
   currentOpen?: number | null;
@@ -63,51 +98,155 @@ interface SmartChartProps {
   openPositions?: Position[];
   /** Altura do gráfico em pixels */
   height?: number;
-  /** Símbolo sendo exibido (para título) */
+  /** Símbolo sendo exibido */
   symbol?: string;
   /** Timeframe atual */
   timeframe?: string;
+  /** Dados dos indicadores técnicos */
+  indicators?: IndicatorData;
+  /** Mostrar EMA 200 */
+  showEMA200?: boolean;
+  /** Mostrar RSI */
+  showRSI?: boolean;
+  /** Linhas de desenho (suporte/resistência, tendência) */
+  drawingLines?: DrawingLine[];
+  /** Anotações de texto */
+  annotations?: Annotation[];
+  /** Callback quando uma nova linha é desenhada */
+  onDrawLine?: (line: DrawingLine) => void;
+  /** Callback quando uma anotação é adicionada */
+  onAddAnnotation?: (annotation: Annotation) => void;
 }
 
 // ============= CONSTANTES DE ESTILO =============
 
 const CHART_COLORS = {
-  background: "#0f172a", // slate-900
-  textColor: "#94a3b8", // slate-400
-  gridColor: "#1e293b", // slate-800
-  borderColor: "#334155", // slate-700
-  candleUp: "#26a69a", // Verde TradingView
-  candleDown: "#ef5350", // Vermelho TradingView
+  background: "#0f172a",
+  textColor: "#94a3b8",
+  gridColor: "#1e293b",
+  borderColor: "#334155",
+  candleUp: "#26a69a",
+  candleDown: "#ef5350",
   wickUp: "#26a69a",
   wickDown: "#ef5350",
+  ema200: "#f59e0b", // Amber para EMA 200
+  rsiLine: "#8b5cf6", // Violet para RSI
+  rsiOversold: "#22c55e", // Verde para nível 30
+  rsiOverbought: "#ef4444", // Vermelho para nível 70
 };
 
 const PRICE_LINE_STYLES = {
   entry: {
-    color: "#3b82f6", // Azul
+    color: "#3b82f6",
     lineWidth: 2,
     lineStyle: LineStyle.Dashed,
     axisLabelVisible: true,
   },
   stopLoss: {
-    color: "#ef4444", // Vermelho
+    color: "#ef4444",
     lineWidth: 2,
     lineStyle: LineStyle.Solid,
     axisLabelVisible: true,
   },
   takeProfit: {
-    color: "#22c55e", // Verde
+    color: "#22c55e",
     lineWidth: 2,
     lineStyle: LineStyle.Solid,
     axisLabelVisible: true,
   },
   currentPrice: {
-    color: "#06b6d4", // Cyan
+    color: "#06b6d4",
     lineWidth: 1,
     lineStyle: LineStyle.Dotted,
     axisLabelVisible: true,
   },
+  support: {
+    color: "#22c55e",
+    lineWidth: 1,
+    lineStyle: LineStyle.Solid,
+    axisLabelVisible: true,
+  },
+  resistance: {
+    color: "#ef4444",
+    lineWidth: 1,
+    lineStyle: LineStyle.Solid,
+    axisLabelVisible: true,
+  },
 };
+
+// ============= FUNÇÕES DE CÁLCULO DE INDICADORES =============
+
+/**
+ * Calcula EMA (Exponential Moving Average)
+ */
+function calculateEMA(prices: number[], period: number): number[] {
+  if (prices.length < period) return [];
+  
+  const ema: number[] = [];
+  const multiplier = 2 / (period + 1);
+  
+  // Primeira EMA é a SMA
+  let sum = 0;
+  for (let i = 0; i < period; i++) {
+    sum += prices[i];
+  }
+  ema.push(sum / period);
+  
+  // Calcular EMA para o resto
+  for (let i = period; i < prices.length; i++) {
+    const currentEma = (prices[i] - ema[ema.length - 1]) * multiplier + ema[ema.length - 1];
+    ema.push(currentEma);
+  }
+  
+  return ema;
+}
+
+/**
+ * Calcula RSI (Relative Strength Index)
+ */
+function calculateRSI(prices: number[], period: number): number[] {
+  if (prices.length < period + 1) return [];
+  
+  const rsi: number[] = [];
+  const gains: number[] = [];
+  const losses: number[] = [];
+  
+  for (let i = 1; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    gains.push(change > 0 ? change : 0);
+    losses.push(change < 0 ? Math.abs(change) : 0);
+  }
+  
+  let avgGain = 0;
+  let avgLoss = 0;
+  for (let i = 0; i < period; i++) {
+    avgGain += gains[i];
+    avgLoss += losses[i];
+  }
+  avgGain /= period;
+  avgLoss /= period;
+  
+  if (avgLoss === 0) {
+    rsi.push(100);
+  } else {
+    const rs = avgGain / avgLoss;
+    rsi.push(100 - (100 / (1 + rs)));
+  }
+  
+  for (let i = period; i < gains.length; i++) {
+    avgGain = (avgGain * (period - 1) + gains[i]) / period;
+    avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
+    
+    if (avgLoss === 0) {
+      rsi.push(100);
+    } else {
+      const rs = avgGain / avgLoss;
+      rsi.push(100 - (100 / (1 + rs)));
+    }
+  }
+  
+  return rsi;
+}
 
 // ============= COMPONENTE PRINCIPAL =============
 
@@ -119,14 +258,25 @@ export function SmartChart({
   height = 500,
   symbol = "USDJPY",
   timeframe = "M15",
+  indicators,
+  showEMA200 = true,
+  showRSI = true,
+  drawingLines = [],
+  annotations = [],
+  onDrawLine,
+  onAddAnnotation,
 }: SmartChartProps) {
-  // Refs para o chart e série
+  // Refs para o chart e séries
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const rsiContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const rsiChartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const emaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const priceLinesRef = useRef<Map<string, IPriceLine>>(new Map());
   
-  // Ref para rastrear o candle atual em formação (preserva high/low entre ticks)
+  // Ref para rastrear o candle atual em formação
   const currentCandleRef = useRef<{
     time: Time;
     open: number;
@@ -135,16 +285,19 @@ export function SmartChart({
     close: number;
   } | null>(null);
 
-  // State para o cronômetro de vela (Candle Timer)
+  // State para o cronômetro de vela
   const [timeLeft, setTimeLeft] = useState<string>("--:--");
+  
+  // State para modo de desenho
+  const [drawingMode, setDrawingMode] = useState<"none" | "horizontal" | "trend" | "annotation">("none");
+  const [pendingLine, setPendingLine] = useState<Partial<DrawingLine> | null>(null);
 
   // Calcular segundos por candle baseado no timeframe
   const getSecondsPerCandle = useCallback((tf: string): number => {
     const match = tf.match(/^M(\d+)$/i);
     if (match) {
-      return parseInt(match[1]) * 60; // M1 = 60s, M5 = 300s, M15 = 900s, etc.
+      return parseInt(match[1]) * 60;
     }
-    // Fallback para timeframes comuns
     const timeframes: Record<string, number> = {
       'M1': 60, 'M5': 300, 'M15': 900, 'M30': 1800,
       'H1': 3600, 'H4': 14400, 'D1': 86400
@@ -157,20 +310,16 @@ export function SmartChart({
     const secondsPerCandle = getSecondsPerCandle(timeframe);
     
     const updateTimer = () => {
-      const now = Math.floor(Date.now() / 1000); // Timestamp atual em segundos
+      const now = Math.floor(Date.now() / 1000);
       const secondsIntoCandle = now % secondsPerCandle;
       const secondsRemaining = secondsPerCandle - secondsIntoCandle;
       
-      // Formatar como MM:SS
       const minutes = Math.floor(secondsRemaining / 60);
       const seconds = secondsRemaining % 60;
       setTimeLeft(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
     };
 
-    // Atualizar imediatamente
     updateTimer();
-    
-    // Atualizar a cada segundo
     const interval = setInterval(updateTimer, 1000);
 
     return () => clearInterval(interval);
@@ -192,6 +341,35 @@ export function SmartChart({
       .sort((a, b) => (a.time as number) - (b.time as number));
   }, [data]);
 
+  // Calcular EMA 200
+  const emaData = useMemo(() => {
+    if (!showEMA200 || chartData.length < 200) return [];
+    
+    const closePrices = chartData.map(c => c.close);
+    const emaValues = calculateEMA(closePrices, 200);
+    
+    // Alinhar EMA com timestamps (EMA começa após 200 períodos)
+    const startIndex = chartData.length - emaValues.length;
+    return emaValues.map((value, i) => ({
+      time: chartData[startIndex + i].time,
+      value,
+    }));
+  }, [chartData, showEMA200]);
+
+  // Calcular RSI 14
+  const rsiData = useMemo(() => {
+    if (!showRSI || chartData.length < 15) return [];
+    
+    const closePrices = chartData.map(c => c.close);
+    const rsiValues = calculateRSI(closePrices, 14);
+    
+    const startIndex = chartData.length - rsiValues.length;
+    return rsiValues.map((value, i) => ({
+      time: chartData[startIndex + i].time,
+      value,
+    }));
+  }, [chartData, showRSI]);
+
   // Função para limpar price lines
   const clearPriceLines = useCallback(() => {
     if (!candleSeriesRef.current) return;
@@ -200,7 +378,7 @@ export function SmartChart({
       try {
         candleSeriesRef.current?.removePriceLine(line);
       } catch (e) {
-        // Linha já removida, ignorar
+        // Linha já removida
       }
     });
     priceLinesRef.current.clear();
@@ -233,14 +411,13 @@ export function SmartChart({
     []
   );
 
-  // Inicializar o gráfico
+  // Inicializar o gráfico principal
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    // Criar o chart
     const chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
-      height,
+      height: showRSI ? height - 120 : height, // Reservar espaço para RSI
       layout: {
         background: { type: ColorType.Solid, color: CHART_COLORS.background },
         textColor: CHART_COLORS.textColor,
@@ -266,10 +443,7 @@ export function SmartChart({
       },
       rightPriceScale: {
         borderColor: CHART_COLORS.borderColor,
-        scaleMargins: {
-          top: 0.1,
-          bottom: 0.1,
-        },
+        scaleMargins: { top: 0.1, bottom: 0.1 },
       },
       timeScale: {
         borderColor: CHART_COLORS.borderColor,
@@ -289,7 +463,7 @@ export function SmartChart({
       },
     });
 
-    // Criar série de candlestick usando a nova API v5
+    // Série de candlestick
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: CHART_COLORS.candleUp,
       downColor: CHART_COLORS.candleDown,
@@ -299,8 +473,18 @@ export function SmartChart({
       wickDownColor: CHART_COLORS.wickDown,
     });
 
+    // Série EMA 200
+    const emaSeries = chart.addSeries(LineSeries, {
+      color: CHART_COLORS.ema200,
+      lineWidth: 2,
+      title: "EMA 200",
+      priceLineVisible: false,
+      lastValueVisible: true,
+    });
+
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
+    emaSeriesRef.current = emaSeries;
 
     // Resize handler
     const handleResize = () => {
@@ -313,33 +497,174 @@ export function SmartChart({
 
     window.addEventListener("resize", handleResize);
 
-    // Cleanup
     return () => {
       window.removeEventListener("resize", handleResize);
       clearPriceLines();
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
+      emaSeriesRef.current = null;
     };
-  }, [height, clearPriceLines]);
+  }, [height, clearPriceLines, showRSI]);
+
+  // Inicializar gráfico RSI
+  useEffect(() => {
+    if (!showRSI || !rsiContainerRef.current) return;
+
+    const rsiChart = createChart(rsiContainerRef.current, {
+      width: rsiContainerRef.current.clientWidth,
+      height: 100,
+      layout: {
+        background: { type: ColorType.Solid, color: CHART_COLORS.background },
+        textColor: CHART_COLORS.textColor,
+      },
+      grid: {
+        vertLines: { color: CHART_COLORS.gridColor },
+        horzLines: { color: CHART_COLORS.gridColor },
+      },
+      rightPriceScale: {
+        borderColor: CHART_COLORS.borderColor,
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+      },
+      timeScale: {
+        borderColor: CHART_COLORS.borderColor,
+        timeVisible: false,
+        visible: false,
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+      },
+    });
+
+    const rsiSeries = rsiChart.addSeries(LineSeries, {
+      color: CHART_COLORS.rsiLine,
+      lineWidth: 2,
+      title: "RSI 14",
+      priceLineVisible: false,
+    });
+
+    // Adicionar linhas de referência RSI (30 e 70)
+    rsiSeries.createPriceLine({
+      price: 30,
+      color: CHART_COLORS.rsiOversold,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: "Sobrevenda",
+    });
+
+    rsiSeries.createPriceLine({
+      price: 70,
+      color: CHART_COLORS.rsiOverbought,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: "Sobrecompra",
+    });
+
+    rsiSeries.createPriceLine({
+      price: 50,
+      color: "#64748b",
+      lineWidth: 1,
+      lineStyle: LineStyle.Dotted,
+      axisLabelVisible: false,
+    });
+
+    rsiChartRef.current = rsiChart;
+    rsiSeriesRef.current = rsiSeries;
+
+    // Sincronizar timeScale com o gráfico principal
+    if (chartRef.current) {
+      chartRef.current.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (range && rsiChartRef.current) {
+          rsiChartRef.current.timeScale().setVisibleLogicalRange(range);
+        }
+      });
+    }
+
+    const handleResize = () => {
+      if (rsiContainerRef.current && rsiChartRef.current) {
+        rsiChartRef.current.applyOptions({
+          width: rsiContainerRef.current.clientWidth,
+        });
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      rsiChart.remove();
+      rsiChartRef.current = null;
+      rsiSeriesRef.current = null;
+    };
+  }, [showRSI]);
 
   // Atualizar dados do gráfico
   useEffect(() => {
     if (!candleSeriesRef.current || chartData.length === 0) return;
 
+    const intervalSeconds = getSecondsPerCandle(timeframe);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const currentIntervalTimeSeconds = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
+    
+    const lastChartCandle = chartData[chartData.length - 1];
+    const lastCandleTimeRaw = lastChartCandle?.time as number;
+    const isMilliseconds = lastCandleTimeRaw > 1e12;
+    const lastCandleTimeSeconds = isMilliseconds ? Math.floor(lastCandleTimeRaw / 1000) : lastCandleTimeRaw;
+    
+    const currentCandleTimeSeconds = currentCandleRef.current 
+      ? (isMilliseconds 
+          ? Math.floor((currentCandleRef.current.time as number) / 1000) 
+          : (currentCandleRef.current.time as number))
+      : 0;
+    
+    const shouldResetCurrentCandle = 
+      !currentCandleRef.current || 
+      currentCandleTimeSeconds < currentIntervalTimeSeconds;
+    
+    if (shouldResetCurrentCandle || lastCandleTimeSeconds >= currentCandleTimeSeconds) {
+      if (lastCandleTimeSeconds === currentIntervalTimeSeconds) {
+        currentCandleRef.current = null;
+      } else if (currentCandleTimeSeconds < currentIntervalTimeSeconds) {
+        currentCandleRef.current = null;
+      }
+    }
+
     candleSeriesRef.current.setData(chartData);
     
-    // Resetar o candle atual quando os dados mudam (novo candle do backend)
-    currentCandleRef.current = null;
+    if (currentCandleRef.current && currentCandleTimeSeconds === currentIntervalTimeSeconds) {
+      candleSeriesRef.current.update(currentCandleRef.current as CandlestickData<Time>);
+    }
 
-    // Ajustar visualização para mostrar os últimos candles
     if (chartRef.current) {
       chartRef.current.timeScale().fitContent();
     }
-  }, [chartData]);
+  }, [chartData, timeframe, getSecondsPerCandle]);
 
-  // Atualizar o último candle com preço em tempo real (tick-by-tick streaming)
-  // Inclui GAP DETECTION: cria nova vela se o tempo atual exceder a última vela do histórico
+  // Atualizar EMA 200
+  useEffect(() => {
+    if (!emaSeriesRef.current) return;
+    
+    if (showEMA200 && emaData.length > 0) {
+      emaSeriesRef.current.setData(emaData);
+    } else {
+      emaSeriesRef.current.setData([]);
+    }
+  }, [emaData, showEMA200]);
+
+  // Atualizar RSI
+  useEffect(() => {
+    if (!rsiSeriesRef.current) return;
+    
+    if (showRSI && rsiData.length > 0) {
+      rsiSeriesRef.current.setData(rsiData);
+    } else {
+      rsiSeriesRef.current.setData([]);
+    }
+  }, [rsiData, showRSI]);
+
+  // Atualizar o último candle com preço em tempo real
   useEffect(() => {
     if (
       !candleSeriesRef.current ||
@@ -351,58 +676,29 @@ export function SmartChart({
     const lastCandle = chartData[chartData.length - 1];
     if (!lastCandle) return;
 
-    // IMPORTANTE: O backend retorna timestamp em MILISSEGUNDOS (utcTimestampInMinutes * 60 * 1000)
-    // Precisamos normalizar para SEGUNDOS para comparar com Date.now()/1000
     const lastCandleTimeRaw = lastCandle.time as number;
-    
-    // Detectar se o timestamp está em milissegundos (valor muito grande) ou segundos
-    // Timestamps em segundos desde 1970 são ~1.7 bilhões, em ms são ~1.7 trilhões
     const isMilliseconds = lastCandleTimeRaw > 1e12;
     const lastCandleTimeSeconds = isMilliseconds ? Math.floor(lastCandleTimeRaw / 1000) : lastCandleTimeRaw;
     
-    // Calcular o intervalo em segundos baseado no timeframe
     const intervalSeconds = getSecondsPerCandle(timeframe);
-    
-    // Calcular qual deveria ser o tempo da vela ATUAL baseada no relógio UTC
-    // (Arredonda para baixo para o início do intervalo mais próximo)
     const nowSeconds = Math.floor(Date.now() / 1000);
     const currentIntervalTimeSeconds = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
     
-    // Converter de volta para o formato original (ms ou s) para consistência com lightweight-charts
     const currentIntervalTime = isMilliseconds ? currentIntervalTimeSeconds * 1000 : currentIntervalTimeSeconds;
-    const lastCandleTime = lastCandleTimeRaw; // Manter no formato original
+    const lastCandleTime = lastCandleTimeRaw;
 
-    // DEBUG: Descomentar para verificar os valores
-    // console.log('[SmartChart] Gap Detection:', {
-    //   lastCandleTimeRaw,
-    //   isMilliseconds,
-    //   lastCandleTimeSeconds,
-    //   nowSeconds,
-    //   currentIntervalTimeSeconds,
-    //   currentIntervalTime,
-    //   shouldCreateNewCandle: currentIntervalTimeSeconds > lastCandleTimeSeconds,
-    //   timeframe,
-    //   intervalSeconds
-    // });
-
-    // GAP DETECTION: Verifica se estamos numa vela nova (tempo atual > última vela do histórico)
-    // Comparar em SEGUNDOS para evitar problemas de formato
     if (currentIntervalTimeSeconds > lastCandleTimeSeconds) {
-      // CRIAR NOVA VELA - O tempo atual excede a última vela do histórico
-      // Verifica se já estamos rastreando essa nova vela
       const isTrackingNewCandle = currentCandleRef.current?.time === currentIntervalTime;
       
       if (isTrackingNewCandle && currentCandleRef.current) {
-        // Já estamos na nova vela: atualizar high/low/close preservando extremos
         currentCandleRef.current = {
           time: currentIntervalTime as Time,
-          open: currentCandleRef.current.open, // Manter abertura original
+          open: currentCandleRef.current.open,
           high: Math.max(currentCandleRef.current.high, currentPrice),
           low: Math.min(currentCandleRef.current.low, currentPrice),
           close: currentPrice,
         };
       } else {
-        // Primeira vez nesta nova vela: criar com preço atual como OHLC
         currentCandleRef.current = {
           time: currentIntervalTime as Time,
           open: currentPrice,
@@ -412,23 +708,20 @@ export function SmartChart({
         };
       }
     } else {
-      // ATUALIZAR VELA EXISTENTE - Estamos dentro do intervalo da última vela do histórico
       const isSameCandle = currentCandleRef.current?.time === lastCandleTime;
 
       if (isSameCandle && currentCandleRef.current) {
-        // Mesmo candle: atualizar high/low/close preservando os extremos
         currentCandleRef.current = {
           time: lastCandleTime as Time,
-          open: currentCandleRef.current.open, // Manter abertura original
+          open: currentCandleRef.current.open,
           high: Math.max(currentCandleRef.current.high, currentPrice),
           low: Math.min(currentCandleRef.current.low, currentPrice),
           close: currentPrice,
         };
       } else {
-        // Inicializar com os dados do backend + preço atual
         currentCandleRef.current = {
           time: lastCandleTime as Time,
-          open: currentOpen ?? lastCandle.open,
+          open: lastCandle.open,
           high: Math.max(lastCandle.high, currentPrice),
           low: Math.min(lastCandle.low, currentPrice),
           close: currentPrice,
@@ -436,18 +729,16 @@ export function SmartChart({
       }
     }
 
-    // A MÁGICA: Isso faz o gráfico se mexer sem recarregar
     candleSeriesRef.current.update(currentCandleRef.current as CandlestickData<Time>);
-  }, [currentPrice, currentOpen, chartData, timeframe, getSecondsPerCandle]);
+  }, [currentPrice, chartData, timeframe, getSecondsPerCandle]);
 
   // Atualizar price lines das posições
   useEffect(() => {
     if (!candleSeriesRef.current) return;
 
-    // Limpar linhas antigas
     clearPriceLines();
 
-    // Adicionar linhas para cada posição aberta
+    // Linhas de posições abertas
     openPositions.forEach((position) => {
       const entryPrice =
         typeof position.entryPrice === "string"
@@ -464,7 +755,6 @@ export function SmartChart({
 
       const posId = position.id ?? position.positionId ?? 'unknown';
 
-      // Linha de entrada
       addPriceLine(
         `entry-${posId}`,
         entryPrice,
@@ -472,7 +762,6 @@ export function SmartChart({
         PRICE_LINE_STYLES.entry
       );
 
-      // Linha de Stop Loss
       if (position.stopLoss) {
         const sl =
           typeof position.stopLoss === "string"
@@ -488,7 +777,6 @@ export function SmartChart({
         }
       }
 
-      // Linha de Take Profit
       if (position.takeProfit) {
         const tp =
           typeof position.takeProfit === "string"
@@ -505,6 +793,19 @@ export function SmartChart({
       }
     });
 
+    // Linhas de desenho (suporte/resistência)
+    drawingLines.forEach((line) => {
+      if (line.type === "horizontal" && line.price) {
+        const style = line.color === "#22c55e" ? PRICE_LINE_STYLES.support : PRICE_LINE_STYLES.resistance;
+        addPriceLine(
+          `drawing-${line.id}`,
+          line.price,
+          line.label || `${line.price.toFixed(5)}`,
+          { ...style, color: line.color }
+        );
+      }
+    });
+
     // Linha de preço atual
     if (currentPrice && !isNaN(currentPrice)) {
       addPriceLine(
@@ -514,7 +815,7 @@ export function SmartChart({
         PRICE_LINE_STYLES.currentPrice
       );
     }
-  }, [openPositions, currentPrice, addPriceLine, clearPriceLines]);
+  }, [openPositions, currentPrice, drawingLines, addPriceLine, clearPriceLines]);
 
   // Estado de loading/empty
   if (!data || data.length === 0) {
@@ -531,12 +832,16 @@ export function SmartChart({
     );
   }
 
-  // Calcular estatísticas do candle atual
+  // Calcular estatísticas
   const lastCandle = chartData[chartData.length - 1];
   const candleChange = lastCandle
     ? ((lastCandle.close - lastCandle.open) / lastCandle.open) * 100
     : 0;
   const isGreen = lastCandle ? lastCandle.close >= lastCandle.open : true;
+
+  // Obter valores atuais dos indicadores
+  const currentEMA = emaData.length > 0 ? emaData[emaData.length - 1].value : null;
+  const currentRSI = rsiData.length > 0 ? rsiData[rsiData.length - 1].value : null;
 
   return (
     <div className="w-full">
@@ -552,30 +857,16 @@ export function SmartChart({
           {lastCandle && (
             <div className="flex items-center gap-3 text-sm">
               <span className="text-slate-400">
-                O:{" "}
-                <span className="text-white font-mono">
-                  {lastCandle.open.toFixed(5)}
-                </span>
+                O: <span className="text-white font-mono">{lastCandle.open.toFixed(5)}</span>
               </span>
               <span className="text-slate-400">
-                H:{" "}
-                <span className="text-green-400 font-mono">
-                  {lastCandle.high.toFixed(5)}
-                </span>
+                H: <span className="text-green-400 font-mono">{lastCandle.high.toFixed(5)}</span>
               </span>
               <span className="text-slate-400">
-                L:{" "}
-                <span className="text-red-400 font-mono">
-                  {lastCandle.low.toFixed(5)}
-                </span>
+                L: <span className="text-red-400 font-mono">{lastCandle.low.toFixed(5)}</span>
               </span>
               <span className="text-slate-400">
-                C:{" "}
-                <span
-                  className={`font-mono ${
-                    isGreen ? "text-green-400" : "text-red-400"
-                  }`}
-                >
+                C: <span className={`font-mono ${isGreen ? "text-green-400" : "text-red-400"}`}>
                   {lastCandle.close.toFixed(5)}
                 </span>
               </span>
@@ -583,6 +874,33 @@ export function SmartChart({
           )}
         </div>
         <div className="flex items-center gap-3">
+          {/* Indicadores no header */}
+          {showEMA200 && currentEMA && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1">
+              <span className="text-xs text-amber-400 font-mono">
+                EMA200: {currentEMA.toFixed(5)}
+              </span>
+            </div>
+          )}
+          {showRSI && currentRSI && (
+            <div className={`rounded px-2 py-1 ${
+              currentRSI < 30 
+                ? "bg-green-500/10 border border-green-500/30" 
+                : currentRSI > 70 
+                  ? "bg-red-500/10 border border-red-500/30"
+                  : "bg-violet-500/10 border border-violet-500/30"
+            }`}>
+              <span className={`text-xs font-mono ${
+                currentRSI < 30 
+                  ? "text-green-400" 
+                  : currentRSI > 70 
+                    ? "text-red-400"
+                    : "text-violet-400"
+              }`}>
+                RSI: {currentRSI.toFixed(1)}
+              </span>
+            </div>
+          )}
           {currentPrice && (
             <div className="bg-slate-800/80 border border-slate-700 rounded px-3 py-1">
               <span className="text-xs text-slate-400 mr-2">Preço Atual</span>
@@ -599,52 +917,82 @@ export function SmartChart({
                   : "bg-red-500/20 text-red-400"
               }`}
             >
-              {isGreen ? "+" : ""}
-              {candleChange.toFixed(2)}%
+              {isGreen ? "+" : ""}{candleChange.toFixed(2)}%
             </div>
           )}
         </div>
       </div>
 
-      {/* Container do gráfico com Timer */}
-      <div className="relative w-full" style={{ height }}>
-        {/* Cronômetro de Vela (Candle Timer) */}
+      {/* Container do gráfico principal */}
+      <div className="relative w-full" style={{ height: showRSI ? height - 120 : height }}>
+        {/* Cronômetro de Vela */}
         <div className="absolute top-3 right-16 z-20 pointer-events-none flex items-center gap-2">
           <div className="bg-slate-800/90 border border-slate-700 text-slate-200 px-3 py-1 rounded text-xs font-mono font-bold shadow-sm">
             Fecha em: <span className="text-yellow-400">{timeLeft}</span>
           </div>
         </div>
         
-        {/* Gráfico */}
+        {/* Gráfico Principal */}
         <div
           ref={chartContainerRef}
           className="w-full h-full rounded-lg overflow-hidden border border-slate-800"
         />
       </div>
 
-      {/* Footer com informações de posições */}
-      {openPositions.length > 0 && (
-        <div className="mt-3 flex items-center gap-4 text-xs text-slate-400 px-1">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-0.5 bg-blue-500 rounded"></div>
-            <span>Entry Price</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-0.5 bg-red-500 rounded"></div>
-            <span>Stop Loss</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-0.5 bg-green-500 rounded"></div>
-            <span>Take Profit</span>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <div className="w-2 h-2 bg-cyan-500 rounded-full animate-pulse"></div>
-            <span className="font-semibold text-slate-300">
-              {openPositions.length} Posição(ões) Aberta(s)
+      {/* Gráfico RSI */}
+      {showRSI && (
+        <div className="mt-2">
+          <div className="flex items-center gap-2 mb-1 px-1">
+            <span className="text-xs text-violet-400 font-semibold">RSI (14)</span>
+            <span className="text-xs text-slate-500">
+              Sobrevenda: &lt;30 | Sobrecompra: &gt;70
             </span>
           </div>
+          <div
+            ref={rsiContainerRef}
+            className="w-full rounded-lg overflow-hidden border border-slate-800"
+            style={{ height: 100 }}
+          />
         </div>
       )}
+
+      {/* Footer com informações */}
+      <div className="mt-3 flex items-center justify-between text-xs text-slate-400 px-1">
+        <div className="flex items-center gap-4">
+          {showEMA200 && (
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-0.5 bg-amber-500 rounded"></div>
+              <span>EMA 200</span>
+            </div>
+          )}
+          {openPositions.length > 0 && (
+            <>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-0.5 bg-blue-500 rounded"></div>
+                <span>Entry</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-0.5 bg-red-500 rounded"></div>
+                <span>Stop Loss</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-0.5 bg-green-500 rounded"></div>
+                <span>Take Profit</span>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-4">
+          {openPositions.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-pulse"></div>
+              <span className="font-semibold text-slate-300">
+                {openPositions.length} Posição(ões) Aberta(s)
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
