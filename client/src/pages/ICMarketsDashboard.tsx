@@ -64,6 +64,8 @@ import {
   Power,
   Play,
   Square,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -93,6 +95,7 @@ export default function ICMarketsDashboard() {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [showEMA200, setShowEMA200] = useState(true);
   const [showRSI, setShowRSI] = useState(true);
+  const [chartHeight, setChartHeight] = useState(500); // Altura ajustável do gráfico
   
   // Queries
   const connectionStatus = trpc.icmarkets.getConnectionStatus.useQuery(undefined, {
@@ -108,7 +111,7 @@ export default function ICMarketsDashboard() {
     { symbol: selectedSymbol },
     {
       enabled: connectionStatus.data?.connected === true,
-      refetchInterval: 1000,
+      refetchInterval: 500, // Atualização mais frequente para streaming em tempo real
     }
   );
   
@@ -135,8 +138,8 @@ export default function ICMarketsDashboard() {
     { symbol: selectedSymbol, timeframe: selectedTimeframe, count: 1000 },
     {
       enabled: connectionStatus.data?.connected === true,
-      refetchInterval: 60000, // Atualizar a cada minuto
-      staleTime: 30000,
+      refetchInterval: 15000, // Atualizar a cada 15 segundos para capturar novos candles fechados
+      staleTime: 10000,
     }
   );
   
@@ -526,14 +529,38 @@ export default function ICMarketsDashboard() {
             {/* Gráfico de Candles */}
             {isConnected && (
               <Card className="bg-slate-900/50 border-slate-800">
-                <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <Activity className="w-5 h-5 text-cyan-400" />
-                    Gráfico {selectedSymbol} - {selectedTimeframe}
-                  </CardTitle>
-                  <CardDescription className="text-slate-400">
-Últimos 1000 candles | EMA 200 + RSI 14 | Candle atual em tempo real
-                  </CardDescription>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-white flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-cyan-400" />
+                      Gráfico {selectedSymbol} - {selectedTimeframe}
+                    </CardTitle>
+                    <CardDescription className="text-slate-400">
+                      Últimos 1000 candles | EMA 200 + RSI 14 | Candle atual em tempo real
+                    </CardDescription>
+                  </div>
+                  {/* Controles de altura do gráfico */}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setChartHeight(h => Math.max(300, h - 100))}
+                      className="text-slate-400 hover:text-white hover:bg-slate-800"
+                      title="Diminuir gráfico"
+                    >
+                      <Minimize2 className="w-4 h-4" />
+                    </Button>
+                    <span className="text-xs text-slate-500 min-w-[50px] text-center">{chartHeight}px</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setChartHeight(h => Math.min(900, h + 100))}
+                      className="text-slate-400 hover:text-white hover:bg-slate-800"
+                      title="Aumentar gráfico"
+                    >
+                      <Maximize2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {candlesQuery.isLoading ? (
@@ -547,7 +574,7 @@ export default function ICMarketsDashboard() {
                       openPositions={(positionsQuery.data?.live || []) as any}
                       symbol={selectedSymbol}
                       timeframe={selectedTimeframe}
-                      height={500}
+                      height={chartHeight}
                       showEMA200={showEMA200}
                       showRSI={showRSI}
                       drawingLines={drawingLines}
@@ -555,7 +582,7 @@ export default function ICMarketsDashboard() {
                       onDrawingLinesChange={setDrawingLines}
                       onAnnotationsChange={setAnnotations}
                     />
-                  )
+                  )}
                 </CardContent>
               </Card>
             )}

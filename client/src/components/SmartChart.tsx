@@ -9,7 +9,12 @@
  * - EMA 200 e RSI 14
  * - Linhas de posições (entry, SL, TP)
  * 
- * @version 3.0.0 - Reformulação completa
+ * @version 4.0.0 - Correção de bugs de desenho e tempo real
+ * 
+ * CORREÇÕES:
+ * - Separado useEffect de inicialização do gráfico das dependências de desenho
+ * - Corrigido bug que fazia o gráfico desaparecer ao usar ferramentas de desenho
+ * - Melhorada a lógica de candle em tempo real
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
@@ -25,6 +30,7 @@ import {
   LineStyle,
   CandlestickSeries,
   LineSeries,
+  MouseEventParams,
 } from "lightweight-charts";
 import { 
   Minus, 
@@ -179,6 +185,7 @@ export function SmartChart({
   const priceLinesRef = useRef<Map<string, IPriceLine>>(new Map());
   const currentCandleRef = useRef<CandlestickData<Time> | null>(null);
   const lastDataLengthRef = useRef<number>(0);
+  const clickHandlerRef = useRef<((param: MouseEventParams) => void) | null>(null);
 
   // States
   const [selectedTool, setSelectedTool] = useState<DrawingTool>("select");
@@ -188,6 +195,7 @@ export function SmartChart({
   const [drawingStart, setDrawingStart] = useState<{ time: number; price: number } | null>(null);
   const [localLines, setLocalLines] = useState<DrawingLine[]>(drawingLines);
   const [localAnnotations, setLocalAnnotations] = useState<Annotation[]>(annotations);
+  const [chartReady, setChartReady] = useState(false);
 
   // Calcular segundos por candle
   const getSecondsPerCandle = useCallback((tf: string): number => {
@@ -279,7 +287,7 @@ export function SmartChart({
     } catch {}
   }, []);
 
-  // Inicializar gráfico principal
+  // ============= INICIALIZAÇÃO DO GRÁFICO (SEM DEPENDÊNCIAS DE DESENHO) =============
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -303,7 +311,7 @@ export function SmartChart({
         borderColor: CHART_COLORS.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 12, // Espaço à direita para ver preço atual
+        rightOffset: 12,
         barSpacing: 8,
       },
       handleScroll: { mouseWheel: true, pressedMouseMove: true },
@@ -329,13 +337,41 @@ export function SmartChart({
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     emaSeriesRef.current = emaSeries;
+    setChartReady(true);
 
-    // Handler de clique para desenho
-    chart.subscribeClick((param) => {
+    const handleResize = () => {
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+      }
+    };
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      clearPriceLines();
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      emaSeriesRef.current = null;
+      setChartReady(false);
+    };
+  }, [height, showRSI, clearPriceLines]);
+
+  // ============= HANDLER DE CLIQUE PARA DESENHO (SEPARADO) =============
+  useEffect(() => {
+    if (!chartRef.current || !candleSeriesRef.current || !chartReady) return;
+
+    // Remover handler anterior se existir
+    if (clickHandlerRef.current) {
+      chartRef.current.unsubscribeClick(clickHandlerRef.current);
+    }
+
+    // Criar novo handler
+    const handleClick = (param: MouseEventParams) => {
       if (selectedTool === "select" || !param.time || !param.point) return;
       
-      const price = candleSeries.coordinateToPrice(param.point.y);
-      if (price === null) return;
+      const price = candleSeriesRef.current?.coordinateToPrice(param.point.y);
+      if (price === null || price === undefined) return;
       const time = param.time as number;
 
       if (selectedTool === "horizontal") {
@@ -346,27 +382,31 @@ export function SmartChart({
           color: "#3b82f6",
           label: price.toFixed(5),
         };
-        const updated = [...localLines, newLine];
-        setLocalLines(updated);
-        onDrawingLinesChange?.(updated);
+        setLocalLines(prev => {
+          const updated = [...prev, newLine];
+          onDrawingLinesChange?.(updated);
+          return updated;
+        });
         setSelectedTool("select");
       } else if (selectedTool === "trend") {
         if (!isDrawing) {
           setIsDrawing(true);
           setDrawingStart({ time, price });
-        } else {
+        } else if (drawingStart) {
           const newLine: DrawingLine = {
             id: `t-${Date.now()}`,
             type: "trend",
-            startTime: drawingStart!.time,
-            startPrice: drawingStart!.price,
+            startTime: drawingStart.time,
+            startPrice: drawingStart.price,
             endTime: time,
             endPrice: price,
             color: "#f59e0b",
           };
-          const updated = [...localLines, newLine];
-          setLocalLines(updated);
-          onDrawingLinesChange?.(updated);
+          setLocalLines(prev => {
+            const updated = [...prev, newLine];
+            onDrawingLinesChange?.(updated);
+            return updated;
+          });
           setIsDrawing(false);
           setDrawingStart(null);
           setSelectedTool("select");
@@ -381,41 +421,41 @@ export function SmartChart({
             text,
             color: "#06b6d4",
           };
-          const updated = [...localAnnotations, newAnnotation];
-          setLocalAnnotations(updated);
-          onAnnotationsChange?.(updated);
+          setLocalAnnotations(prev => {
+            const updated = [...prev, newAnnotation];
+            onAnnotationsChange?.(updated);
+            return updated;
+          });
         }
         setSelectedTool("select");
       } else if (selectedTool === "delete") {
-        // Encontrar e remover linha mais próxima
-        const tolerance = (candleSeries.priceToCoordinate(price + 0.001) || 0) - (candleSeries.priceToCoordinate(price) || 0);
-        const lineToDelete = localLines.find(l => {
-          if (l.type === "horizontal" && l.price) {
-            return Math.abs(l.price - price) < Math.abs(tolerance) * 10;
+        const tolerance = 0.0005; // Tolerância fixa para detecção
+        setLocalLines(prev => {
+          const lineToDelete = prev.find(l => {
+            if (l.type === "horizontal" && l.price) {
+              return Math.abs(l.price - price) < tolerance;
+            }
+            return false;
+          });
+          if (lineToDelete) {
+            const updated = prev.filter(l => l.id !== lineToDelete.id);
+            onDrawingLinesChange?.(updated);
+            return updated;
           }
-          return false;
+          return prev;
         });
-        if (lineToDelete) {
-          const updated = localLines.filter(l => l.id !== lineToDelete.id);
-          setLocalLines(updated);
-          onDrawingLinesChange?.(updated);
-        }
-      }
-    });
-
-    const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
       }
     };
-    window.addEventListener("resize", handleResize);
+
+    clickHandlerRef.current = handleClick;
+    chartRef.current.subscribeClick(handleClick);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
-      clearPriceLines();
-      chart.remove();
+      if (chartRef.current && clickHandlerRef.current) {
+        chartRef.current.unsubscribeClick(clickHandlerRef.current);
+      }
     };
-  }, [height, showRSI, clearPriceLines, selectedTool, isDrawing, drawingStart, localLines, localAnnotations, onDrawingLinesChange, onAnnotationsChange]);
+  }, [chartReady, selectedTool, isDrawing, drawingStart, onDrawingLinesChange, onAnnotationsChange]);
 
   // Inicializar RSI
   useEffect(() => {
@@ -502,15 +542,6 @@ export function SmartChart({
     const nowSeconds = Math.floor(Date.now() / 1000);
     const currentCandleStart = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
 
-    // DEBUG
-    console.log('[SmartChart] Candle RT:', { 
-      now: nowSeconds, 
-      currentStart: currentCandleStart, 
-      lastCandle: lastCandleTime,
-      diff: currentCandleStart - lastCandleTime,
-      price: currentPrice 
-    });
-
     // Criar ou atualizar candle em formação
     if (currentCandleStart > lastCandleTime) {
       // Novo candle que não existe no backend
@@ -524,7 +555,7 @@ export function SmartChart({
           close: currentPrice,
         };
       } else {
-        // Criar novo candle
+        // Criar novo candle - usar o close do último candle como open
         const openPrice = lastCandle.close;
         currentCandleRef.current = {
           time: currentCandleStart as Time,
@@ -533,11 +564,11 @@ export function SmartChart({
           low: Math.min(openPrice, currentPrice),
           close: currentPrice,
         };
-        console.log('[SmartChart] Novo candle criado:', currentCandleStart);
+        console.log('[SmartChart] Novo candle em formação criado:', new Date(currentCandleStart * 1000).toISOString());
       }
       candleSeriesRef.current.update(currentCandleRef.current);
     } else if (currentCandleStart === lastCandleTime) {
-      // Atualizar último candle do backend
+      // Atualizar último candle do backend com preço atual
       const updatedCandle: CandlestickData<Time> = {
         time: lastCandleTime as Time,
         open: lastCandle.open,
