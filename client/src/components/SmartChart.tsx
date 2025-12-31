@@ -11,7 +11,7 @@
  * - Marcadores automáticos de entrada/saída
  * 
  * @author Manus AI - Implementação para IC Markets Dashboard
- * @version 2.1.0 - Correção do candle em tempo real
+ * @version 2.2.0 - Correção do candle em tempo real para IC Markets
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
@@ -116,6 +116,7 @@ const CHART_COLORS = {
   rsiLine: "#8b5cf6",
   rsiOversold: "#22c55e",
   rsiOverbought: "#ef4444",
+  currentCandle: "#06b6d4", // Cor especial para candle em formação
 };
 
 const PRICE_LINE_STYLES = {
@@ -372,7 +373,7 @@ export function SmartChart({
         });
         priceLinesRef.current.set(id, priceLine);
       } catch (e) {
-        console.warn(`[SmartChart] Erro ao criar price line ${id}:`, e);
+        console.error("[SmartChart] Error adding price line:", e);
       }
     },
     []
@@ -609,6 +610,7 @@ export function SmartChart({
   }, [rsiData, showRSI]);
 
   // ============= LÓGICA PRINCIPAL: ATUALIZAÇÃO DO CANDLE EM TEMPO REAL =============
+  // CORREÇÃO v2.2.0: Melhorada a lógica para sempre mostrar o candle atual em formação
   useEffect(() => {
     if (!candleSeriesRef.current || !currentPrice || chartData.length === 0) return;
 
@@ -625,24 +627,27 @@ export function SmartChart({
     const nowSeconds = Math.floor(Date.now() / 1000);
     const currentCandleStart = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
     
-    // DEBUG: Log para verificar os valores
-    console.log('[SmartChart] Debug:', {
-      nowSeconds,
-      currentCandleStart,
-      lastCandleTime,
-      intervalSeconds,
-      diff: currentCandleStart - lastCandleTime,
-      shouldCreateNew: currentCandleStart > lastCandleTime
-    });
+    // DEBUG: Log para verificar os valores (apenas em desenvolvimento)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[SmartChart] Debug:', {
+        nowSeconds,
+        currentCandleStart,
+        lastCandleTime,
+        intervalSeconds,
+        diff: currentCandleStart - lastCandleTime,
+        shouldCreateNew: currentCandleStart > lastCandleTime
+      });
+    }
 
     // CASO 1: O candle atual ainda não existe nos dados do backend
     // Isso acontece quando estamos dentro de um novo intervalo que o backend ainda não retornou
+    // CORREÇÃO: A API cTrader retorna apenas candles FECHADOS, então este caso é o mais comum
     if (currentCandleStart > lastCandleTime) {
       // Verificar se já estamos rastreando este candle
       const isTrackingCurrentCandle = currentCandleRef.current?.time === currentCandleStart;
       
       if (isTrackingCurrentCandle && currentCandleRef.current) {
-        // Atualizar o candle existente
+        // Atualizar o candle existente mantendo o open original
         currentCandleRef.current = {
           time: currentCandleStart as Time,
           open: currentCandleRef.current.open,
@@ -652,23 +657,26 @@ export function SmartChart({
         };
       } else {
         // Criar novo candle em formação
-        // O preço de abertura é o preço atual (primeiro tick do novo candle)
+        // CORREÇÃO: Usar o close do último candle como open do novo candle
+        // Isso é mais preciso do que usar o preço atual como open
+        const openPrice = currentCandleRef.current?.close || lastCandle.close;
         currentCandleRef.current = {
           time: currentCandleStart as Time,
-          open: currentPrice,
-          high: currentPrice,
-          low: currentPrice,
+          open: openPrice,
+          high: Math.max(openPrice, currentPrice),
+          low: Math.min(openPrice, currentPrice),
           close: currentPrice,
         };
-        console.log('[SmartChart] Novo candle criado:', currentCandleRef.current);
+        console.log('[SmartChart] Novo candle em formação criado:', currentCandleRef.current);
       }
     } 
     // CASO 2: O último candle do backend é o candle atual (ainda em formação)
+    // Isso pode acontecer se a API retornar candles em formação
     else if (currentCandleStart === lastCandleTime) {
       const isTrackingCurrentCandle = currentCandleRef.current?.time === lastCandleTime;
       
       if (isTrackingCurrentCandle && currentCandleRef.current) {
-        // Atualizar mantendo o open original
+        // Atualizar mantendo o open original do tracking
         currentCandleRef.current = {
           time: lastCandleTime as Time,
           open: currentCandleRef.current.open,
@@ -699,7 +707,7 @@ export function SmartChart({
       };
     }
 
-    // Atualizar o gráfico
+    // Atualizar o gráfico com o candle em formação
     if (currentCandleRef.current) {
       candleSeriesRef.current.update(currentCandleRef.current as CandlestickData<Time>);
     }
@@ -902,6 +910,10 @@ export function SmartChart({
         <div className="absolute top-3 right-16 z-20 pointer-events-none flex items-center gap-2">
           <div className="bg-slate-800/90 border border-slate-700 text-slate-200 px-3 py-1 rounded text-xs font-mono font-bold shadow-sm">
             Fecha em: <span className="text-yellow-400">{timeLeft}</span>
+          </div>
+          {/* Indicador de candle em formação */}
+          <div className="bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 px-2 py-1 rounded text-xs font-semibold animate-pulse">
+            🔴 LIVE
           </div>
         </div>
         

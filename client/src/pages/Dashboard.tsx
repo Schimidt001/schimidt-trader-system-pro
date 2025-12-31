@@ -2,6 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { CandleChart } from "@/components/CandleChart";
 import { SmartChart } from "@/components/SmartChart";
+import { ChartDrawingTools, DrawingLine, Annotation } from "@/components/ChartDrawingTools";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Activity, DollarSign, TrendingDown, TrendingUp, Loader2, Play, Square, RotateCcw, Wifi, WifiOff, AlertTriangle, Bot, Power } from "lucide-react";
@@ -67,6 +68,12 @@ function ICMarketsDashboardContent() {
   const selectedSymbol = "USDJPY";
   const selectedTimeframe = "M15";
   
+  // Estado para ferramentas de desenho do gráfico
+  const [drawingLines, setDrawingLines] = useState<DrawingLine[]>([]);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [showEMA200, setShowEMA200] = useState(true);
+  const [showRSI, setShowRSI] = useState(true);
+  
   // Query de status de conexão IC Markets
   const connectionStatus = trpc.icmarkets.getConnectionStatus.useQuery(undefined, {
     refetchInterval: 5000,
@@ -86,8 +93,9 @@ function ICMarketsDashboardContent() {
   );
   
   // Query para buscar candles para o gráfico
+  // CORREÇÃO: Aumentado de 50 para 1000 candles para suportar EMA 200 e outros indicadores
   const candlesQuery = trpc.icmarkets.getCandleHistory.useQuery(
-    { symbol: selectedSymbol, timeframe: selectedTimeframe, count: 50 },
+    { symbol: selectedSymbol, timeframe: selectedTimeframe, count: 1000 },
     {
       enabled: connectionStatus.data?.connected === true,
       refetchInterval: 60000,
@@ -453,15 +461,59 @@ function ICMarketsDashboardContent() {
                   <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
                 </div>
               ) : chartData.length > 0 ? (
-                <SmartChart
-                  data={chartData}
-                  currentPrice={priceQuery.data?.bid || null}
-                  currentOpen={chartData.length > 0 ? chartData[chartData.length - 1]?.open : null}
-                  openPositions={(openPositionsQuery.data?.live || openPositionsQuery.data?.stored || []) as any}
-                  symbol={selectedSymbol}
-                  timeframe={selectedTimeframe}
-                  height={450}
-                />
+                <div className="grid grid-cols-[1fr_280px] gap-4">
+                  <SmartChart
+                    data={chartData}
+                    currentPrice={priceQuery.data?.bid || null}
+                    currentOpen={chartData.length > 0 ? chartData[chartData.length - 1]?.open : null}
+                    openPositions={(openPositionsQuery.data?.live || openPositionsQuery.data?.stored || []) as any}
+                    symbol={selectedSymbol}
+                    timeframe={selectedTimeframe}
+                    height={450}
+                    showEMA200={showEMA200}
+                    showRSI={showRSI}
+                    drawingLines={drawingLines.filter(l => l.visible !== false)}
+                    annotations={annotations.filter(a => a.visible !== false)}
+                  />
+                  <div className="space-y-4">
+                    {/* Controles de Indicadores */}
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
+                      <h3 className="text-sm font-semibold text-white mb-3">Indicadores</h3>
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showEMA200}
+                            onChange={(e) => setShowEMA200(e.target.checked)}
+                            className="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500"
+                          />
+                          <span className="text-sm text-slate-300">EMA 200</span>
+                          <span className="text-xs text-amber-400">(Tendência)</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showRSI}
+                            onChange={(e) => setShowRSI(e.target.checked)}
+                            className="rounded border-slate-600 bg-slate-800 text-violet-500 focus:ring-violet-500"
+                          />
+                          <span className="text-sm text-slate-300">RSI 14</span>
+                          <span className="text-xs text-violet-400">(Momentum)</span>
+                        </label>
+                      </div>
+                    </div>
+                    
+                    {/* Ferramentas de Desenho */}
+                    <ChartDrawingTools
+                      lines={drawingLines}
+                      annotations={annotations}
+                      currentPrice={priceQuery.data?.bid}
+                      onLinesChange={setDrawingLines}
+                      onAnnotationsChange={setAnnotations}
+                      symbol={selectedSymbol}
+                    />
+                  </div>
+                </div>
               ) : (
                 <div className="h-[400px] flex items-center justify-center text-slate-400">
                   Aguardando dados do gráfico...
@@ -567,8 +619,9 @@ function DerivDashboardContent() {
     }
   );
 
+  // CORREÇÃO: Aumentado de 50 para 1000 candles para suportar EMA 200 e outros indicadores
   const { data: candles } = trpc.dashboard.liveCandles.useQuery(
-    { symbol: config?.symbol || "R_100", limit: 50, botId: selectedBot },
+    { symbol: config?.symbol || "R_100", limit: 1000, botId: selectedBot },
     {
       enabled: !!user && !!config?.symbol,
       refetchInterval: 1000,

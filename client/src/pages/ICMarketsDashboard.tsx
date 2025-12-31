@@ -109,9 +109,9 @@ export default function ICMarketsDashboard() {
   });
   
   // Query para buscar candles (trendbars) para o gráfico
-  // Aumentado para 500 candles para permitir cálculo da EMA 200
+  // CORREÇÃO: Aumentado para 1000 candles para suportar EMA 200 e outros indicadores de longo prazo
   const candlesQuery = trpc.icmarkets.getCandleHistory.useQuery(
-    { symbol: selectedSymbol, timeframe: selectedTimeframe, count: 500 },
+    { symbol: selectedSymbol, timeframe: selectedTimeframe, count: 1000 },
     {
       enabled: connectionStatus.data?.connected === true,
       refetchInterval: 60000, // Atualizar a cada minuto
@@ -511,7 +511,7 @@ export default function ICMarketsDashboard() {
                     Gráfico {selectedSymbol} - {selectedTimeframe}
                   </CardTitle>
                   <CardDescription className="text-slate-400">
-Últimos 500 candles | EMA 200 + RSI 14 | Atualização a cada minuto
+Últimos 1000 candles | EMA 200 + RSI 14 | Candle atual em tempo real
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
