@@ -1,17 +1,15 @@
 /**
- * SmartChart - Gráfico Profissional de Candlestick com Indicadores Técnicos
- * 
- * Utiliza lightweight-charts v5 (TradingView) para renderização de alta performance.
+ * SmartChart - Gráfico Profissional de Candlestick
  * 
  * Funcionalidades:
- * - Candles em tempo real com criação automática do candle atual
- * - EMA 200 (Média Móvel Exponencial)
- * - RSI 14 com níveis 30/70
- * - Linhas de suporte/resistência manuais
- * - Marcadores automáticos de entrada/saída
+ * - Candle em tempo real (criação automática do candle atual)
+ * - Ferramentas de desenho na lateral esquerda (estilo TradingView)
+ * - Desenho interativo no gráfico
+ * - Rolagem automática com botão toggle
+ * - EMA 200 e RSI 14
+ * - Linhas de posições (entry, SL, TP)
  * 
- * @author Manus AI - Implementação para IC Markets Dashboard
- * @version 2.2.0 - Correção do candle em tempo real para IC Markets
+ * @version 3.0.0 - Reformulação completa
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
@@ -28,6 +26,16 @@ import {
   CandlestickSeries,
   LineSeries,
 } from "lightweight-charts";
+import { 
+  Minus, 
+  TrendingUp, 
+  Type, 
+  Trash2, 
+  MousePointer,
+  Navigation,
+  Lock,
+  Unlock
+} from "lucide-react";
 
 // ============= INTERFACES =============
 
@@ -44,16 +52,8 @@ interface Position {
   positionId?: string;
   direction: "up" | "down" | "BUY" | "SELL" | string;
   entryPrice: string | number;
-  entryTime?: number;
-  openTime?: number;
-  status?: string;
-  pnl?: number;
-  unrealizedPnL?: number;
   stopLoss?: number | string | null;
   takeProfit?: number | string | null;
-  symbol?: string;
-  size?: number;
-  currentPrice?: number;
 }
 
 interface DrawingLine {
@@ -66,6 +66,7 @@ interface DrawingLine {
   endPrice?: number;
   color: string;
   label?: string;
+  visible?: boolean;
 }
 
 interface Annotation {
@@ -74,115 +75,59 @@ interface Annotation {
   price: number;
   text: string;
   color: string;
+  visible?: boolean;
 }
 
 interface SmartChartProps {
-  /** Array de candles OHLC */
   data: CandleData[];
-  /** Preço atual em tempo real */
   currentPrice?: number | null;
-  /** Preço de abertura do candle atual */
   currentOpen?: number | null;
-  /** Posições abertas para plotar linhas de entrada/SL/TP */
   openPositions?: Position[];
-  /** Altura do gráfico em pixels */
   height?: number;
-  /** Símbolo sendo exibido */
   symbol?: string;
-  /** Timeframe atual */
   timeframe?: string;
-  /** Mostrar EMA 200 */
   showEMA200?: boolean;
-  /** Mostrar RSI */
   showRSI?: boolean;
-  /** Linhas de desenho (suporte/resistência, tendência) */
   drawingLines?: DrawingLine[];
-  /** Anotações de texto */
   annotations?: Annotation[];
+  onDrawingLinesChange?: (lines: DrawingLine[]) => void;
+  onAnnotationsChange?: (annotations: Annotation[]) => void;
 }
 
-// ============= CONSTANTES DE ESTILO =============
+// ============= CONSTANTES =============
 
 const CHART_COLORS = {
   background: "#0f172a",
   textColor: "#94a3b8",
   gridColor: "#1e293b",
   borderColor: "#334155",
-  candleUp: "#26a69a",
-  candleDown: "#ef5350",
-  wickUp: "#26a69a",
-  wickDown: "#ef5350",
+  candleUp: "#22c55e",
+  candleDown: "#ef4444",
+  wickUp: "#22c55e",
+  wickDown: "#ef4444",
   ema200: "#f59e0b",
   rsiLine: "#8b5cf6",
-  rsiOversold: "#22c55e",
-  rsiOverbought: "#ef4444",
-  currentCandle: "#06b6d4", // Cor especial para candle em formação
 };
 
-const PRICE_LINE_STYLES = {
-  entry: {
-    color: "#3b82f6",
-    lineWidth: 2,
-    lineStyle: LineStyle.Dashed,
-    axisLabelVisible: true,
-  },
-  stopLoss: {
-    color: "#ef4444",
-    lineWidth: 2,
-    lineStyle: LineStyle.Solid,
-    axisLabelVisible: true,
-  },
-  takeProfit: {
-    color: "#22c55e",
-    lineWidth: 2,
-    lineStyle: LineStyle.Solid,
-    axisLabelVisible: true,
-  },
-  currentPrice: {
-    color: "#06b6d4",
-    lineWidth: 1,
-    lineStyle: LineStyle.Dotted,
-    axisLabelVisible: true,
-  },
-  support: {
-    color: "#22c55e",
-    lineWidth: 1,
-    lineStyle: LineStyle.Solid,
-    axisLabelVisible: true,
-  },
-  resistance: {
-    color: "#ef4444",
-    lineWidth: 1,
-    lineStyle: LineStyle.Solid,
-    axisLabelVisible: true,
-  },
-};
+type DrawingTool = "select" | "horizontal" | "trend" | "text" | "delete";
 
-// ============= FUNÇÕES DE CÁLCULO DE INDICADORES =============
+// ============= FUNÇÕES AUXILIARES =============
 
 function calculateEMA(prices: number[], period: number): number[] {
   if (prices.length < period) return [];
-  
   const ema: number[] = [];
   const multiplier = 2 / (period + 1);
-  
   let sum = 0;
-  for (let i = 0; i < period; i++) {
-    sum += prices[i];
-  }
+  for (let i = 0; i < period; i++) sum += prices[i];
   ema.push(sum / period);
-  
   for (let i = period; i < prices.length; i++) {
-    const currentEma = (prices[i] - ema[ema.length - 1]) * multiplier + ema[ema.length - 1];
-    ema.push(currentEma);
+    ema.push((prices[i] - ema[ema.length - 1]) * multiplier + ema[ema.length - 1]);
   }
-  
   return ema;
 }
 
 function calculateRSI(prices: number[], period: number): number[] {
   if (prices.length < period + 1) return [];
-  
   const rsi: number[] = [];
   const gains: number[] = [];
   const losses: number[] = [];
@@ -193,32 +138,15 @@ function calculateRSI(prices: number[], period: number): number[] {
     losses.push(change < 0 ? Math.abs(change) : 0);
   }
   
-  let avgGain = 0;
-  let avgLoss = 0;
-  for (let i = 0; i < period; i++) {
-    avgGain += gains[i];
-    avgLoss += losses[i];
-  }
-  avgGain /= period;
-  avgLoss /= period;
+  let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
   
-  if (avgLoss === 0) {
-    rsi.push(100);
-  } else {
-    const rs = avgGain / avgLoss;
-    rsi.push(100 - (100 / (1 + rs)));
-  }
+  rsi.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)));
   
   for (let i = period; i < gains.length; i++) {
     avgGain = (avgGain * (period - 1) + gains[i]) / period;
     avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
-    
-    if (avgLoss === 0) {
-      rsi.push(100);
-    } else {
-      const rs = avgGain / avgLoss;
-      rsi.push(100 - (100 / (1 + rs)));
-    }
+    rsi.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)));
   }
   
   return rsi;
@@ -229,7 +157,6 @@ function calculateRSI(prices: number[], period: number): number[] {
 export function SmartChart({
   data,
   currentPrice,
-  currentOpen,
   openPositions = [],
   height = 500,
   symbol = "USDJPY",
@@ -238,8 +165,10 @@ export function SmartChart({
   showRSI = true,
   drawingLines = [],
   annotations = [],
+  onDrawingLinesChange,
+  onAnnotationsChange,
 }: SmartChartProps) {
-  // Refs para o chart e séries
+  // Refs
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -248,64 +177,40 @@ export function SmartChart({
   const emaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const priceLinesRef = useRef<Map<string, IPriceLine>>(new Map());
-  
-  // Ref para rastrear o candle atual em formação
-  const currentCandleRef = useRef<{
-    time: Time;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-  } | null>(null);
+  const currentCandleRef = useRef<CandlestickData<Time> | null>(null);
+  const lastDataLengthRef = useRef<number>(0);
 
-  // State para o cronômetro de vela
-  const [timeLeft, setTimeLeft] = useState<string>("--:--");
+  // States
+  const [selectedTool, setSelectedTool] = useState<DrawingTool>("select");
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [timeLeft, setTimeLeft] = useState("--:--");
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawingStart, setDrawingStart] = useState<{ time: number; price: number } | null>(null);
+  const [localLines, setLocalLines] = useState<DrawingLine[]>(drawingLines);
+  const [localAnnotations, setLocalAnnotations] = useState<Annotation[]>(annotations);
 
-  // Calcular segundos por candle baseado no timeframe
+  // Calcular segundos por candle
   const getSecondsPerCandle = useCallback((tf: string): number => {
     const match = tf.match(/^M(\d+)$/i);
-    if (match) {
-      return parseInt(match[1]) * 60;
-    }
+    if (match) return parseInt(match[1]) * 60;
     const timeframes: Record<string, number> = {
       'M1': 60, 'M5': 300, 'M15': 900, 'M30': 1800,
       'H1': 3600, 'H4': 14400, 'D1': 86400
     };
-    return timeframes[tf.toUpperCase()] || 60;
+    return timeframes[tf.toUpperCase()] || 900;
   }, []);
 
-  // useEffect para o cronômetro de vela
-  useEffect(() => {
-    const secondsPerCandle = getSecondsPerCandle(timeframe);
-    
-    const updateTimer = () => {
-      const now = Math.floor(Date.now() / 1000);
-      const secondsIntoCandle = now % secondsPerCandle;
-      const secondsRemaining = secondsPerCandle - secondsIntoCandle;
-      
-      const minutes = Math.floor(secondsRemaining / 60);
-      const seconds = secondsRemaining % 60;
-      setTimeLeft(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-
-    return () => clearInterval(interval);
-  }, [timeframe, getSecondsPerCandle]);
-
-  // Converter dados para formato lightweight-charts
+  // Converter dados para formato do gráfico
   const chartData = useMemo((): CandlestickData<Time>[] => {
     if (!data || data.length === 0) return [];
-
     return data
-      .filter((candle) => candle && typeof candle.timestamp === "number")
-      .map((candle) => ({
-        time: candle.timestamp as Time,
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
+      .filter((c) => c && typeof c.timestamp === "number")
+      .map((c) => ({
+        time: c.timestamp as Time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
       }))
       .sort((a, b) => (a.time as number) - (b.time as number));
   }, [data]);
@@ -313,10 +218,8 @@ export function SmartChart({
   // Calcular EMA 200
   const emaData = useMemo(() => {
     if (!showEMA200 || chartData.length < 200) return [];
-    
     const closePrices = chartData.map(c => c.close);
     const emaValues = calculateEMA(closePrices, 200);
-    
     const startIndex = chartData.length - emaValues.length;
     return emaValues.map((value, i) => ({
       time: chartData[startIndex + i].time,
@@ -324,13 +227,11 @@ export function SmartChart({
     }));
   }, [chartData, showEMA200]);
 
-  // Calcular RSI 14
+  // Calcular RSI
   const rsiData = useMemo(() => {
     if (!showRSI || chartData.length < 15) return [];
-    
     const closePrices = chartData.map(c => c.close);
     const rsiValues = calculateRSI(closePrices, 14);
-    
     const startIndex = chartData.length - rsiValues.length;
     return rsiValues.map((value, i) => ({
       time: chartData[startIndex + i].time,
@@ -338,48 +239,47 @@ export function SmartChart({
     }));
   }, [chartData, showRSI]);
 
-  // Função para limpar price lines
+  // Timer do candle
+  useEffect(() => {
+    const secondsPerCandle = getSecondsPerCandle(timeframe);
+    const updateTimer = () => {
+      const now = Math.floor(Date.now() / 1000);
+      const remaining = secondsPerCandle - (now % secondsPerCandle);
+      const min = Math.floor(remaining / 60);
+      const sec = remaining % 60;
+      setTimeLeft(`${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`);
+    };
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [timeframe, getSecondsPerCandle]);
+
+  // Limpar price lines
   const clearPriceLines = useCallback(() => {
     if (!candleSeriesRef.current) return;
-
     priceLinesRef.current.forEach((line) => {
-      try {
-        candleSeriesRef.current?.removePriceLine(line);
-      } catch (e) {
-        // Linha já removida
-      }
+      try { candleSeriesRef.current?.removePriceLine(line); } catch {}
     });
     priceLinesRef.current.clear();
   }, []);
 
-  // Função para adicionar price line
-  const addPriceLine = useCallback(
-    (
-      id: string,
-      price: number,
-      title: string,
-      style: typeof PRICE_LINE_STYLES.entry
-    ) => {
-      if (!candleSeriesRef.current || !price || isNaN(price)) return;
+  // Adicionar price line
+  const addPriceLine = useCallback((id: string, price: number, title: string, color: string, style: number = LineStyle.Dashed) => {
+    if (!candleSeriesRef.current || !price || isNaN(price)) return;
+    try {
+      const line = candleSeriesRef.current.createPriceLine({
+        price,
+        color,
+        lineWidth: 1,
+        lineStyle: style,
+        axisLabelVisible: true,
+        title,
+      });
+      priceLinesRef.current.set(id, line);
+    } catch {}
+  }, []);
 
-      try {
-        const priceLine = candleSeriesRef.current.createPriceLine({
-          price,
-          color: style.color,
-          lineWidth: style.lineWidth as 1 | 2 | 3 | 4,
-          lineStyle: style.lineStyle,
-          axisLabelVisible: style.axisLabelVisible,
-          title,
-        });
-        priceLinesRef.current.set(id, priceLine);
-      } catch (e) {
-        console.error("[SmartChart] Error adding price line:", e);
-      }
-    },
-    []
-  );
-
-  // Inicializar o gráfico principal
+  // Inicializar gráfico principal
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -394,21 +294,7 @@ export function SmartChart({
         vertLines: { color: CHART_COLORS.gridColor },
         horzLines: { color: CHART_COLORS.gridColor },
       },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: {
-          width: 1,
-          color: "#475569",
-          style: LineStyle.Dashed,
-          labelBackgroundColor: "#334155",
-        },
-        horzLine: {
-          width: 1,
-          color: "#475569",
-          style: LineStyle.Dashed,
-          labelBackgroundColor: "#334155",
-        },
-      },
+      crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: {
         borderColor: CHART_COLORS.borderColor,
         scaleMargins: { top: 0.1, bottom: 0.1 },
@@ -417,18 +303,11 @@ export function SmartChart({
         borderColor: CHART_COLORS.borderColor,
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 12, // Espaço à direita para ver preço atual
+        barSpacing: 8,
       },
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-        horzTouchDrag: true,
-        vertTouchDrag: false,
-      },
-      handleScale: {
-        axisPressedMouseMove: true,
-        mouseWheel: true,
-        pinch: true,
-      },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true },
+      handleScale: { mouseWheel: true, pinch: true },
     });
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
@@ -445,34 +324,100 @@ export function SmartChart({
       lineWidth: 2,
       title: "EMA 200",
       priceLineVisible: false,
-      lastValueVisible: true,
     });
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     emaSeriesRef.current = emaSeries;
 
+    // Handler de clique para desenho
+    chart.subscribeClick((param) => {
+      if (selectedTool === "select" || !param.time || !param.point) return;
+      
+      const price = candleSeries.coordinateToPrice(param.point.y);
+      if (price === null) return;
+      const time = param.time as number;
+
+      if (selectedTool === "horizontal") {
+        const newLine: DrawingLine = {
+          id: `h-${Date.now()}`,
+          type: "horizontal",
+          price: price,
+          color: "#3b82f6",
+          label: price.toFixed(5),
+        };
+        const updated = [...localLines, newLine];
+        setLocalLines(updated);
+        onDrawingLinesChange?.(updated);
+        setSelectedTool("select");
+      } else if (selectedTool === "trend") {
+        if (!isDrawing) {
+          setIsDrawing(true);
+          setDrawingStart({ time, price });
+        } else {
+          const newLine: DrawingLine = {
+            id: `t-${Date.now()}`,
+            type: "trend",
+            startTime: drawingStart!.time,
+            startPrice: drawingStart!.price,
+            endTime: time,
+            endPrice: price,
+            color: "#f59e0b",
+          };
+          const updated = [...localLines, newLine];
+          setLocalLines(updated);
+          onDrawingLinesChange?.(updated);
+          setIsDrawing(false);
+          setDrawingStart(null);
+          setSelectedTool("select");
+        }
+      } else if (selectedTool === "text") {
+        const text = prompt("Digite a anotação:");
+        if (text) {
+          const newAnnotation: Annotation = {
+            id: `a-${Date.now()}`,
+            time,
+            price,
+            text,
+            color: "#06b6d4",
+          };
+          const updated = [...localAnnotations, newAnnotation];
+          setLocalAnnotations(updated);
+          onAnnotationsChange?.(updated);
+        }
+        setSelectedTool("select");
+      } else if (selectedTool === "delete") {
+        // Encontrar e remover linha mais próxima
+        const tolerance = (candleSeries.priceToCoordinate(price + 0.001) || 0) - (candleSeries.priceToCoordinate(price) || 0);
+        const lineToDelete = localLines.find(l => {
+          if (l.type === "horizontal" && l.price) {
+            return Math.abs(l.price - price) < Math.abs(tolerance) * 10;
+          }
+          return false;
+        });
+        if (lineToDelete) {
+          const updated = localLines.filter(l => l.id !== lineToDelete.id);
+          setLocalLines(updated);
+          onDrawingLinesChange?.(updated);
+        }
+      }
+    });
+
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        });
+        chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
       }
     };
-
     window.addEventListener("resize", handleResize);
 
     return () => {
       window.removeEventListener("resize", handleResize);
       clearPriceLines();
       chart.remove();
-      chartRef.current = null;
-      candleSeriesRef.current = null;
-      emaSeriesRef.current = null;
     };
-  }, [height, clearPriceLines, showRSI]);
+  }, [height, showRSI, clearPriceLines, selectedTool, isDrawing, drawingStart, localLines, localAnnotations, onDrawingLinesChange, onAnnotationsChange]);
 
-  // Inicializar gráfico RSI
+  // Inicializar RSI
   useEffect(() => {
     if (!showRSI || !rsiContainerRef.current) return;
 
@@ -487,56 +432,23 @@ export function SmartChart({
         vertLines: { color: CHART_COLORS.gridColor },
         horzLines: { color: CHART_COLORS.gridColor },
       },
-      rightPriceScale: {
-        borderColor: CHART_COLORS.borderColor,
-        scaleMargins: { top: 0.1, bottom: 0.1 },
-      },
-      timeScale: {
-        borderColor: CHART_COLORS.borderColor,
-        timeVisible: false,
-        visible: false,
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-      },
+      rightPriceScale: { borderColor: CHART_COLORS.borderColor },
+      timeScale: { visible: false },
     });
 
     const rsiSeries = rsiChart.addSeries(LineSeries, {
       color: CHART_COLORS.rsiLine,
       lineWidth: 2,
-      title: "RSI 14",
-      priceLineVisible: false,
     });
 
-    rsiSeries.createPriceLine({
-      price: 30,
-      color: CHART_COLORS.rsiOversold,
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      axisLabelVisible: true,
-      title: "30",
-    });
-
-    rsiSeries.createPriceLine({
-      price: 70,
-      color: CHART_COLORS.rsiOverbought,
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      axisLabelVisible: true,
-      title: "70",
-    });
-
-    rsiSeries.createPriceLine({
-      price: 50,
-      color: "#64748b",
-      lineWidth: 1,
-      lineStyle: LineStyle.Dotted,
-      axisLabelVisible: false,
-    });
+    // Linhas de referência RSI
+    rsiSeries.createPriceLine({ price: 30, color: "#22c55e", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "30" });
+    rsiSeries.createPriceLine({ price: 70, color: "#ef4444", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "70" });
 
     rsiChartRef.current = rsiChart;
     rsiSeriesRef.current = rsiSeries;
 
+    // Sincronizar scroll
     if (chartRef.current) {
       chartRef.current.timeScale().subscribeVisibleLogicalRangeChange((range) => {
         if (range && rsiChartRef.current) {
@@ -545,109 +457,65 @@ export function SmartChart({
       });
     }
 
-    const handleResize = () => {
-      if (rsiContainerRef.current && rsiChartRef.current) {
-        rsiChartRef.current.applyOptions({
-          width: rsiContainerRef.current.clientWidth,
-        });
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      rsiChart.remove();
-      rsiChartRef.current = null;
-      rsiSeriesRef.current = null;
-    };
+    return () => { rsiChart.remove(); };
   }, [showRSI]);
 
-  // Atualizar dados do gráfico quando chartData muda
+  // Atualizar dados do gráfico
   useEffect(() => {
     if (!candleSeriesRef.current || chartData.length === 0) return;
-
-    // Resetar o candle em formação quando os dados mudam
-    // Mas preservar se ainda for válido para o intervalo atual
-    const intervalSeconds = getSecondsPerCandle(timeframe);
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const currentIntervalStart = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
     
-    if (currentCandleRef.current) {
-      const candleTime = currentCandleRef.current.time as number;
-      if (candleTime !== currentIntervalStart) {
-        currentCandleRef.current = null;
-      }
+    // Resetar candle em formação se os dados mudaram significativamente
+    if (Math.abs(chartData.length - lastDataLengthRef.current) > 1) {
+      currentCandleRef.current = null;
     }
+    lastDataLengthRef.current = chartData.length;
 
     candleSeriesRef.current.setData(chartData);
 
-    if (chartRef.current) {
-      chartRef.current.timeScale().fitContent();
+    // Auto-scroll para o final
+    if (autoScroll && chartRef.current) {
+      chartRef.current.timeScale().scrollToRealTime();
     }
-  }, [chartData, timeframe, getSecondsPerCandle]);
+  }, [chartData, autoScroll]);
 
-  // Atualizar EMA 200
+  // Atualizar EMA
   useEffect(() => {
     if (!emaSeriesRef.current) return;
-    
-    if (showEMA200 && emaData.length > 0) {
-      emaSeriesRef.current.setData(emaData);
-    } else {
-      emaSeriesRef.current.setData([]);
-    }
+    emaSeriesRef.current.setData(showEMA200 && emaData.length > 0 ? emaData : []);
   }, [emaData, showEMA200]);
 
   // Atualizar RSI
   useEffect(() => {
     if (!rsiSeriesRef.current) return;
-    
-    if (showRSI && rsiData.length > 0) {
-      rsiSeriesRef.current.setData(rsiData);
-    } else {
-      rsiSeriesRef.current.setData([]);
-    }
+    rsiSeriesRef.current.setData(showRSI && rsiData.length > 0 ? rsiData : []);
   }, [rsiData, showRSI]);
 
-  // ============= LÓGICA PRINCIPAL: ATUALIZAÇÃO DO CANDLE EM TEMPO REAL =============
-  // CORREÇÃO v2.2.0: Melhorada a lógica para sempre mostrar o candle atual em formação
+  // ============= CANDLE EM TEMPO REAL =============
   useEffect(() => {
     if (!candleSeriesRef.current || !currentPrice || chartData.length === 0) return;
 
     const lastCandle = chartData[chartData.length - 1];
     if (!lastCandle) return;
 
-    // Obter o timestamp do último candle (em segundos)
     const lastCandleTime = lastCandle.time as number;
-    
-    // Calcular o intervalo do timeframe em segundos
     const intervalSeconds = getSecondsPerCandle(timeframe);
-    
-    // Calcular o timestamp do candle ATUAL baseado no tempo real
     const nowSeconds = Math.floor(Date.now() / 1000);
     const currentCandleStart = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
-    
-    // DEBUG: Log para verificar os valores (apenas em desenvolvimento)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[SmartChart] Debug:', {
-        nowSeconds,
-        currentCandleStart,
-        lastCandleTime,
-        intervalSeconds,
-        diff: currentCandleStart - lastCandleTime,
-        shouldCreateNew: currentCandleStart > lastCandleTime
-      });
-    }
 
-    // CASO 1: O candle atual ainda não existe nos dados do backend
-    // Isso acontece quando estamos dentro de um novo intervalo que o backend ainda não retornou
-    // CORREÇÃO: A API cTrader retorna apenas candles FECHADOS, então este caso é o mais comum
+    // DEBUG
+    console.log('[SmartChart] Candle RT:', { 
+      now: nowSeconds, 
+      currentStart: currentCandleStart, 
+      lastCandle: lastCandleTime,
+      diff: currentCandleStart - lastCandleTime,
+      price: currentPrice 
+    });
+
+    // Criar ou atualizar candle em formação
     if (currentCandleStart > lastCandleTime) {
-      // Verificar se já estamos rastreando este candle
-      const isTrackingCurrentCandle = currentCandleRef.current?.time === currentCandleStart;
-      
-      if (isTrackingCurrentCandle && currentCandleRef.current) {
-        // Atualizar o candle existente mantendo o open original
+      // Novo candle que não existe no backend
+      if (currentCandleRef.current?.time === currentCandleStart) {
+        // Atualizar candle existente
         currentCandleRef.current = {
           time: currentCandleStart as Time,
           open: currentCandleRef.current.open,
@@ -656,10 +524,8 @@ export function SmartChart({
           close: currentPrice,
         };
       } else {
-        // Criar novo candle em formação
-        // CORREÇÃO: Usar o close do último candle como open do novo candle
-        // Isso é mais preciso do que usar o preço atual como open
-        const openPrice = currentCandleRef.current?.close || lastCandle.close;
+        // Criar novo candle
+        const openPrice = lastCandle.close;
         currentCandleRef.current = {
           time: currentCandleStart as Time,
           open: openPrice,
@@ -667,316 +533,194 @@ export function SmartChart({
           low: Math.min(openPrice, currentPrice),
           close: currentPrice,
         };
-        console.log('[SmartChart] Novo candle em formação criado:', currentCandleRef.current);
+        console.log('[SmartChart] Novo candle criado:', currentCandleStart);
       }
-    } 
-    // CASO 2: O último candle do backend é o candle atual (ainda em formação)
-    // Isso pode acontecer se a API retornar candles em formação
-    else if (currentCandleStart === lastCandleTime) {
-      const isTrackingCurrentCandle = currentCandleRef.current?.time === lastCandleTime;
-      
-      if (isTrackingCurrentCandle && currentCandleRef.current) {
-        // Atualizar mantendo o open original do tracking
-        currentCandleRef.current = {
-          time: lastCandleTime as Time,
-          open: currentCandleRef.current.open,
-          high: Math.max(currentCandleRef.current.high, currentPrice),
-          low: Math.min(currentCandleRef.current.low, currentPrice),
-          close: currentPrice,
-        };
-      } else {
-        // Inicializar com dados do backend + preço atual
-        currentCandleRef.current = {
-          time: lastCandleTime as Time,
-          open: lastCandle.open,
-          high: Math.max(lastCandle.high, currentPrice),
-          low: Math.min(lastCandle.low, currentPrice),
-          close: currentPrice,
-        };
-      }
-    }
-    // CASO 3: O último candle do backend é mais recente que o esperado (raro, mas possível)
-    else {
-      // Apenas atualizar o último candle com o preço atual
-      currentCandleRef.current = {
+      candleSeriesRef.current.update(currentCandleRef.current);
+    } else if (currentCandleStart === lastCandleTime) {
+      // Atualizar último candle do backend
+      const updatedCandle: CandlestickData<Time> = {
         time: lastCandleTime as Time,
         open: lastCandle.open,
         high: Math.max(lastCandle.high, currentPrice),
         low: Math.min(lastCandle.low, currentPrice),
         close: currentPrice,
       };
+      candleSeriesRef.current.update(updatedCandle);
     }
 
-    // Atualizar o gráfico com o candle em formação
-    if (currentCandleRef.current) {
-      candleSeriesRef.current.update(currentCandleRef.current as CandlestickData<Time>);
+    // Auto-scroll
+    if (autoScroll && chartRef.current) {
+      chartRef.current.timeScale().scrollToRealTime();
     }
-  }, [currentPrice, chartData, timeframe, getSecondsPerCandle]);
+  }, [currentPrice, chartData, timeframe, getSecondsPerCandle, autoScroll]);
 
-  // Atualizar price lines das posições
+  // Atualizar price lines
   useEffect(() => {
     if (!candleSeriesRef.current) return;
-
     clearPriceLines();
 
-    // Linhas de posições abertas
-    openPositions.forEach((position) => {
-      const entryPrice =
-        typeof position.entryPrice === "string"
-          ? parseFloat(position.entryPrice)
-          : position.entryPrice;
-
-      if (!entryPrice || isNaN(entryPrice)) return;
-
-      const direction =
-        position.direction === "up" || position.direction === "BUY"
-          ? "BUY"
-          : "SELL";
-      const directionEmoji = direction === "BUY" ? "📈" : "📉";
-
-      const posId = position.id ?? position.positionId ?? 'unknown';
-
-      addPriceLine(
-        `entry-${posId}`,
-        entryPrice,
-        `${directionEmoji} Entry @ ${entryPrice.toFixed(5)}`,
-        PRICE_LINE_STYLES.entry
-      );
-
-      if (position.stopLoss) {
-        const sl =
-          typeof position.stopLoss === "string"
-            ? parseFloat(position.stopLoss)
-            : position.stopLoss;
-        if (sl && !isNaN(sl)) {
-          addPriceLine(
-            `sl-${posId}`,
-            sl,
-            `🛑 SL @ ${sl.toFixed(5)}`,
-            PRICE_LINE_STYLES.stopLoss
-          );
-        }
+    // Linhas de posições
+    openPositions.forEach((pos) => {
+      const entry = typeof pos.entryPrice === "string" ? parseFloat(pos.entryPrice) : pos.entryPrice;
+      if (!entry || isNaN(entry)) return;
+      
+      const dir = pos.direction === "up" || pos.direction === "BUY" ? "📈" : "📉";
+      const id = pos.id ?? pos.positionId ?? 'x';
+      
+      addPriceLine(`e-${id}`, entry, `${dir} ${entry.toFixed(5)}`, "#3b82f6", LineStyle.Dashed);
+      
+      if (pos.stopLoss) {
+        const sl = typeof pos.stopLoss === "string" ? parseFloat(pos.stopLoss) : pos.stopLoss;
+        if (sl && !isNaN(sl)) addPriceLine(`sl-${id}`, sl, `SL ${sl.toFixed(5)}`, "#ef4444", LineStyle.Solid);
       }
-
-      if (position.takeProfit) {
-        const tp =
-          typeof position.takeProfit === "string"
-            ? parseFloat(position.takeProfit)
-            : position.takeProfit;
-        if (tp && !isNaN(tp)) {
-          addPriceLine(
-            `tp-${posId}`,
-            tp,
-            `🎯 TP @ ${tp.toFixed(5)}`,
-            PRICE_LINE_STYLES.takeProfit
-          );
-        }
+      if (pos.takeProfit) {
+        const tp = typeof pos.takeProfit === "string" ? parseFloat(pos.takeProfit) : pos.takeProfit;
+        if (tp && !isNaN(tp)) addPriceLine(`tp-${id}`, tp, `TP ${tp.toFixed(5)}`, "#22c55e", LineStyle.Solid);
       }
     });
 
-    // Linhas de desenho (suporte/resistência)
-    drawingLines.forEach((line) => {
+    // Linhas de desenho
+    localLines.filter(l => l.visible !== false).forEach((line) => {
       if (line.type === "horizontal" && line.price) {
-        const style = line.color === "#22c55e" ? PRICE_LINE_STYLES.support : PRICE_LINE_STYLES.resistance;
-        addPriceLine(
-          `drawing-${line.id}`,
-          line.price,
-          line.label || `${line.price.toFixed(5)}`,
-          { ...style, color: line.color }
-        );
+        addPriceLine(`d-${line.id}`, line.price, line.label || "", line.color, LineStyle.Solid);
       }
     });
 
-    // Linha de preço atual
+    // Preço atual
     if (currentPrice && !isNaN(currentPrice)) {
-      addPriceLine(
-        "current-price",
-        currentPrice,
-        `Atual: ${currentPrice.toFixed(5)}`,
-        PRICE_LINE_STYLES.currentPrice
-      );
+      addPriceLine("current", currentPrice, `${currentPrice.toFixed(5)}`, "#06b6d4", LineStyle.Dotted);
     }
-  }, [openPositions, currentPrice, drawingLines, addPriceLine, clearPriceLines]);
+  }, [openPositions, currentPrice, localLines, addPriceLine, clearPriceLines]);
 
-  // Estado de loading/empty
+  // Loading state
   if (!data || data.length === 0) {
     return (
-      <div
-        className="w-full flex items-center justify-center bg-slate-900/50 rounded-lg border border-slate-800"
-        style={{ height }}
-      >
+      <div className="w-full flex items-center justify-center bg-slate-900/50 rounded-lg border border-slate-800" style={{ height }}>
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-          <p className="text-slate-400">Aguardando dados de candles...</p>
+          <p className="text-slate-400">Carregando gráfico...</p>
         </div>
       </div>
     );
   }
 
-  // Calcular estatísticas
   const lastCandle = chartData[chartData.length - 1];
-  const displayCandle = currentCandleRef.current || lastCandle;
-  const candleChange = displayCandle
-    ? ((displayCandle.close - displayCandle.open) / displayCandle.open) * 100
-    : 0;
-  const isGreen = displayCandle ? displayCandle.close >= displayCandle.open : true;
-
-  // Obter valores atuais dos indicadores
   const currentEMA = emaData.length > 0 ? emaData[emaData.length - 1].value : null;
   const currentRSI = rsiData.length > 0 ? rsiData[rsiData.length - 1].value : null;
 
   return (
-    <div className="w-full">
-      {/* Header do gráfico */}
-      <div className="flex items-center justify-between mb-3 px-1">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
+    <div className="w-full flex">
+      {/* Barra de Ferramentas Lateral */}
+      <div className="flex flex-col gap-1 p-1 bg-slate-900 border-r border-slate-800 rounded-l-lg">
+        <button
+          onClick={() => setSelectedTool("select")}
+          className={`p-2 rounded transition-colors ${selectedTool === "select" ? "bg-cyan-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}
+          title="Selecionar"
+        >
+          <MousePointer className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setSelectedTool("horizontal")}
+          className={`p-2 rounded transition-colors ${selectedTool === "horizontal" ? "bg-cyan-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}
+          title="Linha Horizontal"
+        >
+          <Minus className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setSelectedTool("trend")}
+          className={`p-2 rounded transition-colors ${selectedTool === "trend" ? "bg-cyan-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}
+          title="Linha de Tendência"
+        >
+          <TrendingUp className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setSelectedTool("text")}
+          className={`p-2 rounded transition-colors ${selectedTool === "text" ? "bg-cyan-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}
+          title="Anotação"
+        >
+          <Type className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setSelectedTool("delete")}
+          className={`p-2 rounded transition-colors ${selectedTool === "delete" ? "bg-red-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}
+          title="Apagar"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+        
+        <div className="border-t border-slate-700 my-1"></div>
+        
+        <button
+          onClick={() => setAutoScroll(!autoScroll)}
+          className={`p-2 rounded transition-colors ${autoScroll ? "bg-green-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}
+          title={autoScroll ? "Auto-scroll ON" : "Auto-scroll OFF"}
+        >
+          {autoScroll ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+        </button>
+        <button
+          onClick={() => chartRef.current?.timeScale().scrollToRealTime()}
+          className="p-2 rounded text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+          title="Ir para o final"
+        >
+          <Navigation className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Área do Gráfico */}
+      <div className="flex-1">
+        {/* Header */}
+        <div className="flex items-center justify-between px-3 py-2 bg-slate-900/80 border-b border-slate-800">
+          <div className="flex items-center gap-4">
             <span className="text-lg font-bold text-white">{symbol}</span>
-            <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded">
-              {timeframe}
-            </span>
+            <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded">{timeframe}</span>
+            {lastCandle && (
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-slate-400">O: <span className="text-white font-mono">{lastCandle.open.toFixed(5)}</span></span>
+                <span className="text-slate-400">H: <span className="text-green-400 font-mono">{lastCandle.high.toFixed(5)}</span></span>
+                <span className="text-slate-400">L: <span className="text-red-400 font-mono">{lastCandle.low.toFixed(5)}</span></span>
+                <span className="text-slate-400">C: <span className={`font-mono ${lastCandle.close >= lastCandle.open ? "text-green-400" : "text-red-400"}`}>{lastCandle.close.toFixed(5)}</span></span>
+              </div>
+            )}
           </div>
-          {displayCandle && (
-            <div className="flex items-center gap-3 text-sm">
-              <span className="text-slate-400">
-                O: <span className="text-white font-mono">{displayCandle.open.toFixed(5)}</span>
-              </span>
-              <span className="text-slate-400">
-                H: <span className="text-green-400 font-mono">{displayCandle.high.toFixed(5)}</span>
-              </span>
-              <span className="text-slate-400">
-                L: <span className="text-red-400 font-mono">{displayCandle.low.toFixed(5)}</span>
-              </span>
-              <span className="text-slate-400">
-                C: <span className={`font-mono ${isGreen ? "text-green-400" : "text-red-400"}`}>
-                  {displayCandle.close.toFixed(5)}
-                </span>
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          {showEMA200 && currentEMA && (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1">
-              <span className="text-xs text-amber-400 font-mono">
-                EMA200: {currentEMA.toFixed(5)}
-              </span>
-            </div>
-          )}
-          {showRSI && currentRSI && (
-            <div className={`rounded px-2 py-1 ${
-              currentRSI < 30 
-                ? "bg-green-500/10 border border-green-500/30" 
-                : currentRSI > 70 
-                  ? "bg-red-500/10 border border-red-500/30"
-                  : "bg-violet-500/10 border border-violet-500/30"
-            }`}>
-              <span className={`text-xs font-mono ${
-                currentRSI < 30 
-                  ? "text-green-400" 
-                  : currentRSI > 70 
-                    ? "text-red-400"
-                    : "text-violet-400"
-              }`}>
+          <div className="flex items-center gap-3">
+            {showEMA200 && currentEMA && (
+              <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-1 rounded">EMA: {currentEMA.toFixed(5)}</span>
+            )}
+            {showRSI && currentRSI && (
+              <span className={`text-xs px-2 py-1 rounded ${currentRSI < 30 ? "text-green-400 bg-green-500/10" : currentRSI > 70 ? "text-red-400 bg-red-500/10" : "text-violet-400 bg-violet-500/10"}`}>
                 RSI: {currentRSI.toFixed(1)}
               </span>
+            )}
+            {currentPrice && (
+              <span className="text-cyan-400 font-mono font-bold bg-slate-800 px-2 py-1 rounded">{currentPrice.toFixed(5)}</span>
+            )}
+            <div className="flex items-center gap-2 bg-slate-800 px-2 py-1 rounded">
+              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+              <span className="text-xs text-yellow-400 font-mono">{timeLeft}</span>
             </div>
-          )}
-          {currentPrice && (
-            <div className="bg-slate-800/80 border border-slate-700 rounded px-3 py-1">
-              <span className="text-xs text-slate-400 mr-2">Preço Atual</span>
-              <span className="text-cyan-400 font-mono font-semibold">
-                {currentPrice.toFixed(5)}
-              </span>
-            </div>
-          )}
-          {candleChange !== 0 && (
-            <div
-              className={`px-2 py-1 rounded text-sm font-semibold ${
-                isGreen
-                  ? "bg-green-500/20 text-green-400"
-                  : "bg-red-500/20 text-red-400"
-              }`}
-            >
-              {isGreen ? "+" : ""}{candleChange.toFixed(2)}%
-            </div>
-          )}
+          </div>
         </div>
-      </div>
 
-      {/* Container do gráfico principal */}
-      <div className="relative w-full" style={{ height: showRSI ? height - 120 : height }}>
-        {/* Cronômetro de Vela */}
-        <div className="absolute top-3 right-16 z-20 pointer-events-none flex items-center gap-2">
-          <div className="bg-slate-800/90 border border-slate-700 text-slate-200 px-3 py-1 rounded text-xs font-mono font-bold shadow-sm">
-            Fecha em: <span className="text-yellow-400">{timeLeft}</span>
-          </div>
-          {/* Indicador de candle em formação */}
-          <div className="bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 px-2 py-1 rounded text-xs font-semibold animate-pulse">
-            🔴 LIVE
-          </div>
-        </div>
-        
         {/* Gráfico Principal */}
-        <div
-          ref={chartContainerRef}
-          className="w-full h-full rounded-lg overflow-hidden border border-slate-800"
-        />
-      </div>
+        <div ref={chartContainerRef} className="w-full" style={{ height: showRSI ? height - 120 : height }} />
 
-      {/* Gráfico RSI */}
-      {showRSI && (
-        <div className="mt-2">
-          <div className="flex items-center gap-2 mb-1 px-1">
-            <span className="text-xs text-violet-400 font-semibold">RSI (14)</span>
-            <span className="text-xs text-slate-500">
-              Sobrevenda: &lt;30 | Sobrecompra: &gt;70
-            </span>
+        {/* RSI */}
+        {showRSI && (
+          <div className="border-t border-slate-800">
+            <div className="px-3 py-1 text-xs text-violet-400">RSI (14)</div>
+            <div ref={rsiContainerRef} className="w-full" style={{ height: 100 }} />
           </div>
-          <div
-            ref={rsiContainerRef}
-            className="w-full rounded-lg overflow-hidden border border-slate-800"
-            style={{ height: 100 }}
-          />
-        </div>
-      )}
+        )}
 
-      {/* Footer com informações */}
-      <div className="mt-3 flex items-center justify-between text-xs text-slate-400 px-1">
-        <div className="flex items-center gap-4">
-          {showEMA200 && (
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-0.5 bg-amber-500 rounded"></div>
-              <span>EMA 200</span>
-            </div>
-          )}
-          {openPositions.length > 0 && (
-            <>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-0.5 bg-blue-500 rounded"></div>
-                <span>Entry</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-0.5 bg-red-500 rounded"></div>
-                <span>Stop Loss</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-0.5 bg-green-500 rounded"></div>
-                <span>Take Profit</span>
-              </div>
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          {openPositions.length > 0 && (
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-pulse"></div>
-              <span className="font-semibold text-slate-300">
-                {openPositions.length} Posição(ões) Aberta(s)
-              </span>
-            </div>
-          )}
-        </div>
+        {/* Status de desenho */}
+        {selectedTool !== "select" && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-800/90 text-white text-xs px-3 py-1 rounded-full">
+            {selectedTool === "horizontal" && "Clique para adicionar linha horizontal"}
+            {selectedTool === "trend" && (isDrawing ? "Clique para finalizar linha" : "Clique para iniciar linha de tendência")}
+            {selectedTool === "text" && "Clique para adicionar anotação"}
+            {selectedTool === "delete" && "Clique em uma linha para apagar"}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -12,7 +12,28 @@
 import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { SmartChart } from "@/components/SmartChart";
-import { ChartDrawingTools, DrawingLine, Annotation } from "@/components/ChartDrawingTools";
+// DrawingLine e Annotation agora são definidos no SmartChart
+interface DrawingLine {
+  id: string;
+  type: "horizontal" | "trend";
+  price?: number;
+  startTime?: number;
+  startPrice?: number;
+  endTime?: number;
+  endPrice?: number;
+  color: string;
+  label?: string;
+  visible?: boolean;
+}
+
+interface Annotation {
+  id: string;
+  time: number;
+  price: number;
+  text: string;
+  color: string;
+  visible?: boolean;
+}
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -520,60 +541,21 @@ export default function ICMarketsDashboard() {
                       <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
                     </div>
                   ) : (
-                    <div className="grid grid-cols-[1fr_280px] gap-4">
-                      <SmartChart
-                        data={chartData}
-                        currentPrice={priceQuery.data?.bid || null}
-                        currentOpen={chartData.length > 0 ? chartData[chartData.length - 1]?.open : null}
-                        openPositions={(positionsQuery.data?.live || []) as any}
-                        symbol={selectedSymbol}
-                        timeframe={selectedTimeframe}
-                        height={500}
-                        showEMA200={showEMA200}
-                        showRSI={showRSI}
-                        drawingLines={drawingLines.filter(l => l.visible !== false)}
-                        annotations={annotations.filter(a => a.visible !== false)}
-                      />
-                      <div className="space-y-4">
-                        {/* Controles de Indicadores */}
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4">
-                          <h3 className="text-sm font-semibold text-white mb-3">Indicadores</h3>
-                          <div className="space-y-2">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={showEMA200}
-                                onChange={(e) => setShowEMA200(e.target.checked)}
-                                className="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500"
-                              />
-                              <span className="text-sm text-slate-300">EMA 200</span>
-                              <span className="text-xs text-amber-400">(Tendência)</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={showRSI}
-                                onChange={(e) => setShowRSI(e.target.checked)}
-                                className="rounded border-slate-600 bg-slate-800 text-violet-500 focus:ring-violet-500"
-                              />
-                              <span className="text-sm text-slate-300">RSI 14</span>
-                              <span className="text-xs text-violet-400">(Momentum)</span>
-                            </label>
-                          </div>
-                        </div>
-                        
-                        {/* Ferramentas de Desenho */}
-                        <ChartDrawingTools
-                          lines={drawingLines}
-                          annotations={annotations}
-                          currentPrice={priceQuery.data?.bid}
-                          onLinesChange={setDrawingLines}
-                          onAnnotationsChange={setAnnotations}
-                          symbol={selectedSymbol}
-                        />
-                      </div>
-                    </div>
-                  )}
+                    <SmartChart
+                      data={chartData}
+                      currentPrice={priceQuery.data?.bid || null}
+                      openPositions={(positionsQuery.data?.live || []) as any}
+                      symbol={selectedSymbol}
+                      timeframe={selectedTimeframe}
+                      height={500}
+                      showEMA200={showEMA200}
+                      showRSI={showRSI}
+                      drawingLines={drawingLines}
+                      annotations={annotations}
+                      onDrawingLinesChange={setDrawingLines}
+                      onAnnotationsChange={setAnnotations}
+                    />
+                  )
                 </CardContent>
               </Card>
             )}
