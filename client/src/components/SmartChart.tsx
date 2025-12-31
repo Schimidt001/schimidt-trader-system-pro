@@ -4,16 +4,14 @@
  * Utiliza lightweight-charts v5 (TradingView) para renderização de alta performance.
  * 
  * Funcionalidades:
- * - Candles em tempo real com GAP DETECTION
+ * - Candles em tempo real com criação automática do candle atual
  * - EMA 200 (Média Móvel Exponencial)
  * - RSI 14 com níveis 30/70
  * - Linhas de suporte/resistência manuais
- * - Linhas de tendência
- * - Anotações de texto
  * - Marcadores automáticos de entrada/saída
  * 
  * @author Manus AI - Implementação para IC Markets Dashboard
- * @version 2.0.0
+ * @version 2.1.0 - Correção do candle em tempo real
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
@@ -29,9 +27,6 @@ import {
   LineStyle,
   CandlestickSeries,
   LineSeries,
-  HistogramSeries,
-  SeriesMarker,
-  createSeriesMarkers,
 } from "lightweight-charts";
 
 // ============= INTERFACES =============
@@ -59,12 +54,6 @@ interface Position {
   symbol?: string;
   size?: number;
   currentPrice?: number;
-}
-
-interface IndicatorData {
-  ema200?: number;
-  rsi?: number;
-  rsiPrevious?: number;
 }
 
 interface DrawingLine {
@@ -102,8 +91,6 @@ interface SmartChartProps {
   symbol?: string;
   /** Timeframe atual */
   timeframe?: string;
-  /** Dados dos indicadores técnicos */
-  indicators?: IndicatorData;
   /** Mostrar EMA 200 */
   showEMA200?: boolean;
   /** Mostrar RSI */
@@ -112,10 +99,6 @@ interface SmartChartProps {
   drawingLines?: DrawingLine[];
   /** Anotações de texto */
   annotations?: Annotation[];
-  /** Callback quando uma nova linha é desenhada */
-  onDrawLine?: (line: DrawingLine) => void;
-  /** Callback quando uma anotação é adicionada */
-  onAddAnnotation?: (annotation: Annotation) => void;
 }
 
 // ============= CONSTANTES DE ESTILO =============
@@ -129,10 +112,10 @@ const CHART_COLORS = {
   candleDown: "#ef5350",
   wickUp: "#26a69a",
   wickDown: "#ef5350",
-  ema200: "#f59e0b", // Amber para EMA 200
-  rsiLine: "#8b5cf6", // Violet para RSI
-  rsiOversold: "#22c55e", // Verde para nível 30
-  rsiOverbought: "#ef4444", // Vermelho para nível 70
+  ema200: "#f59e0b",
+  rsiLine: "#8b5cf6",
+  rsiOversold: "#22c55e",
+  rsiOverbought: "#ef4444",
 };
 
 const PRICE_LINE_STYLES = {
@@ -176,23 +159,18 @@ const PRICE_LINE_STYLES = {
 
 // ============= FUNÇÕES DE CÁLCULO DE INDICADORES =============
 
-/**
- * Calcula EMA (Exponential Moving Average)
- */
 function calculateEMA(prices: number[], period: number): number[] {
   if (prices.length < period) return [];
   
   const ema: number[] = [];
   const multiplier = 2 / (period + 1);
   
-  // Primeira EMA é a SMA
   let sum = 0;
   for (let i = 0; i < period; i++) {
     sum += prices[i];
   }
   ema.push(sum / period);
   
-  // Calcular EMA para o resto
   for (let i = period; i < prices.length; i++) {
     const currentEma = (prices[i] - ema[ema.length - 1]) * multiplier + ema[ema.length - 1];
     ema.push(currentEma);
@@ -201,9 +179,6 @@ function calculateEMA(prices: number[], period: number): number[] {
   return ema;
 }
 
-/**
- * Calcula RSI (Relative Strength Index)
- */
 function calculateRSI(prices: number[], period: number): number[] {
   if (prices.length < period + 1) return [];
   
@@ -258,13 +233,10 @@ export function SmartChart({
   height = 500,
   symbol = "USDJPY",
   timeframe = "M15",
-  indicators,
   showEMA200 = true,
   showRSI = true,
   drawingLines = [],
   annotations = [],
-  onDrawLine,
-  onAddAnnotation,
 }: SmartChartProps) {
   // Refs para o chart e séries
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -287,10 +259,6 @@ export function SmartChart({
 
   // State para o cronômetro de vela
   const [timeLeft, setTimeLeft] = useState<string>("--:--");
-  
-  // State para modo de desenho
-  const [drawingMode, setDrawingMode] = useState<"none" | "horizontal" | "trend" | "annotation">("none");
-  const [pendingLine, setPendingLine] = useState<Partial<DrawingLine> | null>(null);
 
   // Calcular segundos por candle baseado no timeframe
   const getSecondsPerCandle = useCallback((tf: string): number => {
@@ -348,7 +316,6 @@ export function SmartChart({
     const closePrices = chartData.map(c => c.close);
     const emaValues = calculateEMA(closePrices, 200);
     
-    // Alinhar EMA com timestamps (EMA começa após 200 períodos)
     const startIndex = chartData.length - emaValues.length;
     return emaValues.map((value, i) => ({
       time: chartData[startIndex + i].time,
@@ -417,7 +384,7 @@ export function SmartChart({
 
     const chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
-      height: showRSI ? height - 120 : height, // Reservar espaço para RSI
+      height: showRSI ? height - 120 : height,
       layout: {
         background: { type: ColorType.Solid, color: CHART_COLORS.background },
         textColor: CHART_COLORS.textColor,
@@ -463,7 +430,6 @@ export function SmartChart({
       },
     });
 
-    // Série de candlestick
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: CHART_COLORS.candleUp,
       downColor: CHART_COLORS.candleDown,
@@ -473,7 +439,6 @@ export function SmartChart({
       wickDownColor: CHART_COLORS.wickDown,
     });
 
-    // Série EMA 200
     const emaSeries = chart.addSeries(LineSeries, {
       color: CHART_COLORS.ema200,
       lineWidth: 2,
@@ -486,7 +451,6 @@ export function SmartChart({
     candleSeriesRef.current = candleSeries;
     emaSeriesRef.current = emaSeries;
 
-    // Resize handler
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
         chartRef.current.applyOptions({
@@ -543,14 +507,13 @@ export function SmartChart({
       priceLineVisible: false,
     });
 
-    // Adicionar linhas de referência RSI (30 e 70)
     rsiSeries.createPriceLine({
       price: 30,
       color: CHART_COLORS.rsiOversold,
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
       axisLabelVisible: true,
-      title: "Sobrevenda",
+      title: "30",
     });
 
     rsiSeries.createPriceLine({
@@ -559,7 +522,7 @@ export function SmartChart({
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
       axisLabelVisible: true,
-      title: "Sobrecompra",
+      title: "70",
     });
 
     rsiSeries.createPriceLine({
@@ -573,7 +536,6 @@ export function SmartChart({
     rsiChartRef.current = rsiChart;
     rsiSeriesRef.current = rsiSeries;
 
-    // Sincronizar timeScale com o gráfico principal
     if (chartRef.current) {
       chartRef.current.timeScale().subscribeVisibleLogicalRangeChange((range) => {
         if (range && rsiChartRef.current) {
@@ -600,42 +562,24 @@ export function SmartChart({
     };
   }, [showRSI]);
 
-  // Atualizar dados do gráfico
+  // Atualizar dados do gráfico quando chartData muda
   useEffect(() => {
     if (!candleSeriesRef.current || chartData.length === 0) return;
 
+    // Resetar o candle em formação quando os dados mudam
+    // Mas preservar se ainda for válido para o intervalo atual
     const intervalSeconds = getSecondsPerCandle(timeframe);
     const nowSeconds = Math.floor(Date.now() / 1000);
-    const currentIntervalTimeSeconds = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
+    const currentIntervalStart = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
     
-    const lastChartCandle = chartData[chartData.length - 1];
-    const lastCandleTimeRaw = lastChartCandle?.time as number;
-    const isMilliseconds = lastCandleTimeRaw > 1e12;
-    const lastCandleTimeSeconds = isMilliseconds ? Math.floor(lastCandleTimeRaw / 1000) : lastCandleTimeRaw;
-    
-    const currentCandleTimeSeconds = currentCandleRef.current 
-      ? (isMilliseconds 
-          ? Math.floor((currentCandleRef.current.time as number) / 1000) 
-          : (currentCandleRef.current.time as number))
-      : 0;
-    
-    const shouldResetCurrentCandle = 
-      !currentCandleRef.current || 
-      currentCandleTimeSeconds < currentIntervalTimeSeconds;
-    
-    if (shouldResetCurrentCandle || lastCandleTimeSeconds >= currentCandleTimeSeconds) {
-      if (lastCandleTimeSeconds === currentIntervalTimeSeconds) {
-        currentCandleRef.current = null;
-      } else if (currentCandleTimeSeconds < currentIntervalTimeSeconds) {
+    if (currentCandleRef.current) {
+      const candleTime = currentCandleRef.current.time as number;
+      if (candleTime !== currentIntervalStart) {
         currentCandleRef.current = null;
       }
     }
 
     candleSeriesRef.current.setData(chartData);
-    
-    if (currentCandleRef.current && currentCandleTimeSeconds === currentIntervalTimeSeconds) {
-      candleSeriesRef.current.update(currentCandleRef.current as CandlestickData<Time>);
-    }
 
     if (chartRef.current) {
       chartRef.current.timeScale().fitContent();
@@ -664,53 +608,67 @@ export function SmartChart({
     }
   }, [rsiData, showRSI]);
 
-  // Atualizar o último candle com preço em tempo real
+  // ============= LÓGICA PRINCIPAL: ATUALIZAÇÃO DO CANDLE EM TEMPO REAL =============
   useEffect(() => {
-    if (
-      !candleSeriesRef.current ||
-      !currentPrice ||
-      chartData.length === 0
-    )
-      return;
+    if (!candleSeriesRef.current || !currentPrice || chartData.length === 0) return;
 
     const lastCandle = chartData[chartData.length - 1];
     if (!lastCandle) return;
 
-    const lastCandleTimeRaw = lastCandle.time as number;
-    const isMilliseconds = lastCandleTimeRaw > 1e12;
-    const lastCandleTimeSeconds = isMilliseconds ? Math.floor(lastCandleTimeRaw / 1000) : lastCandleTimeRaw;
+    // Obter o timestamp do último candle (em segundos)
+    const lastCandleTime = lastCandle.time as number;
     
+    // Calcular o intervalo do timeframe em segundos
     const intervalSeconds = getSecondsPerCandle(timeframe);
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const currentIntervalTimeSeconds = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
     
-    const currentIntervalTime = isMilliseconds ? currentIntervalTimeSeconds * 1000 : currentIntervalTimeSeconds;
-    const lastCandleTime = lastCandleTimeRaw;
+    // Calcular o timestamp do candle ATUAL baseado no tempo real
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const currentCandleStart = Math.floor(nowSeconds / intervalSeconds) * intervalSeconds;
+    
+    // DEBUG: Log para verificar os valores
+    console.log('[SmartChart] Debug:', {
+      nowSeconds,
+      currentCandleStart,
+      lastCandleTime,
+      intervalSeconds,
+      diff: currentCandleStart - lastCandleTime,
+      shouldCreateNew: currentCandleStart > lastCandleTime
+    });
 
-    if (currentIntervalTimeSeconds > lastCandleTimeSeconds) {
-      const isTrackingNewCandle = currentCandleRef.current?.time === currentIntervalTime;
+    // CASO 1: O candle atual ainda não existe nos dados do backend
+    // Isso acontece quando estamos dentro de um novo intervalo que o backend ainda não retornou
+    if (currentCandleStart > lastCandleTime) {
+      // Verificar se já estamos rastreando este candle
+      const isTrackingCurrentCandle = currentCandleRef.current?.time === currentCandleStart;
       
-      if (isTrackingNewCandle && currentCandleRef.current) {
+      if (isTrackingCurrentCandle && currentCandleRef.current) {
+        // Atualizar o candle existente
         currentCandleRef.current = {
-          time: currentIntervalTime as Time,
+          time: currentCandleStart as Time,
           open: currentCandleRef.current.open,
           high: Math.max(currentCandleRef.current.high, currentPrice),
           low: Math.min(currentCandleRef.current.low, currentPrice),
           close: currentPrice,
         };
       } else {
+        // Criar novo candle em formação
+        // O preço de abertura é o preço atual (primeiro tick do novo candle)
         currentCandleRef.current = {
-          time: currentIntervalTime as Time,
+          time: currentCandleStart as Time,
           open: currentPrice,
           high: currentPrice,
           low: currentPrice,
           close: currentPrice,
         };
+        console.log('[SmartChart] Novo candle criado:', currentCandleRef.current);
       }
-    } else {
-      const isSameCandle = currentCandleRef.current?.time === lastCandleTime;
-
-      if (isSameCandle && currentCandleRef.current) {
+    } 
+    // CASO 2: O último candle do backend é o candle atual (ainda em formação)
+    else if (currentCandleStart === lastCandleTime) {
+      const isTrackingCurrentCandle = currentCandleRef.current?.time === lastCandleTime;
+      
+      if (isTrackingCurrentCandle && currentCandleRef.current) {
+        // Atualizar mantendo o open original
         currentCandleRef.current = {
           time: lastCandleTime as Time,
           open: currentCandleRef.current.open,
@@ -719,6 +677,7 @@ export function SmartChart({
           close: currentPrice,
         };
       } else {
+        // Inicializar com dados do backend + preço atual
         currentCandleRef.current = {
           time: lastCandleTime as Time,
           open: lastCandle.open,
@@ -728,8 +687,22 @@ export function SmartChart({
         };
       }
     }
+    // CASO 3: O último candle do backend é mais recente que o esperado (raro, mas possível)
+    else {
+      // Apenas atualizar o último candle com o preço atual
+      currentCandleRef.current = {
+        time: lastCandleTime as Time,
+        open: lastCandle.open,
+        high: Math.max(lastCandle.high, currentPrice),
+        low: Math.min(lastCandle.low, currentPrice),
+        close: currentPrice,
+      };
+    }
 
-    candleSeriesRef.current.update(currentCandleRef.current as CandlestickData<Time>);
+    // Atualizar o gráfico
+    if (currentCandleRef.current) {
+      candleSeriesRef.current.update(currentCandleRef.current as CandlestickData<Time>);
+    }
   }, [currentPrice, chartData, timeframe, getSecondsPerCandle]);
 
   // Atualizar price lines das posições
@@ -834,10 +807,11 @@ export function SmartChart({
 
   // Calcular estatísticas
   const lastCandle = chartData[chartData.length - 1];
-  const candleChange = lastCandle
-    ? ((lastCandle.close - lastCandle.open) / lastCandle.open) * 100
+  const displayCandle = currentCandleRef.current || lastCandle;
+  const candleChange = displayCandle
+    ? ((displayCandle.close - displayCandle.open) / displayCandle.open) * 100
     : 0;
-  const isGreen = lastCandle ? lastCandle.close >= lastCandle.open : true;
+  const isGreen = displayCandle ? displayCandle.close >= displayCandle.open : true;
 
   // Obter valores atuais dos indicadores
   const currentEMA = emaData.length > 0 ? emaData[emaData.length - 1].value : null;
@@ -854,27 +828,26 @@ export function SmartChart({
               {timeframe}
             </span>
           </div>
-          {lastCandle && (
+          {displayCandle && (
             <div className="flex items-center gap-3 text-sm">
               <span className="text-slate-400">
-                O: <span className="text-white font-mono">{lastCandle.open.toFixed(5)}</span>
+                O: <span className="text-white font-mono">{displayCandle.open.toFixed(5)}</span>
               </span>
               <span className="text-slate-400">
-                H: <span className="text-green-400 font-mono">{lastCandle.high.toFixed(5)}</span>
+                H: <span className="text-green-400 font-mono">{displayCandle.high.toFixed(5)}</span>
               </span>
               <span className="text-slate-400">
-                L: <span className="text-red-400 font-mono">{lastCandle.low.toFixed(5)}</span>
+                L: <span className="text-red-400 font-mono">{displayCandle.low.toFixed(5)}</span>
               </span>
               <span className="text-slate-400">
                 C: <span className={`font-mono ${isGreen ? "text-green-400" : "text-red-400"}`}>
-                  {lastCandle.close.toFixed(5)}
+                  {displayCandle.close.toFixed(5)}
                 </span>
               </span>
             </div>
           )}
         </div>
         <div className="flex items-center gap-3">
-          {/* Indicadores no header */}
           {showEMA200 && currentEMA && (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1">
               <span className="text-xs text-amber-400 font-mono">
