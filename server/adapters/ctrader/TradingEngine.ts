@@ -489,5 +489,66 @@ export class TradingEngine extends EventEmitter {
   }
 }
 
-// Exportar instância singleton
+// ============= GERENCIADOR DE MÚLTIPLOS BOTS =============
+// Seguindo o mesmo padrão da Deriv para garantir independência entre bots
+
+// Map de bots ativos: chave = "userId-botId"
+const activeTradingEngines = new Map<string, TradingEngine>();
+
+/**
+ * Gera chave única para identificar um bot
+ */
+function getEngineKey(userId: number, botId: number): string {
+  return `${userId}-${botId}`;
+}
+
+/**
+ * Obtém ou cria uma instância do TradingEngine para um usuário/bot específico
+ * Cada bot é independente e não afeta outros bots
+ */
+export function getTradingEngine(userId: number, botId: number = 1): TradingEngine {
+  const key = getEngineKey(userId, botId);
+  if (!activeTradingEngines.has(key)) {
+    console.log(`[TradingEngineManager] Criando nova instância para usuário ${userId}, bot ${botId}`);
+    activeTradingEngines.set(key, new TradingEngine());
+  }
+  return activeTradingEngines.get(key)!;
+}
+
+/**
+ * Remove uma instância do TradingEngine
+ */
+export function removeTradingEngine(userId: number, botId: number = 1): void {
+  const key = getEngineKey(userId, botId);
+  const engine = activeTradingEngines.get(key);
+  if (engine) {
+    if (engine.isRunning) {
+      engine.stop();
+    }
+    activeTradingEngines.delete(key);
+    console.log(`[TradingEngineManager] Instância removida para usuário ${userId}, bot ${botId}`);
+  }
+}
+
+/**
+ * Obtém status de todos os bots ativos
+ */
+export function getAllEnginesStatus(): Array<{ userId: number; botId: number; status: BotStatus }> {
+  const result: Array<{ userId: number; botId: number; status: BotStatus }> = [];
+  
+  for (const [key, engine] of activeTradingEngines.entries()) {
+    const [userId, botId] = key.split('-').map(Number);
+    result.push({
+      userId,
+      botId,
+      status: engine.getStatus(),
+    });
+  }
+  
+  return result;
+}
+
+// COMPATÍVEL COM CÓDIGO LEGADO: Exportar instância padrão (será substituída pelo gerenciador)
+// AVISO: Este export é mantido apenas para compatibilidade temporária
+// O código deve migrar para usar getTradingEngine(userId, botId)
 export const tradingEngine = new TradingEngine();

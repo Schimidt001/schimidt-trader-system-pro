@@ -9,7 +9,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { ctraderAdapter } from "../adapters/CTraderAdapter";
 import { CTraderCredentials } from "../adapters/IBrokerAdapter";
-import { tradingEngine } from "../adapters/ctrader/TradingEngine";
+import { getTradingEngine } from "../adapters/ctrader/TradingEngine";
 import {
   getICMarketsConfig,
   upsertICMarketsConfig,
@@ -538,13 +538,17 @@ export const icmarketsRouter = router({
   /**
    * Inicia o robô de trading automático
    * IMPORTANTE: Requer conexão prévia, mas é independente dela
+   * Cada bot (botId) é uma instância independente
    */
   startBot: protectedProcedure
     .input(z.object({
       symbol: z.string().optional(),
       timeframe: z.string().optional(),
+      botId: z.number().default(1), // ID do bot (1 ou 2)
     }).optional())
     .mutation(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      
       // Verificar se está conectado
       if (!ctraderAdapter.isConnected()) {
         throw new TRPCError({
@@ -553,11 +557,14 @@ export const icmarketsRouter = router({
         });
       }
       
+      // Obter instância do bot específico para este usuário/botId
+      const engine = getTradingEngine(ctx.user.id, botId);
+      
       // Verificar se já está rodando
-      if (tradingEngine.isRunning) {
+      if (engine.isRunning) {
         throw new TRPCError({
           code: "CONFLICT",
-          message: "O robô já está em execução",
+          message: `O robô ${botId} já está em execução`,
         });
       }
       
@@ -571,7 +578,7 @@ export const icmarketsRouter = router({
         const lots = parseFloat(config?.lots || "0.01");
         
         // Atualizar configuração do engine
-        tradingEngine.updateConfig({
+        engine.updateConfig({
           symbol,
           timeframe,
           lots,
@@ -580,59 +587,82 @@ export const icmarketsRouter = router({
         });
         
         // Iniciar o robô
-        await tradingEngine.start(symbol, timeframe);
+        await engine.start(symbol, timeframe);
         
-        console.log(`[ICMarketsRouter] 🤖 Robô iniciado por usuário ${ctx.user.id}`);
+        console.log(`[ICMarketsRouter] 🤖 Robô ${botId} iniciado por usuário ${ctx.user.id}`);
         
         return {
           success: true,
-          message: "Robô iniciado com sucesso",
-          status: tradingEngine.getStatus(),
+          message: `Robô ${botId} iniciado com sucesso`,
+          status: engine.getStatus(),
         };
       } catch (error) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: `Erro ao iniciar robô: ${(error as Error).message}`,
+          message: `Erro ao iniciar robô ${botId}: ${(error as Error).message}`,
         });
       }
     }),
   
   /**
    * Para o robô de trading automático
+   * Cada bot (botId) é uma instância independente
    */
-  stopBot: protectedProcedure.mutation(async ({ ctx }) => {
-    if (!tradingEngine.isRunning) {
-      return {
-        success: true,
-        message: "O robô já está parado",
-      };
-    }
-    
-    try {
-      await tradingEngine.stop();
+  stopBot: protectedProcedure
+    .input(z.object({
+      botId: z.number().default(1), // ID do bot (1 ou 2)
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
       
-      console.log(`[ICMarketsRouter] 🛑 Robô parado por usuário ${ctx.user.id}`);
+      // Obter instância do bot específico para este usuário/botId
+      const engine = getTradingEngine(ctx.user.id, botId);
       
-      return {
-        success: true,
-        message: "Robô parado com sucesso",
-      };
-    } catch (error) {
-      throw new TRPCError({
-        code: "INTERNAL_SERVER_ERROR",
-        message: `Erro ao parar robô: ${(error as Error).message}`,
-      });
-    }
-  }),
+      if (!engine.isRunning) {
+        return {
+          success: true,
+          message: `O robô ${botId} já está parado`,
+        };
+      }
+      
+      try {
+        await engine.stop();
+        
+        console.log(`[ICMarketsRouter] 🛑 Robô ${botId} parado por usuário ${ctx.user.id}`);
+        
+        return {
+          success: true,
+          message: `Robô ${botId} parado com sucesso`,
+        };
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erro ao parar robô ${botId}: ${(error as Error).message}`,
+        });
+      }
+    }),
   
   /**
    * Obtém status do robô de trading
    * IMPORTANTE: Separado do status de conexão
+   * Cada bot (botId) é uma instância independente
    */
-  getBotStatus: protectedProcedure.query(async () => {
-    const status = tradingEngine.getStatus();
-    return status;
-  }),
+  getBotStatus: protectedProcedure
+    .input(z.object({
+      botId: z.number().default(1), // ID do bot (1 ou 2)
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      
+      // Obter instância do bot específico para este usuário/botId
+      const engine = getTradingEngine(ctx.user.id, botId);
+      const status = engine.getStatus();
+      
+      return {
+        ...status,
+        botId, // Incluir o botId no status para identificação
+      };
+    }),
 });
 
 export type ICMarketsRouter = typeof icmarketsRouter;
