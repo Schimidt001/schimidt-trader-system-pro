@@ -7,7 +7,7 @@
  * NOTA: Esta tabela será adicionada ao schema principal após validação.
  */
 
-import { int, mysqlTable, text, timestamp, varchar, boolean, decimal } from "drizzle-orm/mysql-core";
+import { int, mysqlTable, text, timestamp, varchar, boolean, decimal, bigint } from "drizzle-orm/mysql-core";
 
 /**
  * Configurações da conta IC Markets (cTrader)
