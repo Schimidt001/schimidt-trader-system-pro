@@ -61,6 +61,14 @@ export interface SMCBotStatus {
     openTrades: number;
     tradingBlocked: boolean;
   };
+  // Métricas de Performance (Latência)
+  performanceMetrics: {
+    lastTickProcessingTime: number | null;  // Tempo de processamento do último tick (ms)
+    avgTickProcessingTime: number | null;   // Média de tempo de processamento (ms)
+    maxTickProcessingTime: number | null;   // Tempo máximo de processamento (ms)
+    minTickProcessingTime: number | null;   // Tempo mínimo de processamento (ms)
+    ticksProcessedCount: number;            // Total de ticks processados com medição
+  };
 }
 
 /**
@@ -125,6 +133,14 @@ export class SMCTradingEngine extends EventEmitter {
   private tickCount: number = 0;
   private lastTickLogTime: number = 0;
   
+  // Métricas de Performance (Latência) - Implementação da Auditoria
+  private tickProcessingTimes: number[] = [];  // Histórico de tempos de processamento
+  private lastTickProcessingTime: number | null = null;
+  private maxTickProcessingTime: number | null = null;
+  private minTickProcessingTime: number | null = null;
+  private ticksProcessedWithMetrics: number = 0;
+  private readonly PERFORMANCE_HISTORY_SIZE = 100;  // Manter últimos 100 tempos para média
+  
   constructor(userId: number, botId: number, config: Partial<SMCTradingEngineConfig> = {}) {
     super();
     this.config = {
@@ -183,6 +199,9 @@ export class SMCTradingEngine extends EventEmitter {
       this.analysisCount = 0;
       this.tradesExecuted = 0;
       this.tickCount = 0;
+      
+      // Resetar métricas de performance (AUDITORIA)
+      this.resetPerformanceMetrics();
       
       this.emit("started", {
         strategyType: this.config.strategyType,
@@ -263,6 +282,8 @@ export class SMCTradingEngine extends EventEmitter {
         openTrades: riskState?.openTradesCount || 0,
         tradingBlocked: riskState?.tradingBlocked || false,
       },
+      // Métricas de Performance (AUDITORIA)
+      performanceMetrics: this.getPerformanceMetrics(),
     };
   }
   
@@ -504,8 +525,14 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Processa tick de preço recebido
+   * 
+   * AUDITORIA: Implementação de medição de latência conforme recomendação crítica.
+   * Grava timestamp quando tick chega e compara com timestamp após processamento.
    */
   private onPriceTick(symbol: string, tick: { bid: number; ask: number; timestamp: number }): void {
+    // [PERFORMANCE] Iniciar medição de latência - Timestamp de chegada do tick
+    const tickArrivalTime = performance.now();
+    
     if (!this._isRunning) return;
     
     this.lastTickPrice = tick.bid;
@@ -531,6 +558,13 @@ export class SMCTradingEngine extends EventEmitter {
       timestamp: tick.timestamp,
       tickCount: this.tickCount,
     });
+    
+    // [PERFORMANCE] Finalizar medição de latência - Timestamp após processamento
+    const tickProcessingEndTime = performance.now();
+    const processingTime = tickProcessingEndTime - tickArrivalTime;
+    
+    // Atualizar métricas de performance
+    this.updatePerformanceMetrics(processingTime, symbol);
   }
   
   /**
@@ -654,8 +688,14 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Analisa um símbolo específico
+   * 
+   * AUDITORIA: Implementação de medição de latência na análise de sinal.
+   * Mede o tempo entre início da análise e tomada de decisão.
    */
   private async analyzeSymbol(symbol: string): Promise<void> {
+    // [PERFORMANCE] Iniciar medição de latência da análise
+    const analysisStartTime = performance.now();
+    
     if (!this.strategy) return;
     
     // Obter dados de todos os timeframes
@@ -731,7 +771,17 @@ export class SMCTradingEngine extends EventEmitter {
       await this.evaluateAndExecuteTrade(symbol, signal);
     }
     
-    this.emit("analysis", { symbol, signal });
+    // [PERFORMANCE] Finalizar medição de latência da análise
+    const analysisEndTime = performance.now();
+    const analysisLatency = analysisEndTime - analysisStartTime;
+    
+    // Log de performance conforme especificado na auditoria
+    console.log(`[PERFORMANCE] Tick processado em ${analysisLatency.toFixed(2)}ms | ${symbol} | Sinal: ${signal.signal}`);
+    
+    // Atualizar métricas de análise
+    this.updateAnalysisPerformanceMetrics(analysisLatency, symbol, signal.signal);
+    
+    this.emit("analysis", { symbol, signal, latencyMs: analysisLatency });
   }
   
   /**
@@ -840,6 +890,95 @@ export class SMCTradingEngine extends EventEmitter {
       return 0.1;
     }
     return 0.0001;
+  }
+  
+  // ============= MÉTODOS DE MÉTRICAS DE PERFORMANCE (AUDITORIA) =============
+  
+  /**
+   * Atualiza métricas de performance do processamento de ticks
+   * 
+   * AUDITORIA: Implementação de medição de latência conforme recomendação crítica.
+   * Mantém histórico de tempos para cálculo de média, máximo e mínimo.
+   */
+  private updatePerformanceMetrics(processingTime: number, symbol: string): void {
+    this.ticksProcessedWithMetrics++;
+    this.lastTickProcessingTime = processingTime;
+    
+    // Atualizar máximo e mínimo
+    if (this.maxTickProcessingTime === null || processingTime > this.maxTickProcessingTime) {
+      this.maxTickProcessingTime = processingTime;
+    }
+    if (this.minTickProcessingTime === null || processingTime < this.minTickProcessingTime) {
+      this.minTickProcessingTime = processingTime;
+    }
+    
+    // Manter histórico para cálculo de média
+    this.tickProcessingTimes.push(processingTime);
+    if (this.tickProcessingTimes.length > this.PERFORMANCE_HISTORY_SIZE) {
+      this.tickProcessingTimes.shift();
+    }
+    
+    // Log de alerta se latência exceder 200ms (limite da auditoria)
+    if (processingTime > 200) {
+      console.warn(`[PERFORMANCE] ⚠️ ALERTA: Latência de tick elevada: ${processingTime.toFixed(2)}ms | ${symbol}`);
+    }
+  }
+  
+  /**
+   * Atualiza métricas de performance da análise de sinal
+   * 
+   * AUDITORIA: Mede o tempo entre recebimento do tick e tomada de decisão.
+   * Este é o KPI crítico mencionado no relatório de auditoria.
+   */
+  private updateAnalysisPerformanceMetrics(latency: number, symbol: string, signal: string): void {
+    // Log de alerta se latência de análise exceder 200ms
+    if (latency > 200) {
+      console.warn(`[PERFORMANCE] ⚠️ ALERTA: Latência de análise elevada: ${latency.toFixed(2)}ms | ${symbol} | ${signal}`);
+    }
+    
+    // Emitir evento de performance para monitorização externa
+    this.emit("performance", {
+      type: "analysis",
+      symbol,
+      signal,
+      latencyMs: latency,
+      timestamp: Date.now(),
+      withinThreshold: latency < 200,
+    });
+  }
+  
+  /**
+   * Calcula a média de tempo de processamento de ticks
+   */
+  private getAverageTickProcessingTime(): number | null {
+    if (this.tickProcessingTimes.length === 0) return null;
+    const sum = this.tickProcessingTimes.reduce((a, b) => a + b, 0);
+    return sum / this.tickProcessingTimes.length;
+  }
+  
+  /**
+   * Obtém métricas de performance atuais
+   */
+  public getPerformanceMetrics(): SMCBotStatus["performanceMetrics"] {
+    return {
+      lastTickProcessingTime: this.lastTickProcessingTime,
+      avgTickProcessingTime: this.getAverageTickProcessingTime(),
+      maxTickProcessingTime: this.maxTickProcessingTime,
+      minTickProcessingTime: this.minTickProcessingTime,
+      ticksProcessedCount: this.ticksProcessedWithMetrics,
+    };
+  }
+  
+  /**
+   * Reseta métricas de performance
+   */
+  public resetPerformanceMetrics(): void {
+    this.tickProcessingTimes = [];
+    this.lastTickProcessingTime = null;
+    this.maxTickProcessingTime = null;
+    this.minTickProcessingTime = null;
+    this.ticksProcessedWithMetrics = 0;
+    console.log("[SMCTradingEngine] Métricas de performance resetadas");
   }
 }
 
