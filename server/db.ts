@@ -1037,3 +1037,44 @@ export async function getForexMonthlyStats(userId: number, botId: number = 1): P
     pnlUsd,
   };
 }
+
+
+// ============= SMC STRATEGY CONFIG QUERIES =============
+
+import { smcStrategyConfig, InsertSMCStrategyConfig, SMCStrategyConfig } from "../drizzle/schema";
+
+/**
+ * Obtém configuração SMC Strategy de um usuário
+ */
+export async function getSMCStrategyConfig(userId: number, botId: number = 1): Promise<SMCStrategyConfig | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db
+    .select()
+    .from(smcStrategyConfig)
+    .where(and(eq(smcStrategyConfig.userId, userId), eq(smcStrategyConfig.botId, botId)))
+    .limit(1);
+  
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Cria ou atualiza configuração SMC Strategy
+ */
+export async function upsertSMCStrategyConfig(data: InsertSMCStrategyConfig): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const botId = data.botId ?? 1;
+  const existing = await getSMCStrategyConfig(data.userId, botId);
+  
+  if (existing) {
+    await db
+      .update(smcStrategyConfig)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(smcStrategyConfig.userId, data.userId), eq(smcStrategyConfig.botId, botId)));
+  } else {
+    await db.insert(smcStrategyConfig).values({ ...data, botId });
+  }
+}

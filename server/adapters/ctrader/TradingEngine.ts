@@ -536,7 +536,8 @@ export function removeTradingEngine(userId: number, botId: number = 1): void {
 export function getAllEnginesStatus(): Array<{ userId: number; botId: number; status: BotStatus }> {
   const result: Array<{ userId: number; botId: number; status: BotStatus }> = [];
   
-  for (const [key, engine] of activeTradingEngines.entries()) {
+  const entries = Array.from(activeTradingEngines.entries());
+  for (const [key, engine] of entries) {
     const [userId, botId] = key.split('-').map(Number);
     result.push({
       userId,

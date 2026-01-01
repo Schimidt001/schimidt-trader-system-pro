@@ -19,6 +19,7 @@ import {
   getForexPositionHistory,
   getForexDailyStats,
   getForexMonthlyStats,
+  upsertSMCStrategyConfig,
 } from "../db";
 
 // Schema de validação para configuração IC Markets
@@ -39,6 +40,35 @@ const icmarketsConfigSchema = z.object({
   trailingStepPips: z.number().default(5),
   compoundingEnabled: z.boolean().default(true),
   baseRisk: z.number().default(10),
+  // SMC Strategy Config
+  strategyType: z.string().default("SMC_SWARM"),
+  activeSymbols: z.string().default('["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]'),
+  swingH1Lookback: z.number().default(50),
+  fractalLeftBars: z.number().default(2),
+  fractalRightBars: z.number().default(2),
+  sweepBufferPips: z.number().default(2),
+  sweepValidationMinutes: z.number().default(60),
+  chochM15Lookback: z.number().default(20),
+  chochMinPips: z.number().default(10),
+  orderBlockLookback: z.number().default(10),
+  orderBlockExtensionPips: z.number().default(15),
+  entryConfirmationType: z.string().default("ANY"),
+  rejectionWickPercent: z.number().default(60),
+  riskPercentage: z.number().default(0.75),
+  maxOpenTrades: z.number().default(3),
+  dailyLossLimitPercent: z.number().default(3),
+  stopLossBufferPips: z.number().default(2),
+  rewardRiskRatio: z.number().default(4),
+  sessionFilterEnabled: z.boolean().default(true),
+  londonSessionStart: z.string().default("04:00"),
+  londonSessionEnd: z.string().default("07:00"),
+  nySessionStart: z.string().default("09:30"),
+  nySessionEnd: z.string().default("12:30"),
+  smcTrailingEnabled: z.boolean().default(true),
+  smcTrailingTriggerPips: z.number().default(20),
+  smcTrailingStepPips: z.number().default(10),
+  circuitBreakerEnabled: z.boolean().default(true),
+  verboseLogging: z.boolean().default(false),
 });
 
 // Schema para ordem
@@ -68,6 +98,7 @@ export const icmarketsRouter = router({
   saveConfig: protectedProcedure
     .input(icmarketsConfigSchema)
     .mutation(async ({ ctx, input }) => {
+      // Salvar configuração IC Markets básica
       await upsertICMarketsConfig({
         userId: ctx.user.id,
         clientId: input.clientId,
@@ -84,6 +115,40 @@ export const icmarketsRouter = router({
         trailingEnabled: input.trailingEnabled,
         trailingTriggerPips: input.trailingTriggerPips,
         trailingStepPips: input.trailingStepPips,
+        strategyType: input.strategyType,
+      });
+      
+      // Salvar configuração SMC Strategy
+      await upsertSMCStrategyConfig({
+        userId: ctx.user.id,
+        botId: 1,
+        activeSymbols: input.activeSymbols,
+        swingH1Lookback: input.swingH1Lookback,
+        fractalLeftBars: input.fractalLeftBars,
+        fractalRightBars: input.fractalRightBars,
+        sweepBufferPips: input.sweepBufferPips.toString(),
+        sweepValidationMinutes: input.sweepValidationMinutes,
+        chochM15Lookback: input.chochM15Lookback,
+        chochMinPips: input.chochMinPips.toString(),
+        orderBlockLookback: input.orderBlockLookback,
+        orderBlockExtensionPips: input.orderBlockExtensionPips.toString(),
+        entryConfirmationType: input.entryConfirmationType,
+        rejectionWickPercent: input.rejectionWickPercent.toString(),
+        riskPercentage: input.riskPercentage.toString(),
+        maxOpenTrades: input.maxOpenTrades,
+        dailyLossLimitPercent: input.dailyLossLimitPercent.toString(),
+        stopLossBufferPips: input.stopLossBufferPips.toString(),
+        rewardRiskRatio: input.rewardRiskRatio.toString(),
+        sessionFilterEnabled: input.sessionFilterEnabled,
+        londonSessionStart: input.londonSessionStart,
+        londonSessionEnd: input.londonSessionEnd,
+        nySessionStart: input.nySessionStart,
+        nySessionEnd: input.nySessionEnd,
+        trailingEnabled: input.smcTrailingEnabled,
+        trailingTriggerPips: input.smcTrailingTriggerPips.toString(),
+        trailingStepPips: input.smcTrailingStepPips.toString(),
+        circuitBreakerEnabled: input.circuitBreakerEnabled,
+        verboseLogging: input.verboseLogging,
       });
       
       // Atualizar configuração da estratégia

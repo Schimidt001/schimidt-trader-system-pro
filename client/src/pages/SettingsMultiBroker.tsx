@@ -27,6 +27,7 @@ import { useBroker, BrokerType } from "@/contexts/BrokerContext";
 import { BrokerIndicator } from "@/components/BrokerSwitch";
 import { DerivSettings } from "@/components/settings/DerivSettings";
 import { ICMarketsSettings } from "@/components/settings/ICMarketsSettings";
+import { SMCStrategySettings } from "@/components/settings/SMCStrategySettings";
 import { ICMARKETS_DEFAULTS } from "@/const/icmarkets";
 
 export default function SettingsMultiBroker() {
@@ -133,6 +134,59 @@ export default function SettingsMultiBroker() {
   const [icTrailingEnabled, setIcTrailingEnabled] = useState(true);
   const [icTrailingTriggerPips, setIcTrailingTriggerPips] = useState(ICMARKETS_DEFAULTS.trailingTriggerPips.toString());
   const [icTrailingStepPips, setIcTrailingStepPips] = useState(ICMARKETS_DEFAULTS.trailingStepPips.toString());
+  
+  // ============= ESTADOS SMC STRATEGY =============
+  // Tipo de estratégia
+  const [smcStrategyType, setSmcStrategyType] = useState("SMC_SWARM");
+  
+  // Símbolos ativos (Swarm)
+  const [smcActiveSymbols, setSmcActiveSymbols] = useState<string[]>(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+  
+  // Parâmetros de estrutura H1
+  const [smcSwingH1Lookback, setSmcSwingH1Lookback] = useState("50");
+  const [smcFractalLeftBars, setSmcFractalLeftBars] = useState("2");
+  const [smcFractalRightBars, setSmcFractalRightBars] = useState("2");
+  
+  // Parâmetros de Sweep
+  const [smcSweepBufferPips, setSmcSweepBufferPips] = useState("2");
+  const [smcSweepValidationMinutes, setSmcSweepValidationMinutes] = useState("60");
+  
+  // Parâmetros de CHoCH
+  const [smcChochM15Lookback, setSmcChochM15Lookback] = useState("20");
+  const [smcChochMinPips, setSmcChochMinPips] = useState("10");
+  
+  // Parâmetros de Order Block
+  const [smcOrderBlockLookback, setSmcOrderBlockLookback] = useState("10");
+  const [smcOrderBlockExtensionPips, setSmcOrderBlockExtensionPips] = useState("15");
+  
+  // Parâmetros de entrada
+  const [smcEntryConfirmationType, setSmcEntryConfirmationType] = useState("ANY");
+  const [smcRejectionWickPercent, setSmcRejectionWickPercent] = useState("60");
+  
+  // Gestão de risco SMC
+  const [smcRiskPercentage, setSmcRiskPercentage] = useState("0.75");
+  const [smcMaxOpenTrades, setSmcMaxOpenTrades] = useState("3");
+  const [smcDailyLossLimitPercent, setSmcDailyLossLimitPercent] = useState("3");
+  const [smcStopLossBufferPips, setSmcStopLossBufferPips] = useState("2");
+  const [smcRewardRiskRatio, setSmcRewardRiskRatio] = useState("4");
+  
+  // Sessões de trading SMC
+  const [smcSessionFilterEnabled, setSmcSessionFilterEnabled] = useState(true);
+  const [smcLondonSessionStart, setSmcLondonSessionStart] = useState("04:00");
+  const [smcLondonSessionEnd, setSmcLondonSessionEnd] = useState("07:00");
+  const [smcNySessionStart, setSmcNySessionStart] = useState("09:30");
+  const [smcNySessionEnd, setSmcNySessionEnd] = useState("12:30");
+  
+  // Trailing Stop SMC
+  const [smcTrailingEnabled, setSmcTrailingEnabled] = useState(true);
+  const [smcTrailingTriggerPips, setSmcTrailingTriggerPips] = useState("20");
+  const [smcTrailingStepPips, setSmcTrailingStepPips] = useState("10");
+  
+  // Circuit Breaker SMC
+  const [smcCircuitBreakerEnabled, setSmcCircuitBreakerEnabled] = useState(true);
+  
+  // Logging SMC
+  const [smcVerboseLogging, setSmcVerboseLogging] = useState(false);
 
   // ============= QUERIES =============
   const { data: config, isLoading } = trpc.config.get.useQuery(
@@ -448,7 +502,7 @@ export default function SettingsMultiBroker() {
         ttlLogEnabled,
       });
     } else {
-      // Salvar configurações IC Markets
+      // Salvar configurações IC Markets + SMC Strategy
       saveICMarketsConfig.mutate({
         clientId: icClientId,
         clientSecret: icClientSecret,
@@ -465,6 +519,35 @@ export default function SettingsMultiBroker() {
         trailingStepPips: parseInt(icTrailingStepPips),
         compoundingEnabled: true,
         baseRisk: 10,
+        // SMC Strategy Config
+        strategyType: smcStrategyType,
+        activeSymbols: JSON.stringify(smcActiveSymbols),
+        swingH1Lookback: parseInt(smcSwingH1Lookback) || 50,
+        fractalLeftBars: parseInt(smcFractalLeftBars) || 2,
+        fractalRightBars: parseInt(smcFractalRightBars) || 2,
+        sweepBufferPips: parseFloat(smcSweepBufferPips) || 2,
+        sweepValidationMinutes: parseInt(smcSweepValidationMinutes) || 60,
+        chochM15Lookback: parseInt(smcChochM15Lookback) || 20,
+        chochMinPips: parseInt(smcChochMinPips) || 10,
+        orderBlockLookback: parseInt(smcOrderBlockLookback) || 10,
+        orderBlockExtensionPips: parseInt(smcOrderBlockExtensionPips) || 15,
+        entryConfirmationType: smcEntryConfirmationType,
+        rejectionWickPercent: parseInt(smcRejectionWickPercent) || 60,
+        riskPercentage: parseFloat(smcRiskPercentage) || 0.75,
+        maxOpenTrades: parseInt(smcMaxOpenTrades) || 3,
+        dailyLossLimitPercent: parseFloat(smcDailyLossLimitPercent) || 3,
+        stopLossBufferPips: parseFloat(smcStopLossBufferPips) || 2,
+        rewardRiskRatio: parseInt(smcRewardRiskRatio) || 4,
+        sessionFilterEnabled: smcSessionFilterEnabled,
+        londonSessionStart: smcLondonSessionStart,
+        londonSessionEnd: smcLondonSessionEnd,
+        nySessionStart: smcNySessionStart,
+        nySessionEnd: smcNySessionEnd,
+        smcTrailingEnabled: smcTrailingEnabled,
+        smcTrailingTriggerPips: parseInt(smcTrailingTriggerPips) || 20,
+        smcTrailingStepPips: parseInt(smcTrailingStepPips) || 10,
+        circuitBreakerEnabled: smcCircuitBreakerEnabled,
+        verboseLogging: smcVerboseLogging,
       });
     }
   };
@@ -1223,7 +1306,67 @@ export default function SettingsMultiBroker() {
                 connectionStatus={icConnectionStatus}
               />
 
-
+              {/* Configurações da Estratégia SMC */}
+              <SMCStrategySettings
+                strategyType={smcStrategyType}
+                setStrategyType={setSmcStrategyType}
+                activeSymbols={smcActiveSymbols}
+                setActiveSymbols={setSmcActiveSymbols}
+                swingH1Lookback={smcSwingH1Lookback}
+                setSwingH1Lookback={setSmcSwingH1Lookback}
+                fractalLeftBars={smcFractalLeftBars}
+                setFractalLeftBars={setSmcFractalLeftBars}
+                fractalRightBars={smcFractalRightBars}
+                setFractalRightBars={setSmcFractalRightBars}
+                sweepBufferPips={smcSweepBufferPips}
+                setSweepBufferPips={setSmcSweepBufferPips}
+                sweepValidationMinutes={smcSweepValidationMinutes}
+                setSweepValidationMinutes={setSmcSweepValidationMinutes}
+                chochM15Lookback={smcChochM15Lookback}
+                setChochM15Lookback={setSmcChochM15Lookback}
+                chochMinPips={smcChochMinPips}
+                setChochMinPips={setSmcChochMinPips}
+                orderBlockLookback={smcOrderBlockLookback}
+                setOrderBlockLookback={setSmcOrderBlockLookback}
+                orderBlockExtensionPips={smcOrderBlockExtensionPips}
+                setOrderBlockExtensionPips={setSmcOrderBlockExtensionPips}
+                entryConfirmationType={smcEntryConfirmationType}
+                setEntryConfirmationType={setSmcEntryConfirmationType}
+                rejectionWickPercent={smcRejectionWickPercent}
+                setRejectionWickPercent={setSmcRejectionWickPercent}
+                riskPercentage={smcRiskPercentage}
+                setRiskPercentage={setSmcRiskPercentage}
+                maxOpenTrades={smcMaxOpenTrades}
+                setMaxOpenTrades={setSmcMaxOpenTrades}
+                dailyLossLimitPercent={smcDailyLossLimitPercent}
+                setDailyLossLimitPercent={setSmcDailyLossLimitPercent}
+                stopLossBufferPips={smcStopLossBufferPips}
+                setStopLossBufferPips={setSmcStopLossBufferPips}
+                rewardRiskRatio={smcRewardRiskRatio}
+                setRewardRiskRatio={setSmcRewardRiskRatio}
+                sessionFilterEnabled={smcSessionFilterEnabled}
+                setSessionFilterEnabled={setSmcSessionFilterEnabled}
+                londonSessionStart={smcLondonSessionStart}
+                setLondonSessionStart={setSmcLondonSessionStart}
+                londonSessionEnd={smcLondonSessionEnd}
+                setLondonSessionEnd={setSmcLondonSessionEnd}
+                nySessionStart={smcNySessionStart}
+                setNySessionStart={setSmcNySessionStart}
+                nySessionEnd={smcNySessionEnd}
+                setNySessionEnd={setSmcNySessionEnd}
+                trailingEnabled={smcTrailingEnabled}
+                setTrailingEnabled={setSmcTrailingEnabled}
+                trailingTriggerPips={smcTrailingTriggerPips}
+                setTrailingTriggerPips={setSmcTrailingTriggerPips}
+                trailingStepPips={smcTrailingStepPips}
+                setTrailingStepPips={setSmcTrailingStepPips}
+                circuitBreakerEnabled={smcCircuitBreakerEnabled}
+                setCircuitBreakerEnabled={setSmcCircuitBreakerEnabled}
+                verboseLogging={smcVerboseLogging}
+                setVerboseLogging={setSmcVerboseLogging}
+                onSave={handleSave}
+                isSaving={isSaving}
+              />
             </>
           )}
 

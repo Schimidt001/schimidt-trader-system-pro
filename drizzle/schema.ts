@@ -327,3 +327,18 @@ export {
   type ForexPosition,
   type InsertForexPosition
 } from "./icmarkets-config";
+
+// ============= SMC STRATEGY TABLES =============
+// Re-exported from smc-config.ts for unified schema access
+
+export {
+  smcStrategyConfig,
+  smcSwingPoints,
+  smcEventLog,
+  type SMCStrategyConfig,
+  type InsertSMCStrategyConfig,
+  type SMCSwingPoint,
+  type InsertSMCSwingPoint,
+  type SMCEventLog,
+  type InsertSMCEventLog
+} from "./smc-config";

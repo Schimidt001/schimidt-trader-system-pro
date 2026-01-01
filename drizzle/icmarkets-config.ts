@@ -17,6 +17,10 @@ export const icmarketsConfig = mysqlTable("icmarketsConfig", {
   userId: int("userId").notNull(),
   botId: int("botId").notNull().default(1),
   
+  // ============= TIPO DE ESTRATÉGIA =============
+  /** Tipo de estratégia: TREND_SNIPER ou SMC_SWARM */
+  strategyType: varchar("strategyType", { length: 20 }).default("SMC_SWARM").notNull(),
+  
   // ============= CREDENCIAIS cTRADER =============
   /** Client ID da aplicação cTrader Open API */
   clientId: varchar("clientId", { length: 100 }),
