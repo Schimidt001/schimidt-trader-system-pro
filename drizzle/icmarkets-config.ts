@@ -166,3 +166,47 @@ export const forexPositions = mysqlTable("forexPositions", {
 
 export type ForexPosition = typeof forexPositions.$inferSelect;
 export type InsertForexPosition = typeof forexPositions.$inferInsert;
+
+
+/**
+ * Logs do Sistema IC Markets (Tempo Real)
+ * 
+ * Tabela para armazenar todos os logs do sistema de trading IC Markets,
+ * incluindo logs de performance, erros, análises, trades, etc.
+ * Implementado conforme auditoria técnica para monitorização em tempo real.
+ */
+export const systemLogs = mysqlTable("systemLogs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  botId: int("botId").notNull().default(1),
+  
+  // ============= IDENTIFICAÇÃO DO LOG =============
+  /** Nível do log: INFO, WARN, ERROR, DEBUG, PERFORMANCE */
+  level: varchar("level", { length: 20 }).notNull().default("INFO"),
+  /** Categoria do log: TICK, ANALYSIS, TRADE, RISK, CONNECTION, SYSTEM, PERFORMANCE */
+  category: varchar("category", { length: 30 }).notNull().default("SYSTEM"),
+  /** Fonte do log: SMCTradingEngine, CTraderAdapter, RiskManager, etc. */
+  source: varchar("source", { length: 50 }).notNull().default("SYSTEM"),
+  
+  // ============= CONTEÚDO DO LOG =============
+  /** Mensagem principal do log */
+  message: text("message").notNull(),
+  /** Dados adicionais em formato JSON */
+  data: text("data"),
+  
+  // ============= CONTEXTO =============
+  /** Símbolo relacionado (se aplicável) */
+  symbol: varchar("symbol", { length: 20 }),
+  /** Sinal gerado (se aplicável): BUY, SELL, NONE */
+  signal: varchar("signal", { length: 10 }),
+  /** Latência em ms (para logs de performance) */
+  latencyMs: decimal("latencyMs", { precision: 10, scale: 2 }),
+  
+  // ============= TIMESTAMPS =============
+  /** Timestamp Unix em milissegundos para ordenação precisa */
+  timestampMs: bigint("timestampMs", { mode: "number" }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SystemLog = typeof systemLogs.$inferSelect;
+export type InsertSystemLog = typeof systemLogs.$inferInsert;

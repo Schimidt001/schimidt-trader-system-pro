@@ -19,7 +19,7 @@ import { ITradingStrategy, IMultiTimeframeStrategy, StrategyType, SignalResult, 
 import { strategyFactory } from "./StrategyFactory";
 import { SMCStrategy, SMCStrategyConfig } from "./SMCStrategy";
 import { RiskManager, createRiskManager, RiskManagerConfig, DEFAULT_RISK_CONFIG } from "./RiskManager";
-import { getDb } from "../../db";
+import { getDb, insertSystemLog, type LogLevel, type LogCategory } from "../../db";
 import { smcStrategyConfig, icmarketsConfig } from "../../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 
@@ -212,8 +212,17 @@ export class SMCTradingEngine extends EventEmitter {
       console.log(`[SMCTradingEngine] Estratégia: ${this.config.strategyType}`);
       console.log(`[SMCTradingEngine] Símbolos: ${this.config.symbols.join(", ")}`);
       
+      // Gravar log de início no banco de dados
+      await this.logInfo(
+        `🚀 Robô SMC SWARM iniciado | Estratégia: ${this.config.strategyType} | Símbolos: ${this.config.symbols.join(", ")}`,
+        "SYSTEM",
+        { strategyType: this.config.strategyType, symbols: this.config.symbols }
+      );
+      
     } catch (error) {
       console.error("[SMCTradingEngine] Erro ao iniciar:", error);
+      // Gravar log de erro no banco de dados
+      await this.logError(`Erro ao iniciar robô: ${(error as Error).message}`, "SYSTEM");
       throw error;
     }
   }
@@ -254,6 +263,13 @@ export class SMCTradingEngine extends EventEmitter {
     this.emit("stopped");
     
     console.log("[SMCTradingEngine] ✅ Robô parado com sucesso!");
+    
+    // Gravar log de parada no banco de dados
+    await this.logInfo(
+      `🛑 Robô SMC SWARM parado | Análises: ${this.analysisCount} | Trades: ${this.tradesExecuted}`,
+      "SYSTEM",
+      { analysisCount: this.analysisCount, tradesExecuted: this.tradesExecuted }
+    );
   }
   
   /**
@@ -781,6 +797,13 @@ export class SMCTradingEngine extends EventEmitter {
     // Atualizar métricas de análise
     this.updateAnalysisPerformanceMetrics(analysisLatency, symbol, signal.signal);
     
+    // Gravar log de análise no banco de dados para visualização em tempo real
+    await this.logAnalysis(symbol, signal.signal, analysisLatency, {
+      confidence: signal.confidence,
+      reason: signal.reason,
+      analysisCount: this.analysisCount,
+    });
+    
     this.emit("analysis", { symbol, signal, latencyMs: analysisLatency });
   }
   
@@ -863,6 +886,22 @@ export class SMCTradingEngine extends EventEmitter {
         
         console.log(`[SMCTradingEngine] ✅ ORDEM EXECUTADA: ${result.orderId} @ ${result.executionPrice}`);
         
+        // Gravar log de trade no banco de dados
+        await this.logTrade(
+          `✅ ORDEM EXECUTADA #${result.orderId}`,
+          symbol,
+          signal.signal,
+          {
+            orderId: result.orderId,
+            executionPrice: result.executionPrice,
+            lots: lotSize,
+            stopLoss: sltp.stopLoss,
+            takeProfit: sltp.takeProfit,
+            confidence: signal.confidence,
+            reason: signal.reason,
+          }
+        );
+        
         this.emit("trade", {
           symbol,
           signal,
@@ -871,10 +910,24 @@ export class SMCTradingEngine extends EventEmitter {
         });
       } else {
         console.error(`[SMCTradingEngine] ❌ ERRO NA ORDEM: ${result.errorMessage}`);
+        
+        // Gravar log de erro no banco de dados
+        await this.logError(
+          `Erro ao executar ordem ${signal.signal} em ${symbol}: ${result.errorMessage}`,
+          "TRADE",
+          { symbol, signal: signal.signal, error: result.errorMessage }
+        );
       }
       
     } catch (error) {
       console.error("[SMCTradingEngine] Erro ao executar ordem:", error);
+      
+      // Gravar log de erro no banco de dados
+      await this.logError(
+        `Exceção ao executar ordem ${signal.signal} em ${symbol}: ${(error as Error).message}`,
+        "TRADE",
+        { symbol, signal: signal.signal, error: (error as Error).message }
+      );
     }
   }
   
@@ -979,6 +1032,143 @@ export class SMCTradingEngine extends EventEmitter {
     this.minTickProcessingTime = null;
     this.ticksProcessedWithMetrics = 0;
     console.log("[SMCTradingEngine] Métricas de performance resetadas");
+  }
+  
+  // ============= MÉTODOS DE LOGGING AO BANCO DE DADOS =============
+  
+  /**
+   * Registra um log no banco de dados para visualização em tempo real
+   * 
+   * Este método persiste logs no MySQL para que o frontend possa
+   * exibir os últimos 300 logs em tempo real na aba de Logs.
+   */
+  private async logToDatabase(
+    level: LogLevel,
+    category: LogCategory,
+    message: string,
+    options?: {
+      symbol?: string;
+      signal?: string;
+      latencyMs?: number;
+      data?: Record<string, unknown>;
+    }
+  ): Promise<void> {
+    try {
+      await insertSystemLog({
+        userId: this.config.userId,
+        botId: this.config.botId,
+        level,
+        category,
+        source: "SMCTradingEngine",
+        message,
+        symbol: options?.symbol,
+        signal: options?.signal,
+        latencyMs: options?.latencyMs,
+        data: options?.data,
+      });
+    } catch (error) {
+      // Não deixar erro de log quebrar o fluxo principal
+      console.error("[SMCTradingEngine] Erro ao gravar log no banco:", error);
+    }
+  }
+  
+  /**
+   * Log de informação geral
+   */
+  public async logInfo(message: string, category: LogCategory = "SYSTEM", data?: Record<string, unknown>): Promise<void> {
+    console.log(`[SMCTradingEngine] ${message}`);
+    await this.logToDatabase("INFO", category, message, { data });
+  }
+  
+  /**
+   * Log de aviso
+   */
+  public async logWarn(message: string, category: LogCategory = "SYSTEM", data?: Record<string, unknown>): Promise<void> {
+    console.warn(`[SMCTradingEngine] ⚠️ ${message}`);
+    await this.logToDatabase("WARN", category, message, { data });
+  }
+  
+  /**
+   * Log de erro
+   */
+  public async logError(message: string, category: LogCategory = "SYSTEM", data?: Record<string, unknown>): Promise<void> {
+    console.error(`[SMCTradingEngine] ❌ ${message}`);
+    await this.logToDatabase("ERROR", category, message, { data });
+  }
+  
+  /**
+   * Log de performance (latência)
+   */
+  public async logPerformance(
+    message: string,
+    latencyMs: number,
+    symbol?: string,
+    signal?: string
+  ): Promise<void> {
+    const level: LogLevel = latencyMs > 200 ? "WARN" : "PERFORMANCE";
+    console.log(`[PERFORMANCE] ${message}`);
+    await this.logToDatabase(level, "PERFORMANCE", message, {
+      symbol,
+      signal,
+      latencyMs,
+    });
+  }
+  
+  /**
+   * Log de análise de sinal
+   */
+  public async logAnalysis(
+    symbol: string,
+    signal: string,
+    latencyMs: number,
+    data?: Record<string, unknown>
+  ): Promise<void> {
+    const message = `Tick processado em ${latencyMs.toFixed(2)}ms | ${symbol} | Sinal: ${signal}`;
+    await this.logToDatabase("INFO", "ANALYSIS", message, {
+      symbol,
+      signal,
+      latencyMs,
+      data,
+    });
+  }
+  
+  /**
+   * Log de trade (abertura/fechamento de posição)
+   */
+  public async logTrade(
+    action: string,
+    symbol: string,
+    direction: string,
+    data?: Record<string, unknown>
+  ): Promise<void> {
+    const message = `${action} | ${symbol} | ${direction}`;
+    console.log(`[SMCTradingEngine] 💹 ${message}`);
+    await this.logToDatabase("INFO", "TRADE", message, {
+      symbol,
+      signal: direction,
+      data,
+    });
+  }
+  
+  /**
+   * Log de risco
+   */
+  public async logRisk(message: string, data?: Record<string, unknown>): Promise<void> {
+    console.log(`[SMCTradingEngine] ⚠️ RISK: ${message}`);
+    await this.logToDatabase("WARN", "RISK", message, { data });
+  }
+  
+  /**
+   * Log de conexão
+   */
+  public async logConnection(message: string, isError: boolean = false): Promise<void> {
+    if (isError) {
+      console.error(`[SMCTradingEngine] 🔌 ${message}`);
+      await this.logToDatabase("ERROR", "CONNECTION", message);
+    } else {
+      console.log(`[SMCTradingEngine] 🔌 ${message}`);
+      await this.logToDatabase("INFO", "CONNECTION", message);
+    }
   }
 }
 

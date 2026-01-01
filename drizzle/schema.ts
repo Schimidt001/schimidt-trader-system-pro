@@ -322,10 +322,13 @@ export type InsertMarketDetectorConfig = typeof marketDetectorConfig.$inferInser
 export { 
   icmarketsConfig, 
   forexPositions,
+  systemLogs,
   type ICMarketsConfig,
   type InsertICMarketsConfig,
   type ForexPosition,
-  type InsertForexPosition
+  type InsertForexPosition,
+  type SystemLog,
+  type InsertSystemLog
 } from "./icmarkets-config";
 
 // ============= SMC STRATEGY TABLES =============

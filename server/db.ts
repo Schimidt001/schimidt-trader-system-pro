@@ -824,6 +824,9 @@ import {
   forexPositions,
   ForexPosition,
   InsertForexPosition,
+  systemLogs,
+  SystemLog,
+  InsertSystemLog,
 } from "../drizzle/icmarkets-config";
 
 /**
@@ -1076,5 +1079,247 @@ export async function upsertSMCStrategyConfig(data: InsertSMCStrategyConfig): Pr
       .where(and(eq(smcStrategyConfig.userId, data.userId), eq(smcStrategyConfig.botId, botId)));
   } else {
     await db.insert(smcStrategyConfig).values({ ...data, botId });
+  }
+}
+
+
+// ============= SYSTEM LOGS QUERIES (IC MARKETS) =============
+
+/**
+ * Tipos de níveis de log
+ */
+export type LogLevel = "INFO" | "WARN" | "ERROR" | "DEBUG" | "PERFORMANCE";
+
+/**
+ * Categorias de log
+ */
+export type LogCategory = "TICK" | "ANALYSIS" | "TRADE" | "RISK" | "CONNECTION" | "SYSTEM" | "PERFORMANCE";
+
+/**
+ * Interface para inserção de log
+ */
+export interface SystemLogInput {
+  userId: number;
+  botId?: number;
+  level?: LogLevel;
+  category?: LogCategory;
+  source?: string;
+  message: string;
+  data?: Record<string, unknown>;
+  symbol?: string;
+  signal?: string;
+  latencyMs?: number;
+}
+
+/**
+ * Insere um novo log no sistema
+ */
+export async function insertSystemLog(input: SystemLogInput): Promise<number | null> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot insert system log: database not available");
+    return null;
+  }
+  
+  try {
+    const result = await db.insert(systemLogs).values({
+      userId: input.userId,
+      botId: input.botId ?? 1,
+      level: input.level ?? "INFO",
+      category: input.category ?? "SYSTEM",
+      source: input.source ?? "SYSTEM",
+      message: input.message,
+      data: input.data ? JSON.stringify(input.data) : null,
+      symbol: input.symbol ?? null,
+      signal: input.signal ?? null,
+      latencyMs: input.latencyMs?.toString() ?? null,
+      timestampMs: Date.now(),
+    });
+    
+    return result[0]?.insertId ?? null;
+  } catch (error) {
+    console.error("[Database] Error inserting system log:", error);
+    return null;
+  }
+}
+
+/**
+ * Obtém os últimos N logs do sistema para um usuário/bot
+ */
+export async function getRecentSystemLogs(
+  userId: number,
+  botId: number = 1,
+  limit: number = 300
+): Promise<SystemLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  try {
+    const result = await db
+      .select()
+      .from(systemLogs)
+      .where(and(eq(systemLogs.userId, userId), eq(systemLogs.botId, botId)))
+      .orderBy(desc(systemLogs.timestampMs))
+      .limit(limit);
+    
+    return result;
+  } catch (error) {
+    console.error("[Database] Error fetching system logs:", error);
+    return [];
+  }
+}
+
+/**
+ * Obtém logs do sistema por categoria
+ */
+export async function getSystemLogsByCategory(
+  userId: number,
+  category: LogCategory,
+  botId: number = 1,
+  limit: number = 100
+): Promise<SystemLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  try {
+    const result = await db
+      .select()
+      .from(systemLogs)
+      .where(
+        and(
+          eq(systemLogs.userId, userId),
+          eq(systemLogs.botId, botId),
+          eq(systemLogs.category, category)
+        )
+      )
+      .orderBy(desc(systemLogs.timestampMs))
+      .limit(limit);
+    
+    return result;
+  } catch (error) {
+    console.error("[Database] Error fetching system logs by category:", error);
+    return [];
+  }
+}
+
+/**
+ * Obtém logs do sistema por nível (ERROR, WARN, etc.)
+ */
+export async function getSystemLogsByLevel(
+  userId: number,
+  level: LogLevel,
+  botId: number = 1,
+  limit: number = 100
+): Promise<SystemLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  try {
+    const result = await db
+      .select()
+      .from(systemLogs)
+      .where(
+        and(
+          eq(systemLogs.userId, userId),
+          eq(systemLogs.botId, botId),
+          eq(systemLogs.level, level)
+        )
+      )
+      .orderBy(desc(systemLogs.timestampMs))
+      .limit(limit);
+    
+    return result;
+  } catch (error) {
+    console.error("[Database] Error fetching system logs by level:", error);
+    return [];
+  }
+}
+
+/**
+ * Obtém logs de performance (latência)
+ */
+export async function getPerformanceLogs(
+  userId: number,
+  botId: number = 1,
+  limit: number = 100
+): Promise<SystemLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  try {
+    const result = await db
+      .select()
+      .from(systemLogs)
+      .where(
+        and(
+          eq(systemLogs.userId, userId),
+          eq(systemLogs.botId, botId),
+          eq(systemLogs.category, "PERFORMANCE")
+        )
+      )
+      .orderBy(desc(systemLogs.timestampMs))
+      .limit(limit);
+    
+    return result;
+  } catch (error) {
+    console.error("[Database] Error fetching performance logs:", error);
+    return [];
+  }
+}
+
+/**
+ * Limpa logs antigos (mais de X dias)
+ */
+export async function cleanOldSystemLogs(userId: number, daysToKeep: number = 7): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  
+  try {
+    const cutoffTime = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
+    
+    const result = await db
+      .delete(systemLogs)
+      .where(
+        and(
+          eq(systemLogs.userId, userId),
+          lt(systemLogs.timestampMs, cutoffTime)
+        )
+      );
+    
+    return result[0]?.affectedRows ?? 0;
+  } catch (error) {
+    console.error("[Database] Error cleaning old system logs:", error);
+    return 0;
+  }
+}
+
+/**
+ * Conta total de logs por categoria
+ */
+export async function countLogsByCategory(
+  userId: number,
+  botId: number = 1
+): Promise<Record<string, number>> {
+  const db = await getDb();
+  if (!db) return {};
+  
+  try {
+    const result = await db
+      .select({
+        category: systemLogs.category,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(systemLogs)
+      .where(and(eq(systemLogs.userId, userId), eq(systemLogs.botId, botId)))
+      .groupBy(systemLogs.category);
+    
+    const counts: Record<string, number> = {};
+    for (const row of result) {
+      counts[row.category] = row.count;
+    }
+    return counts;
+  } catch (error) {
+    console.error("[Database] Error counting logs by category:", error);
+    return {};
   }
 }

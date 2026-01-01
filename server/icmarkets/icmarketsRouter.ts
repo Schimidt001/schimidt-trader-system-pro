@@ -20,6 +20,16 @@ import {
   getForexDailyStats,
   getForexMonthlyStats,
   upsertSMCStrategyConfig,
+  // System Logs
+  insertSystemLog,
+  getRecentSystemLogs,
+  getSystemLogsByCategory,
+  getSystemLogsByLevel,
+  getPerformanceLogs,
+  cleanOldSystemLogs,
+  countLogsByCategory,
+  type LogLevel,
+  type LogCategory,
 } from "../db";
 
 // Schema de validação para configuração IC Markets
@@ -726,6 +736,133 @@ export const icmarketsRouter = router({
       return {
         ...status,
         botId, // Incluir o botId no status para identificação
+      };
+    }),
+  
+  // ============= SYSTEM LOGS (TEMPO REAL) =============
+  
+  /**
+   * Obtém os últimos logs do sistema em tempo real
+   * Retorna os últimos N logs ordenados por timestamp decrescente
+   */
+  getSystemLogs: protectedProcedure
+    .input(z.object({
+      botId: z.number().default(1),
+      limit: z.number().min(1).max(500).default(300),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      const limit = input?.limit ?? 300;
+      
+      const logs = await getRecentSystemLogs(ctx.user.id, botId, limit);
+      
+      return {
+        logs,
+        count: logs.length,
+        botId,
+      };
+    }),
+  
+  /**
+   * Obtém logs filtrados por categoria
+   */
+  getLogsByCategory: protectedProcedure
+    .input(z.object({
+      botId: z.number().default(1),
+      category: z.enum(["TICK", "ANALYSIS", "TRADE", "RISK", "CONNECTION", "SYSTEM", "PERFORMANCE"]),
+      limit: z.number().min(1).max(500).default(100),
+    }))
+    .query(async ({ ctx, input }) => {
+      const logs = await getSystemLogsByCategory(
+        ctx.user.id,
+        input.category as LogCategory,
+        input.botId,
+        input.limit
+      );
+      
+      return {
+        logs,
+        count: logs.length,
+        category: input.category,
+      };
+    }),
+  
+  /**
+   * Obtém logs filtrados por nível (ERROR, WARN, etc.)
+   */
+  getLogsByLevel: protectedProcedure
+    .input(z.object({
+      botId: z.number().default(1),
+      level: z.enum(["INFO", "WARN", "ERROR", "DEBUG", "PERFORMANCE"]),
+      limit: z.number().min(1).max(500).default(100),
+    }))
+    .query(async ({ ctx, input }) => {
+      const logs = await getSystemLogsByLevel(
+        ctx.user.id,
+        input.level as LogLevel,
+        input.botId,
+        input.limit
+      );
+      
+      return {
+        logs,
+        count: logs.length,
+        level: input.level,
+      };
+    }),
+  
+  /**
+   * Obtém logs de performance (latência)
+   */
+  getPerformanceLogs: protectedProcedure
+    .input(z.object({
+      botId: z.number().default(1),
+      limit: z.number().min(1).max(500).default(100),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      const limit = input?.limit ?? 100;
+      
+      const logs = await getPerformanceLogs(ctx.user.id, botId, limit);
+      
+      return {
+        logs,
+        count: logs.length,
+      };
+    }),
+  
+  /**
+   * Obtém contagem de logs por categoria
+   */
+  getLogStats: protectedProcedure
+    .input(z.object({
+      botId: z.number().default(1),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const botId = input?.botId ?? 1;
+      const counts = await countLogsByCategory(ctx.user.id, botId);
+      
+      return {
+        counts,
+        total: Object.values(counts).reduce((a, b) => a + b, 0),
+      };
+    }),
+  
+  /**
+   * Limpa logs antigos (mais de X dias)
+   */
+  cleanOldLogs: protectedProcedure
+    .input(z.object({
+      daysToKeep: z.number().min(1).max(30).default(7),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const daysToKeep = input?.daysToKeep ?? 7;
+      const deletedCount = await cleanOldSystemLogs(ctx.user.id, daysToKeep);
+      
+      return {
+        success: true,
+        deletedCount,
+        message: `${deletedCount} logs removidos (mais de ${daysToKeep} dias)`,
       };
     }),
 });
