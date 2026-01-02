@@ -1283,31 +1283,31 @@ export default function SettingsMultiBroker() {
                 setAccessToken={setIcAccessToken}
                 isDemo={icIsDemo}
                 setIsDemo={setIcIsDemo}
+                // Novos campos SMC
+                strategyType={smcStrategyType as "TREND_SNIPER" | "SMC_SWARM"}
+                setStrategyType={(v) => setSmcStrategyType(v)}
+                riskPercent={smcRiskPercentage}
+                setRiskPercent={setSmcRiskPercentage}
+                maxOpenTrades={smcMaxOpenTrades}
+                setMaxOpenTrades={setSmcMaxOpenTrades}
+                dailyLossLimit={smcDailyLossLimitPercent}
+                setDailyLossLimit={setSmcDailyLossLimitPercent}
+                activeSymbols={smcActiveSymbols}
+                setActiveSymbols={setSmcActiveSymbols}
+                // Campos legados (Trend Sniper)
                 symbol={icSymbol}
                 setSymbol={setIcSymbol}
                 lots={icLots}
                 setLots={setIcLots}
                 leverage={icLeverage}
                 setLeverage={setIcLeverage}
-                timeframe={icTimeframe}
-                setTimeframe={setIcTimeframe}
-                stopLossPips={icStopLossPips}
-                setStopLossPips={setIcStopLossPips}
-                takeProfitPips={icTakeProfitPips}
-                setTakeProfitPips={setIcTakeProfitPips}
-                trailingEnabled={icTrailingEnabled}
-                setTrailingEnabled={setIcTrailingEnabled}
-                trailingTriggerPips={icTrailingTriggerPips}
-                setTrailingTriggerPips={setIcTrailingTriggerPips}
-                trailingStepPips={icTrailingStepPips}
-                setTrailingStepPips={setIcTrailingStepPips}
                 isTesting={isTesting}
                 onTestConnection={handleTestICMarketsConnection}
                 connectionStatus={icConnectionStatus}
               />
 
-              {/* Configurações da Estratégia SMC */}
-              <SMCStrategySettings
+              {/* Configurações Avançadas da Estratégia SMC - Só aparece quando SMC_SWARM está selecionado */}
+              {smcStrategyType === "SMC_SWARM" && <SMCStrategySettings
                 strategyType={smcStrategyType}
                 setStrategyType={setSmcStrategyType}
                 activeSymbols={smcActiveSymbols}
@@ -1366,7 +1366,7 @@ export default function SettingsMultiBroker() {
                 setVerboseLogging={setSmcVerboseLogging}
                 onSave={handleSave}
                 isSaving={isSaving}
-              />
+              />}
             </>
           )}
 
