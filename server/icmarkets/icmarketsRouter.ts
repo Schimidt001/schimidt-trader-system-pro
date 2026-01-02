@@ -10,6 +10,7 @@ import { TRPCError } from "@trpc/server";
 import { ctraderAdapter } from "../adapters/CTraderAdapter";
 import { CTraderCredentials } from "../adapters/IBrokerAdapter";
 import { getTradingEngine } from "../adapters/ctrader/TradingEngine";
+import { getSMCTradingEngine } from "../adapters/ctrader/SMCTradingEngine";
 import {
   getICMarketsConfig,
   upsertICMarketsConfig,
@@ -673,6 +674,10 @@ export const icmarketsRouter = router({
    * Inicia o robô de trading automático
    * IMPORTANTE: Requer conexão prévia, mas é independente dela
    * Cada bot (botId) é uma instância independente
+   * 
+   * STRATEGY FACTORY: Consulta o banco de dados para decidir qual engine usar:
+   * - SMC_SWARM: Usa SMCTradingEngine (Multi-Ativo, Gestão de Risco Dinâmica)
+   * - TREND_SNIPER: Usa TradingEngine legado (RSI, Ativo Único)
    */
   startBot: protectedProcedure
     .input(z.object({
@@ -691,46 +696,78 @@ export const icmarketsRouter = router({
         });
       }
       
-      // Obter instância do bot específico para este usuário/botId
-      const engine = getTradingEngine(ctx.user.id, botId);
-      
-      // Verificar se já está rodando
-      if (engine.isRunning) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: `O robô ${botId} já está em execução`,
-        });
-      }
-      
       try {
-        // Carregar configuração do usuário
+        // ============= STRATEGY FACTORY: CONSULTAR BANCO DE DADOS =============
         const config = await getICMarketsConfig(ctx.user.id);
+        const strategyType = config?.strategyType || "SMC_SWARM"; // Default para SMC_SWARM
         
-        // Usar símbolo/timeframe do input ou da configuração salva
-        const symbol = input?.symbol || config?.symbol || "USDJPY";
-        const timeframe = input?.timeframe || config?.timeframe || "M15";
-        const lots = parseFloat(config?.lots || "0.01");
+        console.log(`[ICMarketsRouter] 🎯 Estratégia Selecionada no DB: ${strategyType}`);
         
-        // Atualizar configuração do engine
-        engine.updateConfig({
-          symbol,
-          timeframe,
-          lots,
-          maxPositions: 1,
-          cooldownMs: 60000, // 1 minuto entre operações
-        });
-        
-        // Iniciar o robô
-        await engine.start(symbol, timeframe);
-        
-        console.log(`[ICMarketsRouter] 🤖 Robô ${botId} iniciado por usuário ${ctx.user.id}`);
-        
-        return {
-          success: true,
-          message: `Robô ${botId} iniciado com sucesso`,
-          status: engine.getStatus(),
-        };
+        // ============= SELECIONAR ENGINE BASEADO NA ESTRATÉGIA =============
+        if (strategyType === "SMC_SWARM") {
+          // ===== SMC SWARM ENGINE =====
+          const smcEngine = getSMCTradingEngine(ctx.user.id, botId);
+          
+          // Verificar se já está rodando
+          if (smcEngine.isRunning) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `O robô SMC SWARM ${botId} já está em execução`,
+            });
+          }
+          
+          // Iniciar o robô SMC (ele carrega configs do banco automaticamente)
+          await smcEngine.start();
+          
+          console.log(`[ICMarketsRouter] 🐝 Robô SMC SWARM ${botId} iniciado por usuário ${ctx.user.id}`);
+          
+          return {
+            success: true,
+            message: `Robô SMC SWARM ${botId} iniciado com sucesso`,
+            status: smcEngine.getStatus(),
+            strategyType: "SMC_SWARM",
+          };
+          
+        } else {
+          // ===== TREND SNIPER ENGINE (LEGADO) =====
+          const engine = getTradingEngine(ctx.user.id, botId);
+          
+          // Verificar se já está rodando
+          if (engine.isRunning) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `O robô Trend Sniper ${botId} já está em execução`,
+            });
+          }
+          
+          // Usar símbolo/timeframe do input ou da configuração salva
+          const symbol = input?.symbol || config?.symbol || "USDJPY";
+          const timeframe = input?.timeframe || config?.timeframe || "M15";
+          const lots = parseFloat(config?.lots || "0.01");
+          
+          // Atualizar configuração do engine
+          engine.updateConfig({
+            symbol,
+            timeframe,
+            lots,
+            maxPositions: 1,
+            cooldownMs: 60000, // 1 minuto entre operações
+          });
+          
+          // Iniciar o robô
+          await engine.start(symbol, timeframe);
+          
+          console.log(`[ICMarketsRouter] 📊 Robô Trend Sniper ${botId} iniciado por usuário ${ctx.user.id}`);
+          
+          return {
+            success: true,
+            message: `Robô Trend Sniper ${botId} iniciado com sucesso`,
+            status: engine.getStatus(),
+            strategyType: "TREND_SNIPER",
+          };
+        }
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: `Erro ao iniciar robô ${botId}: ${(error as Error).message}`,
@@ -741,6 +778,8 @@ export const icmarketsRouter = router({
   /**
    * Para o robô de trading automático
    * Cada bot (botId) é uma instância independente
+   * 
+   * STRATEGY FACTORY: Para ambos os engines (SMC e Trend Sniper)
    */
   stopBot: protectedProcedure
     .input(z.object({
@@ -749,25 +788,35 @@ export const icmarketsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const botId = input?.botId ?? 1;
       
-      // Obter instância do bot específico para este usuário/botId
-      const engine = getTradingEngine(ctx.user.id, botId);
-      
-      if (!engine.isRunning) {
+      try {
+        // Tentar parar SMC Engine
+        const smcEngine = getSMCTradingEngine(ctx.user.id, botId);
+        if (smcEngine.isRunning) {
+          await smcEngine.stop();
+          console.log(`[ICMarketsRouter] 🛑 Robô SMC SWARM ${botId} parado por usuário ${ctx.user.id}`);
+          return {
+            success: true,
+            message: `Robô SMC SWARM ${botId} parado com sucesso`,
+          };
+        }
+        
+        // Tentar parar Trend Sniper Engine
+        const engine = getTradingEngine(ctx.user.id, botId);
+        if (engine.isRunning) {
+          await engine.stop();
+          console.log(`[ICMarketsRouter] 🛑 Robô Trend Sniper ${botId} parado por usuário ${ctx.user.id}`);
+          return {
+            success: true,
+            message: `Robô Trend Sniper ${botId} parado com sucesso`,
+          };
+        }
+        
+        // Nenhum engine estava rodando
         return {
           success: true,
           message: `O robô ${botId} já está parado`,
         };
-      }
-      
-      try {
-        await engine.stop();
         
-        console.log(`[ICMarketsRouter] 🛑 Robô ${botId} parado por usuário ${ctx.user.id}`);
-        
-        return {
-          success: true,
-          message: `Robô ${botId} parado com sucesso`,
-        };
       } catch (error) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -780,6 +829,8 @@ export const icmarketsRouter = router({
    * Obtém status do robô de trading
    * IMPORTANTE: Separado do status de conexão
    * Cada bot (botId) é uma instância independente
+   * 
+   * STRATEGY FACTORY: Retorna status do engine que estiver rodando
    */
   getBotStatus: protectedProcedure
     .input(z.object({
@@ -788,13 +839,25 @@ export const icmarketsRouter = router({
     .query(async ({ ctx, input }) => {
       const botId = input?.botId ?? 1;
       
-      // Obter instância do bot específico para este usuário/botId
+      // Verificar se SMC Engine está rodando
+      const smcEngine = getSMCTradingEngine(ctx.user.id, botId);
+      if (smcEngine.isRunning) {
+        const status = smcEngine.getStatus();
+        return {
+          ...status,
+          botId,
+          strategyType: "SMC_SWARM",
+        };
+      }
+      
+      // Verificar se Trend Sniper Engine está rodando
       const engine = getTradingEngine(ctx.user.id, botId);
       const status = engine.getStatus();
       
       return {
         ...status,
-        botId, // Incluir o botId no status para identificação
+        botId,
+        strategyType: engine.isRunning ? "TREND_SNIPER" : null,
       };
     }),
   
