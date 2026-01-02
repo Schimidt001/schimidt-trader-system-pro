@@ -363,6 +363,7 @@ export default function SettingsMultiBroker() {
   // Carregar configurações IC Markets quando disponíveis
   useEffect(() => {
     if (icConfig) {
+      // Credenciais básicas
       setIcClientId(icConfig.clientId || "");
       setIcClientSecret(icConfig.clientSecret || "");
       setIcAccessToken(icConfig.accessToken || "");
@@ -376,6 +377,68 @@ export default function SettingsMultiBroker() {
       setIcTrailingEnabled(icConfig.trailingEnabled ?? true);
       setIcTrailingTriggerPips((icConfig.trailingTriggerPips || ICMARKETS_DEFAULTS.trailingTriggerPips).toString());
       setIcTrailingStepPips((icConfig.trailingStepPips || ICMARKETS_DEFAULTS.trailingStepPips).toString());
+      
+      // ============= CARREGAR CAMPOS SMC =============
+      // Tipo de estratégia (CRÍTICO para persistência)
+      setSmcStrategyType(icConfig.strategyType || "SMC_SWARM");
+      
+      // Gestão de Risco SMC
+      setSmcRiskPercentage((icConfig.riskPercentage || 0.75).toString());
+      setSmcMaxOpenTrades((icConfig.maxOpenTrades || 3).toString());
+      setSmcDailyLossLimitPercent((icConfig.dailyLossLimitPercent || 3).toString());
+      
+      // Ativos do Enxame (Multi-Ativos)
+      if (icConfig.activeSymbols) {
+        try {
+          const symbols = typeof icConfig.activeSymbols === 'string' 
+            ? JSON.parse(icConfig.activeSymbols) 
+            : icConfig.activeSymbols;
+          setSmcActiveSymbols(symbols);
+        } catch (e) {
+          setSmcActiveSymbols(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+        }
+      }
+      
+      // Parâmetros de Estrutura H1
+      setSmcSwingH1Lookback((icConfig.swingH1Lookback || 50).toString());
+      setSmcFractalLeftBars((icConfig.fractalLeftBars || 2).toString());
+      setSmcFractalRightBars((icConfig.fractalRightBars || 2).toString());
+      
+      // Parâmetros de Sweep
+      setSmcSweepBufferPips((icConfig.sweepBufferPips || 2).toString());
+      setSmcSweepValidationMinutes((icConfig.sweepValidationMinutes || 60).toString());
+      
+      // Parâmetros de CHoCH
+      setSmcChochM15Lookback((icConfig.chochM15Lookback || 20).toString());
+      setSmcChochMinPips((icConfig.chochMinPips || 10).toString());
+      
+      // Parâmetros de Order Block
+      setSmcOrderBlockLookback((icConfig.orderBlockLookback || 10).toString());
+      setSmcOrderBlockExtensionPips((icConfig.orderBlockExtensionPips || 15).toString());
+      
+      // Parâmetros de Entrada
+      setSmcEntryConfirmationType(icConfig.entryConfirmationType || "ANY");
+      setSmcRejectionWickPercent((icConfig.rejectionWickPercent || 60).toString());
+      
+      // Gestão de Risco Avançada
+      setSmcStopLossBufferPips((icConfig.stopLossBufferPips || 2).toString());
+      setSmcRewardRiskRatio((icConfig.rewardRiskRatio || 4).toString());
+      
+      // Sessões de Trading
+      setSmcSessionFilterEnabled(icConfig.sessionFilterEnabled ?? true);
+      setSmcLondonSessionStart(icConfig.londonSessionStart || "04:00");
+      setSmcLondonSessionEnd(icConfig.londonSessionEnd || "07:00");
+      setSmcNySessionStart(icConfig.nySessionStart || "09:30");
+      setSmcNySessionEnd(icConfig.nySessionEnd || "12:30");
+      
+      // Trailing Stop SMC
+      setSmcTrailingEnabled(icConfig.smcTrailingEnabled ?? true);
+      setSmcTrailingTriggerPips((icConfig.smcTrailingTriggerPips || 20).toString());
+      setSmcTrailingStepPips((icConfig.smcTrailingStepPips || 10).toString());
+      
+      // Circuit Breaker e Logging
+      setSmcCircuitBreakerEnabled(icConfig.circuitBreakerEnabled ?? true);
+      setSmcVerboseLogging(icConfig.verboseLogging ?? false);
     }
   }, [icConfig]);
 

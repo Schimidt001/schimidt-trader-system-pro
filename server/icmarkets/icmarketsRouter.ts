@@ -20,6 +20,7 @@ import {
   getForexDailyStats,
   getForexMonthlyStats,
   upsertSMCStrategyConfig,
+  getSMCStrategyConfig,
   // System Logs
   insertSystemLog,
   getRecentSystemLogs,
@@ -95,11 +96,69 @@ export const icmarketsRouter = router({
   // ============= CONFIGURAÇÃO =============
   
   /**
-   * Obtém configuração IC Markets do usuário
+   * Obtém configuração IC Markets do usuário (mesclada com SMC Strategy)
    */
   getConfig: protectedProcedure.query(async ({ ctx }) => {
     const config = await getICMarketsConfig(ctx.user.id);
-    return config;
+    
+    if (!config) return null;
+    
+    // Buscar configuração SMC associada
+    const smcConfig = await getSMCStrategyConfig(ctx.user.id);
+    
+    // Mesclar configurações IC Markets + SMC Strategy
+    return {
+      ...config,
+      // Garantir que strategyType venha do banco
+      strategyType: config.strategyType || "SMC_SWARM",
+      
+      // Campos SMC (do smcStrategyConfig ou defaults)
+      activeSymbols: smcConfig?.activeSymbols || JSON.stringify(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
+      riskPercentage: smcConfig?.riskPercentage || "0.75",
+      maxOpenTrades: smcConfig?.maxOpenTrades || 3,
+      dailyLossLimitPercent: smcConfig?.dailyLossLimitPercent || "3",
+      
+      // Parâmetros de Estrutura H1
+      swingH1Lookback: smcConfig?.swingH1Lookback || 50,
+      fractalLeftBars: smcConfig?.fractalLeftBars || 2,
+      fractalRightBars: smcConfig?.fractalRightBars || 2,
+      
+      // Parâmetros de Sweep
+      sweepBufferPips: smcConfig?.sweepBufferPips || "2",
+      sweepValidationMinutes: smcConfig?.sweepValidationMinutes || 60,
+      
+      // Parâmetros de CHoCH
+      chochM15Lookback: smcConfig?.chochM15Lookback || 20,
+      chochMinPips: smcConfig?.chochMinPips || "10",
+      
+      // Parâmetros de Order Block
+      orderBlockLookback: smcConfig?.orderBlockLookback || 10,
+      orderBlockExtensionPips: smcConfig?.orderBlockExtensionPips || "15",
+      
+      // Parâmetros de Entrada
+      entryConfirmationType: smcConfig?.entryConfirmationType || "ANY",
+      rejectionWickPercent: smcConfig?.rejectionWickPercent || "60",
+      
+      // Gestão de Risco Avançada
+      stopLossBufferPips: smcConfig?.stopLossBufferPips || "2",
+      rewardRiskRatio: smcConfig?.rewardRiskRatio || "4",
+      
+      // Sessões de Trading
+      sessionFilterEnabled: smcConfig?.sessionFilterEnabled ?? true,
+      londonSessionStart: smcConfig?.londonSessionStart || "04:00",
+      londonSessionEnd: smcConfig?.londonSessionEnd || "07:00",
+      nySessionStart: smcConfig?.nySessionStart || "09:30",
+      nySessionEnd: smcConfig?.nySessionEnd || "12:30",
+      
+      // Trailing Stop SMC
+      smcTrailingEnabled: smcConfig?.trailingEnabled ?? true,
+      smcTrailingTriggerPips: smcConfig?.trailingTriggerPips || "20",
+      smcTrailingStepPips: smcConfig?.trailingStepPips || "10",
+      
+      // Circuit Breaker e Logging
+      circuitBreakerEnabled: smcConfig?.circuitBreakerEnabled ?? true,
+      verboseLogging: smcConfig?.verboseLogging ?? false,
+    };
   }),
   
   /**
