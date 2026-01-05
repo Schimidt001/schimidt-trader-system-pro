@@ -23,6 +23,18 @@ import { getDb, insertSystemLog, type LogLevel, type LogCategory } from "../../d
 import { smcStrategyConfig, icmarketsConfig } from "../../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 
+// ============= FUNÇÃO HELPER PARA DELAY =============
+
+/**
+ * Função helper para criar delay entre requisições
+ * Evita erro REQUEST_FREQUENCY_EXCEEDED da cTrader
+ * @param ms Tempo em milissegundos para aguardar
+ */
+const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+// Delay padrão entre requisições à API (1 segundo)
+const API_REQUEST_DELAY_MS = 1000;
+
 // ============= TIPOS E INTERFACES =============
 
 /**
@@ -476,19 +488,25 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Carrega dados históricos para todos os timeframes e símbolos
+   * NOTA: Usa loop sequencial com delay para evitar REQUEST_FREQUENCY_EXCEEDED
    */
   private async loadHistoricalData(): Promise<void> {
-    console.log("[SMCTradingEngine] Carregando dados históricos...");
+    console.log("[SMCTradingEngine] Carregando dados históricos (com delay entre requisições)...");
     
-    for (const symbol of this.config.symbols) {
+    for (let i = 0; i < this.config.symbols.length; i++) {
+      const symbol = this.config.symbols[i];
       try {
+        console.log(`[SMCTradingEngine] Buscando dados de ${symbol}...`);
+        
         // Carregar H1 (mínimo 200 candles)
         const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", 250);
         this.timeframeData.h1.set(symbol, h1Candles);
+        await sleep(API_REQUEST_DELAY_MS); // Delay para evitar rate limit
         
         // Carregar M15 (mínimo 200 candles)
         const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 250);
         this.timeframeData.m15.set(symbol, m15Candles);
+        await sleep(API_REQUEST_DELAY_MS); // Delay para evitar rate limit
         
         // Carregar M5 (mínimo 200 candles)
         const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 250);
@@ -496,8 +514,15 @@ export class SMCTradingEngine extends EventEmitter {
         
         console.log(`[SMCTradingEngine] ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length} candles`);
         
+        // Delay antes do próximo símbolo (exceto no último)
+        if (i < this.config.symbols.length - 1) {
+          await sleep(API_REQUEST_DELAY_MS);
+        }
+        
       } catch (error) {
         console.error(`[SMCTradingEngine] Erro ao carregar dados de ${symbol}:`, error);
+        // Aguardar antes de tentar o próximo símbolo mesmo em caso de erro
+        await sleep(API_REQUEST_DELAY_MS);
       }
     }
     
@@ -616,26 +641,45 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Atualiza dados de timeframes
+   * NOTA: Usa loop sequencial com delay para evitar REQUEST_FREQUENCY_EXCEEDED
    */
   private async refreshTimeframeData(): Promise<void> {
     if (!this._isRunning) return;
     
-    for (const symbol of this.config.symbols) {
+    console.log("[SMCTradingEngine] Atualizando dados de timeframes (com delay entre requisições)...");
+    
+    for (let i = 0; i < this.config.symbols.length; i++) {
+      const symbol = this.config.symbols[i];
+      if (!this._isRunning) return; // Verifica se ainda está rodando a cada iteração
+      
       try {
-        // Atualizar apenas os últimos candles
+        // Atualizar apenas os últimos candles - SEQUENCIAL COM DELAY
         const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", 50);
-        const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 50);
-        const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 50);
-        
-        // Mesclar com dados existentes
         this.mergeCandles(symbol, "h1", h1Candles);
+        await sleep(API_REQUEST_DELAY_MS); // Delay para evitar rate limit
+        
+        const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 50);
         this.mergeCandles(symbol, "m15", m15Candles);
+        await sleep(API_REQUEST_DELAY_MS); // Delay para evitar rate limit
+        
+        const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 50);
         this.mergeCandles(symbol, "m5", m5Candles);
+        
+        console.log(`[SMCTradingEngine] ${symbol}: dados atualizados`);
+        
+        // Delay antes do próximo símbolo (exceto no último)
+        if (i < this.config.symbols.length - 1) {
+          await sleep(API_REQUEST_DELAY_MS);
+        }
         
       } catch (error) {
         console.error(`[SMCTradingEngine] Erro ao atualizar dados de ${symbol}:`, error);
+        // Aguardar antes de tentar o próximo símbolo mesmo em caso de erro
+        await sleep(API_REQUEST_DELAY_MS);
       }
     }
+    
+    console.log("[SMCTradingEngine] ✅ Atualização de dados concluída");
   }
   
   /**
