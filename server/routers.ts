@@ -20,6 +20,7 @@ import {
   getTodayPositions,
   getMetric,
   getCandleHistory,
+  insertEventLog,
 } from "./db";
 import { getLatestMarketCondition, getMarketConditionHistory, getMarketConditionsByDate, getUpcomingMarketEvents, getRecentMarketEvents, getMarketEventsByDate, getMarketDetectorConfig, upsertMarketDetectorConfig, resetMarketDetectorConfig } from "./db";
 import { resetDailyData } from "./db_reset";
@@ -392,6 +393,96 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const botId = input.botId ?? 1;
         
+        // ============= SISTEMA DE LOG DE ALTERAÇÕES =============
+        // Buscar configuração atual para comparar com as novas
+        const currentConfig = await getConfigByUserId(ctx.user.id, botId);
+        
+        // Mapeamento de nomes amigáveis para os campos
+        const fieldLabels: Record<string, string> = {
+          mode: "Modo de Operação",
+          tokenDemo: "Token Demo",
+          tokenReal: "Token Real",
+          derivAppId: "App ID Deriv",
+          symbol: "Símbolo",
+          stake: "Stake",
+          stopDaily: "Stop Diário",
+          takeDaily: "Take Diário",
+          lookback: "Lookback (candles)",
+          triggerOffset: "Offset do Gatilho",
+          profitThreshold: "Threshold de Lucro (%)",
+          waitTime: "Tempo de Espera (min)",
+          timeframe: "Timeframe",
+          repredictionEnabled: "Re-predição M30/M60",
+          repredictionDelay: "Delay Re-predição (s)",
+          contractType: "Tipo de Contrato",
+          barrierHigh: "Barreira Superior",
+          barrierLow: "Barreira Inferior",
+          forexMinDurationMinutes: "Duração Mín. Forex (min)",
+          allowEquals: "Permitir Empate",
+          useCandleDuration: "Usar Duração do Candle",
+          hedgeEnabled: "IA Hedge",
+          hourlyFilterEnabled: "Filtro de Horário",
+          hourlyFilterMode: "Modo Filtro Horário",
+          hourlyFilterCustomHours: "Horários Personalizados",
+          hourlyFilterGoldHours: "Horários Gold",
+          hourlyFilterGoldMultiplier: "Multiplicador Gold (%)",
+          marketConditionEnabled: "Detector de Mercado",
+          payoutCheckEnabled: "Verificação de Payout",
+          minPayoutPercent: "Payout Mínimo ($)",
+          payoutRecheckDelay: "Delay Recheck Payout (s)",
+          antiDojiEnabled: "Filtro Anti-Doji",
+          antiDojiRangeMin: "Range Mínimo Doji",
+          antiDojiRatioMin: "Ratio Mínimo Doji",
+          exhaustionGuardEnabled: "Filtro de Exaustão",
+          exhaustionRatioMax: "Ratio Máx. Exaustão",
+          exhaustionPositionMin: "Position Mín. Exaustão",
+          exhaustionRangeLookback: "Lookback Exaustão",
+          exhaustionRangeMultiplier: "Multiplicador Range Exaustão",
+          exhaustionGuardLogEnabled: "Log Exaustão",
+          ttlEnabled: "Filtro TTL",
+          ttlMinimumSeconds: "TTL Mínimo (s)",
+          ttlTriggerDelayBuffer: "Buffer TTL (s)",
+          ttlLogEnabled: "Log TTL",
+        };
+        
+        // Função para formatar valores para exibição
+        const formatValue = (key: string, value: any): string => {
+          if (value === undefined || value === null) return "(não definido)";
+          if (typeof value === "boolean") return value ? "ATIVADO" : "DESATIVADO";
+          if (key === "stake" || key === "stopDaily" || key === "takeDaily") {
+            return `$${(value / 100).toFixed(2)}`;
+          }
+          if (key === "timeframe") {
+            const tfMap: Record<number, string> = { 900: "M15", 1800: "M30", 3600: "M60" };
+            return tfMap[value] || `${value}s`;
+          }
+          if (key === "tokenDemo" || key === "tokenReal") {
+            return value ? "****" + value.slice(-4) : "(vazio)";
+          }
+          return String(value);
+        };
+        
+        // Detectar alterações
+        const changes: string[] = [];
+        const fieldsToCheck = Object.keys(fieldLabels);
+        
+        for (const field of fieldsToCheck) {
+          const inputValue = (input as any)[field];
+          if (inputValue === undefined) continue;
+          
+          const currentValue = currentConfig ? (currentConfig as any)[field] : undefined;
+          
+          // Comparar valores (convertendo para string para comparação consistente)
+          const currentStr = formatValue(field, currentValue);
+          const newStr = formatValue(field, inputValue);
+          
+          if (currentStr !== newStr) {
+            changes.push(`${fieldLabels[field]}: ${currentStr} → ${newStr}`);
+          }
+        }
+        
+        // ============= FIM DO SISTEMA DE LOG =============
+        
         // Converter campos decimais para string (Drizzle espera string para decimal)
         const configData: any = {
           userId: ctx.user.id,
@@ -412,7 +503,7 @@ export const appRouter = router({
           configData.exhaustionRatioMax = input.exhaustionRatioMax.toString();
         }
         if (input.exhaustionPositionMin !== undefined) {
-          configData.exhaustionPositionMin = input.exhaustionPositionMin.toString(); // ADENDO TÉCNICO
+          configData.exhaustionPositionMin = input.exhaustionPositionMin.toString();
         }
         if (input.exhaustionRangeMultiplier !== undefined) {
           configData.exhaustionRangeMultiplier = input.exhaustionRangeMultiplier.toString();
@@ -420,15 +511,22 @@ export const appRouter = router({
         
         await upsertConfig(configData);
         
-        // Logar alterações de hedge se houver
-        if (input.hedgeEnabled !== undefined) {
-          const bot = getBotForUser(ctx.user.id, botId);
-          if (bot) {
-            await bot.logEvent(
-              "CONFIG_UPDATED",
-              `⚡ IA HEDGE ${input.hedgeEnabled ? 'ATIVADA' : 'DESATIVADA'} pelo usuário`
-            );
-          }
+        // ============= REGISTRAR LOG DE ALTERAÇÕES =============
+        if (changes.length > 0) {
+          const logMessage = `⚙️ CONFIGURAÇÕES ALTERADAS (Bot ${botId}):\n${changes.map(c => `  • ${c}`).join('\n')}`;
+          
+          // Registrar no banco de dados
+          await insertEventLog({
+            userId: ctx.user.id,
+            botId,
+            brokerType: "DERIV",
+            eventType: "CONFIG_CHANGED",
+            message: logMessage,
+            data: JSON.stringify({ changes, timestamp: new Date().toISOString() }),
+            timestampUtc: Math.floor(Date.now() / 1000),
+          });
+          
+          console.log(`[CONFIG_CHANGED] User ${ctx.user.id} | Bot ${botId} | ${changes.length} alterações`);
         }
         
         return { success: true };
@@ -1074,10 +1172,67 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        // ============= SISTEMA DE LOG DE ALTERAÇÕES =============
+        const currentConfig = await getMarketDetectorConfig(ctx.user.id);
+        
+        const fieldLabels: Record<string, string> = {
+          enabled: "Market Detector",
+          atrWindow: "Janela ATR",
+          atrMultiplier: "Multiplicador ATR",
+          atrScore: "Score ATR",
+          wickMultiplier: "Multiplicador Wick",
+          wickScore: "Score Wick",
+          fractalThreshold: "Threshold Fractal",
+          fractalScore: "Score Fractal",
+          spreadMultiplier: "Multiplicador Spread",
+          spreadScore: "Score Spread",
+          weightHigh: "Peso Notícia Alta",
+          weightMedium: "Peso Notícia Média",
+          weightHighPast: "Peso Notícia Alta (passada)",
+          windowNextNews: "Janela Próxima Notícia (min)",
+          windowPastNews: "Janela Notícia Passada (min)",
+          greenThreshold: "Threshold Verde",
+          yellowThreshold: "Threshold Amarelo",
+        };
+        
+        const formatValue = (key: string, value: any): string => {
+          if (value === undefined || value === null) return "(não definido)";
+          if (typeof value === "boolean") return value ? "ATIVADO" : "DESATIVADO";
+          return String(value);
+        };
+        
+        const changes: string[] = [];
+        for (const field of Object.keys(fieldLabels)) {
+          const inputValue = (input as any)[field];
+          if (inputValue === undefined) continue;
+          const currentValue = currentConfig ? (currentConfig as any)[field] : undefined;
+          const currentStr = formatValue(field, currentValue);
+          const newStr = formatValue(field, inputValue);
+          if (currentStr !== newStr) {
+            changes.push(`${fieldLabels[field]}: ${currentStr} → ${newStr}`);
+          }
+        }
+        // ============= FIM DO SISTEMA DE LOG =============
+        
         await upsertMarketDetectorConfig({
           userId: ctx.user.id,
           ...input,
         });
+        
+        // Registrar log se houver alterações
+        if (changes.length > 0) {
+          const logMessage = `📊 MARKET DETECTOR CONFIG ALTERADO:\n${changes.map(c => `  • ${c}`).join('\n')}`;
+          await insertEventLog({
+            userId: ctx.user.id,
+            botId: 1,
+            brokerType: "DERIV",
+            eventType: "MARKET_DETECTOR_CONFIG_CHANGED",
+            message: logMessage,
+            data: JSON.stringify({ changes, timestamp: new Date().toISOString() }),
+            timestampUtc: Math.floor(Date.now() / 1000),
+          });
+          console.log(`[MARKET_DETECTOR_CONFIG] User ${ctx.user.id} | ${changes.length} alterações`);
+        }
         
         return { success: true };
       }),

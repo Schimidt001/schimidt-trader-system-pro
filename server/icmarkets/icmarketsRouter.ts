@@ -30,6 +30,7 @@ import {
   getPerformanceLogs,
   cleanOldSystemLogs,
   countLogsByCategory,
+  insertEventLog,
   type LogLevel,
   type LogCategory,
 } from "../db";
@@ -168,6 +169,97 @@ export const icmarketsRouter = router({
   saveConfig: protectedProcedure
     .input(icmarketsConfigSchema)
     .mutation(async ({ ctx, input }) => {
+      // ============= SISTEMA DE LOG DE ALTERAÇÕES IC MARKETS =============
+      const currentConfig = await getICMarketsConfig(ctx.user.id);
+      const currentSMCConfig = await getSMCStrategyConfig(ctx.user.id);
+      
+      const fieldLabels: Record<string, string> = {
+        // IC Markets básico
+        clientId: "Client ID",
+        clientSecret: "Client Secret",
+        accessToken: "Access Token",
+        accountId: "Account ID",
+        isDemo: "Modo Demo",
+        symbol: "Símbolo",
+        lots: "Lotes",
+        leverage: "Alavancagem",
+        timeframe: "Timeframe",
+        stopLossPips: "Stop Loss (pips)",
+        takeProfitPips: "Take Profit (pips)",
+        trailingEnabled: "Trailing Stop",
+        trailingTriggerPips: "Trailing Trigger (pips)",
+        trailingStepPips: "Trailing Step (pips)",
+        strategyType: "Tipo de Estratégia",
+        // SMC Strategy
+        activeSymbols: "Símbolos Ativos",
+        swingH1Lookback: "Swing H1 Lookback",
+        fractalLeftBars: "Fractal Left Bars",
+        fractalRightBars: "Fractal Right Bars",
+        sweepBufferPips: "Sweep Buffer (pips)",
+        sweepValidationMinutes: "Sweep Validation (min)",
+        chochM15Lookback: "CHoCH M15 Lookback",
+        chochMinPips: "CHoCH Min (pips)",
+        orderBlockLookback: "Order Block Lookback",
+        orderBlockExtensionPips: "Order Block Extension (pips)",
+        entryConfirmationType: "Tipo Confirmação Entrada",
+        rejectionWickPercent: "Rejection Wick (%)",
+        riskPercentage: "Risco por Trade (%)",
+        maxOpenTrades: "Máx. Trades Abertos",
+        dailyLossLimitPercent: "Limite Perda Diária (%)",
+        stopLossBufferPips: "SL Buffer (pips)",
+        rewardRiskRatio: "Reward/Risk Ratio",
+        sessionFilterEnabled: "Filtro de Sessão",
+        londonSessionStart: "Início Sessão Londres",
+        londonSessionEnd: "Fim Sessão Londres",
+        nySessionStart: "Início Sessão NY",
+        nySessionEnd: "Fim Sessão NY",
+        smcTrailingEnabled: "SMC Trailing Stop",
+        smcTrailingTriggerPips: "SMC Trailing Trigger (pips)",
+        smcTrailingStepPips: "SMC Trailing Step (pips)",
+        circuitBreakerEnabled: "Circuit Breaker",
+        verboseLogging: "Logging Detalhado",
+        compoundingEnabled: "Compounding",
+        baseRisk: "Risco Base",
+      };
+      
+      const formatValue = (key: string, value: any): string => {
+        if (value === undefined || value === null) return "(não definido)";
+        if (typeof value === "boolean") return value ? "ATIVADO" : "DESATIVADO";
+        if (key === "clientId" || key === "clientSecret" || key === "accessToken") {
+          return value ? "****" + String(value).slice(-4) : "(vazio)";
+        }
+        return String(value);
+      };
+      
+      const changes: string[] = [];
+      
+      // Verificar campos IC Markets básico
+      const icFields = ["clientId", "clientSecret", "accessToken", "accountId", "isDemo", "symbol", "lots", "leverage", "timeframe", "stopLossPips", "takeProfitPips", "trailingEnabled", "trailingTriggerPips", "trailingStepPips", "strategyType"];
+      for (const field of icFields) {
+        const inputValue = (input as any)[field];
+        if (inputValue === undefined) continue;
+        const currentValue = currentConfig ? (currentConfig as any)[field] : undefined;
+        const currentStr = formatValue(field, currentValue);
+        const newStr = formatValue(field, inputValue);
+        if (currentStr !== newStr) {
+          changes.push(`${fieldLabels[field] || field}: ${currentStr} → ${newStr}`);
+        }
+      }
+      
+      // Verificar campos SMC Strategy
+      const smcFields = ["activeSymbols", "swingH1Lookback", "fractalLeftBars", "fractalRightBars", "sweepBufferPips", "sweepValidationMinutes", "chochM15Lookback", "chochMinPips", "orderBlockLookback", "orderBlockExtensionPips", "entryConfirmationType", "rejectionWickPercent", "riskPercentage", "maxOpenTrades", "dailyLossLimitPercent", "stopLossBufferPips", "rewardRiskRatio", "sessionFilterEnabled", "londonSessionStart", "londonSessionEnd", "nySessionStart", "nySessionEnd", "circuitBreakerEnabled", "verboseLogging"];
+      for (const field of smcFields) {
+        const inputValue = (input as any)[field];
+        if (inputValue === undefined) continue;
+        const currentValue = currentSMCConfig ? (currentSMCConfig as any)[field] : undefined;
+        const currentStr = formatValue(field, currentValue);
+        const newStr = formatValue(field, inputValue);
+        if (currentStr !== newStr) {
+          changes.push(`${fieldLabels[field] || field}: ${currentStr} → ${newStr}`);
+        }
+      }
+      // ============= FIM DO SISTEMA DE LOG =============
+      
       // Salvar configuração IC Markets básica
       await upsertICMarketsConfig({
         userId: ctx.user.id,
@@ -231,6 +323,21 @@ export const icmarketsRouter = router({
         compoundingEnabled: input.compoundingEnabled,
         baseRisk: input.baseRisk,
       });
+      
+      // ============= REGISTRAR LOG DE ALTERAÇÕES =============
+      if (changes.length > 0) {
+        const logMessage = `📈 IC MARKETS CONFIG ALTERADO:\n${changes.map(c => `  • ${c}`).join('\n')}`;
+        await insertEventLog({
+          userId: ctx.user.id,
+          botId: 1,
+          brokerType: "ICMARKETS",
+          eventType: "ICMARKETS_CONFIG_CHANGED",
+          message: logMessage,
+          data: JSON.stringify({ changes, timestamp: new Date().toISOString() }),
+          timestampUtc: Math.floor(Date.now() / 1000),
+        });
+        console.log(`[ICMARKETS_CONFIG] User ${ctx.user.id} | ${changes.length} alterações`);
+      }
       
       return { success: true };
     }),
