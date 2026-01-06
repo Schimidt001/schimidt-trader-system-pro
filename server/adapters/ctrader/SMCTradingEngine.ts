@@ -345,20 +345,42 @@ export class SMCTradingEngine extends EventEmitter {
   }
   
   /**
-   * Recarrega configurações do banco de dados
+   * Recarrega configuracoes do banco de dados
+   * 
+   * CORRECAO CRITICA: Esta funcao agora atualiza tanto a estrategia
+   * quanto o RiskManager para garantir que as configuracoes de sessao
+   * sejam aplicadas corretamente.
    */
   async reloadConfig(): Promise<void> {
     await this.loadConfigFromDB();
     
-    // Atualizar estratégia se necessário
-    if (this.strategy) {
-      const smcConfig = await this.getSMCConfigFromDB();
-      if (smcConfig) {
-        this.strategy.updateConfig(smcConfig);
-      }
+    const smcConfig = await this.getSMCConfigFromDB();
+    
+    // Atualizar estrategia
+    if (this.strategy && smcConfig) {
+      this.strategy.updateConfig(smcConfig);
+      console.log(`[SMCTradingEngine] [Config] Estrategia atualizada`);
+      console.log(`[SMCTradingEngine] [Config] Sessao Londres: ${smcConfig.londonSessionStart} - ${smcConfig.londonSessionEnd}`);
+      console.log(`[SMCTradingEngine] [Config] Sessao NY: ${smcConfig.nySessionStart} - ${smcConfig.nySessionEnd}`);
     }
     
-    console.log("[SMCTradingEngine] [Config] Parâmetros atualizados via UI");
+    // Atualizar RiskManager com configuracoes de sessao
+    if (this.riskManager && smcConfig) {
+      this.riskManager.updateConfig({
+        sessionFilterEnabled: smcConfig.sessionFilterEnabled ?? true,
+        londonSessionStart: smcConfig.londonSessionStart || "04:00",
+        londonSessionEnd: smcConfig.londonSessionEnd || "07:00",
+        nySessionStart: smcConfig.nySessionStart || "09:30",
+        nySessionEnd: smcConfig.nySessionEnd || "12:30",
+        riskPercentage: smcConfig.riskPercentage ? Number(smcConfig.riskPercentage) : undefined,
+        maxOpenTrades: smcConfig.maxOpenTrades,
+        dailyLossLimitPercent: smcConfig.dailyLossLimitPercent ? Number(smcConfig.dailyLossLimitPercent) : undefined,
+        circuitBreakerEnabled: smcConfig.circuitBreakerEnabled,
+      });
+      console.log(`[SMCTradingEngine] [Config] RiskManager atualizado`);
+    }
+    
+    console.log("[SMCTradingEngine] [Config] Parametros atualizados via UI");
   }
   
   // ============= MÉTODOS PRIVADOS =============

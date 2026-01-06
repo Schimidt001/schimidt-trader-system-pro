@@ -441,15 +441,36 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   }
   
   updateConfig(config: Partial<SMCStrategyConfig>): void {
+    const previousSessionConfig = {
+      londonSessionStart: this.config.londonSessionStart,
+      londonSessionEnd: this.config.londonSessionEnd,
+      nySessionStart: this.config.nySessionStart,
+      nySessionEnd: this.config.nySessionEnd,
+    };
+    
     this.config = { ...this.config, ...config };
     
-    // Reinicializar estados se símbolos mudaram
+    // Reinicializar estados se simbolos mudaram
     if (config.activeSymbols) {
       this.initializeSwarmStates();
     }
     
+    // Log de alteracoes de sessao (sempre logar, pois e critico)
+    const sessionChanged = 
+      config.londonSessionStart !== undefined ||
+      config.londonSessionEnd !== undefined ||
+      config.nySessionStart !== undefined ||
+      config.nySessionEnd !== undefined;
+    
+    if (sessionChanged) {
+      console.log(`[SMC] [SESSAO] Configuracao de sessao atualizada:`);
+      console.log(`[SMC] [SESSAO]   Londres: ${this.config.londonSessionStart} - ${this.config.londonSessionEnd}`);
+      console.log(`[SMC] [SESSAO]   NY: ${this.config.nySessionStart} - ${this.config.nySessionEnd}`);
+      console.log(`[SMC] [SESSAO]   Filtro ativo: ${this.config.sessionFilterEnabled}`);
+    }
+    
     if (this.config.verboseLogging) {
-      console.log("[SMC] Configuração atualizada:", config);
+      console.log("[SMC] Configuracao atualizada:", config);
     }
   }
   
@@ -1333,12 +1354,15 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   }
   
   /**
-   * Verifica se está dentro do horário de trading permitido
+   * Verifica se esta dentro do horario de trading permitido
+   * 
+   * CORRECAO: Adicionado logs de DEBUG para diagnostico de problemas
+   * com filtro de sessao.
    */
   private isWithinTradingSession(currentTime?: number): boolean {
     const now = currentTime ? new Date(currentTime) : new Date();
     
-    // Converter para horário de Brasília (UTC-3)
+    // Converter para horario de Brasilia (UTC-3)
     const brasiliaOffset = -3 * 60;
     const localOffset = now.getTimezoneOffset();
     const brasiliaTime = new Date(now.getTime() + (localOffset + brasiliaOffset) * 60000);
@@ -1347,7 +1371,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     const currentMinute = brasiliaTime.getMinutes();
     const currentTimeMinutes = currentHour * 60 + currentMinute;
     
-    // Parse horários configurados
+    // Parse horarios configurados
     const parseTime = (timeStr: string): number => {
       const [hours, minutes] = timeStr.split(":").map(Number);
       return hours * 60 + minutes;
@@ -1358,11 +1382,23 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     const nyStart = parseTime(this.config.nySessionStart);
     const nyEnd = parseTime(this.config.nySessionEnd);
     
-    // Verificar se está em alguma sessão
+    // Verificar se esta em alguma sessao
     const inLondon = currentTimeMinutes >= londonStart && currentTimeMinutes <= londonEnd;
     const inNY = currentTimeMinutes >= nyStart && currentTimeMinutes <= nyEnd;
     
-    return inLondon || inNY;
+    const isWithinSession = inLondon || inNY;
+    
+    // Log de DEBUG para diagnostico (a cada 60 segundos para nao poluir)
+    const shouldLog = this.config.verboseLogging || (!isWithinSession && Math.random() < 0.01);
+    if (shouldLog && !isWithinSession) {
+      const timeStr = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
+      console.log(`[SMC] [SESSAO] Horario atual (Brasilia): ${timeStr}`);
+      console.log(`[SMC] [SESSAO] Londres: ${this.config.londonSessionStart} - ${this.config.londonSessionEnd} | Dentro: ${inLondon}`);
+      console.log(`[SMC] [SESSAO] NY: ${this.config.nySessionStart} - ${this.config.nySessionEnd} | Dentro: ${inNY}`);
+      console.log(`[SMC] [SESSAO] Resultado: ${isWithinSession ? 'PERMITIDO' : 'BLOQUEADO'}`);
+    }
+    
+    return isWithinSession;
   }
   
   /**

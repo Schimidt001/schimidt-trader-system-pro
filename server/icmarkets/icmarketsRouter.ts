@@ -313,7 +313,7 @@ export const icmarketsRouter = router({
         verboseLogging: input.verboseLogging,
       });
       
-      // Atualizar configuração da estratégia
+      // Atualizar configuracao da estrategia TrendSniper (legado)
       ctraderAdapter.configureStrategy({
         stopLossPips: input.stopLossPips,
         takeProfitPips: input.takeProfitPips,
@@ -324,7 +324,20 @@ export const icmarketsRouter = router({
         baseRisk: input.baseRisk,
       });
       
-      // ============= REGISTRAR LOG DE ALTERAÇÕES =============
+      // ============= ATUALIZAR SMC ENGINE EM EXECUCAO =============
+      // CORRECAO CRITICA: Recarregar configuracoes no SMCTradingEngine
+      // para que as alteracoes da UI sejam aplicadas imediatamente
+      try {
+        const smcEngine = getSMCTradingEngine(ctx.user.id, 1);
+        if (smcEngine.isRunning) {
+          await smcEngine.reloadConfig();
+          console.log(`[ICMARKETS_CONFIG] SMC Engine recarregado para usuario ${ctx.user.id}`);
+        }
+      } catch (error) {
+        console.warn(`[ICMARKETS_CONFIG] Nao foi possivel recarregar SMC Engine:`, error);
+      }
+      
+      // ============= REGISTRAR LOG DE ALTERACOES =============
       if (changes.length > 0) {
         const logMessage = `📈 IC MARKETS CONFIG ALTERADO:\n${changes.map(c => `  • ${c}`).join('\n')}`;
         await insertEventLog({
