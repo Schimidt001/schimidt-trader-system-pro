@@ -36,35 +36,39 @@ export interface SMCStrategyConfig extends BaseStrategyConfig {
   // Ativos monitorados
   activeSymbols: string[];
   
-  // Parâmetros de estrutura (H1)
+  // Parametros de estrutura (H1)
   swingH1Lookback: number;
   fractalLeftBars: number;
   fractalRightBars: number;
   
-  // Parâmetros de Sweep
+  // Parametros de Sweep
   sweepBufferPips: number;
   sweepValidationMinutes: number;
   
-  // Parâmetros de CHoCH (M15)
+  // Parametros de CHoCH (M15)
   chochM15Lookback: number;
   chochMinPips: number;
   
-  // Parâmetros de Order Block
+  // Parametros de Order Block
   orderBlockLookback: number;
   orderBlockExtensionPips: number;
   
-  // Parâmetros de entrada (M5)
+  // Parametros de entrada (M5)
   entryConfirmationType: "ENGULF" | "REJECTION" | "ANY";
   rejectionWickPercent: number;
   
-  // Gestão de risco
+  // Gestao de risco
   riskPercentage: number;
   maxOpenTrades: number;
   dailyLossLimitPercent: number;
   stopLossBufferPips: number;
   rewardRiskRatio: number;
   
-  // Sessões de trading
+  // Filtro de Spread - AUDITORIA: Filtros Silenciosos
+  spreadFilterEnabled: boolean;
+  maxSpreadPips: number;
+  
+  // Sessoes de trading
   sessionFilterEnabled: boolean;
   londonSessionStart: string;
   londonSessionEnd: string;
@@ -149,7 +153,7 @@ export interface SymbolSwarmState {
 export const DEFAULT_SMC_CONFIG: SMCStrategyConfig = {
   strategyType: StrategyType.SMC_SWARM,
   
-  // Ativos padrão
+  // Ativos padrao
   activeSymbols: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"],
   
   // Estrutura H1
@@ -161,9 +165,10 @@ export const DEFAULT_SMC_CONFIG: SMCStrategyConfig = {
   sweepBufferPips: 2.0,
   sweepValidationMinutes: 60,
   
-  // CHoCH M15
+  // CHoCH M15 - AJUSTADO: Valor mais agressivo conforme briefing
+  // Permite valores flutuantes pequenos (ex: 3.5)
   chochM15Lookback: 20,
-  chochMinPips: 10.0,
+  chochMinPips: 5.0,  // Reduzido de 10.0 para 5.0 para maior sensibilidade
   
   // Order Block
   orderBlockLookback: 10,
@@ -180,7 +185,11 @@ export const DEFAULT_SMC_CONFIG: SMCStrategyConfig = {
   stopLossBufferPips: 2.0,
   rewardRiskRatio: 4.0,
   
-  // Sessões
+  // Filtro de Spread - AUDITORIA: Evita entradas com spread alto
+  spreadFilterEnabled: true,
+  maxSpreadPips: 3.0,  // Maximo de 3 pips de spread para entrada
+  
+  // Sessoes - Horarios em UTC-3 (Brasilia)
   sessionFilterEnabled: true,
   londonSessionStart: "04:00",
   londonSessionEnd: "07:00",
@@ -251,12 +260,23 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     
     // Verificar se temos dados suficientes
     if (!this.hasAllTimeframeData()) {
-      return this.createNoSignal("Dados insuficientes para análise MTF");
+      return this.createNoSignal("Dados insuficientes para analise MTF");
     }
     
-    // Verificar filtro de sessão
+    // AUDITORIA: Verificar filtro de spread antes de qualquer analise
+    if (this.config.spreadFilterEnabled && mtfData?.currentSpreadPips !== undefined) {
+      if (mtfData.currentSpreadPips > this.config.maxSpreadPips) {
+        const reason = `Spread alto: ${mtfData.currentSpreadPips.toFixed(1)} pips > max ${this.config.maxSpreadPips} pips`;
+        if (this.config.verboseLogging) {
+          console.log(`[SMC] ${this.currentSymbol}: BLOQUEADO | ${reason}`);
+        }
+        return this.createNoSignal(reason);
+      }
+    }
+    
+    // Verificar filtro de sessao
     if (this.config.sessionFilterEnabled && !this.isWithinTradingSession()) {
-      return this.createNoSignal("Fora do horário de trading permitido");
+      return this.createNoSignal("Fora do horario de trading permitido");
     }
     
     // Verificar circuit breaker
@@ -264,7 +284,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       return this.createNoSignal("Trading bloqueado hoje (circuit breaker ativo)");
     }
     
-    // Obter estado do símbolo atual
+    // Obter estado do simbolo atual
     const state = this.getOrCreateSwarmState(this.currentSymbol);
     
     // ========== PIPELINE SMC ==========
@@ -282,6 +302,15 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     
     // ETAPA 4: Identificar Order Block e verificar entrada
     if (state.chochDetected && state.activeOrderBlock) {
+      // Verificar spread novamente antes de entrada
+      if (this.config.spreadFilterEnabled && mtfData?.currentSpreadPips !== undefined) {
+        if (mtfData.currentSpreadPips > this.config.maxSpreadPips) {
+          const reason = `Entrada bloqueada: Spread ${mtfData.currentSpreadPips.toFixed(1)} pips > max ${this.config.maxSpreadPips} pips`;
+          console.log(`[SMC] ${this.currentSymbol}: ${reason}`);
+          return this.createNoSignal(reason);
+        }
+      }
+      
       const entrySignal = this.checkEntryConditions(state, mtfData?.currentBid || this.getLastPrice());
       
       if (entrySignal.signal !== "NONE") {
@@ -666,12 +695,25 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     if (!lastCandle) return false;
     
     const bufferPips = this.config.sweepBufferPips * this.getPipValue();
+    const pipValue = this.getPipValue();
     
     // ========== VERIFICAR SWEEP DE TOPO (BEARISH) ==========
     for (const swingHigh of state.swingHighs) {
       if (swingHigh.swept) continue;
       
-      // Condição: High superou o swing, mas Close ficou abaixo
+      // Log de DEBUG para analise de sweep
+      const highExceedsPips = this.priceToPips(lastCandle.high - swingHigh.price);
+      const closeDistPips = this.priceToPips(swingHigh.price - lastCandle.close);
+      
+      if (this.config.verboseLogging && lastCandle.high > swingHigh.price - bufferPips) {
+        this.logPriceDebug(
+          `Sweep HIGH Check | SwingHigh: ${swingHigh.price.toFixed(5)} | High: ${lastCandle.high.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`,
+          lastCandle.high - swingHigh.price,
+          highExceedsPips
+        );
+      }
+      
+      // Condicao: High superou o swing, mas Close ficou abaixo
       if (lastCandle.high > swingHigh.price && lastCandle.close < swingHigh.price) {
         swingHigh.swept = true;
         swingHigh.sweptAt = Date.now();
@@ -681,10 +723,10 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         state.lastSweepTime = Date.now();
         state.sweepConfirmed = true;
         
-        if (this.config.verboseLogging) {
-          console.log(`[SMC-H1] ${this.currentSymbol}: 🎯 SWEEP DE TOPO confirmado! Nível: ${swingHigh.price.toFixed(5)}`);
-          console.log(`[SMC-H1] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
-        }
+        console.log(`[SMC-H1] ${this.currentSymbol}: SWEEP DE TOPO CONFIRMADO!`);
+        console.log(`[SMC-H1] ${this.currentSymbol}: Nivel: ${swingHigh.price.toFixed(5)}`);
+        console.log(`[SMC-H1] ${this.currentSymbol}: Pavio acima: ${highExceedsPips.toFixed(1)} pips | Close abaixo: ${closeDistPips.toFixed(1)} pips`);
+        console.log(`[SMC-H1] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
         
         return true;
       }
@@ -694,7 +736,19 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     for (const swingLow of state.swingLows) {
       if (swingLow.swept) continue;
       
-      // Condição: Low superou o swing (para baixo), mas Close ficou acima
+      // Log de DEBUG para analise de sweep
+      const lowExceedsPips = this.priceToPips(swingLow.price - lastCandle.low);
+      const closeDistPips = this.priceToPips(lastCandle.close - swingLow.price);
+      
+      if (this.config.verboseLogging && lastCandle.low < swingLow.price + bufferPips) {
+        this.logPriceDebug(
+          `Sweep LOW Check | SwingLow: ${swingLow.price.toFixed(5)} | Low: ${lastCandle.low.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`,
+          swingLow.price - lastCandle.low,
+          lowExceedsPips
+        );
+      }
+      
+      // Condicao: Low superou o swing (para baixo), mas Close ficou acima
       if (lastCandle.low < swingLow.price && lastCandle.close > swingLow.price) {
         swingLow.swept = true;
         swingLow.sweptAt = Date.now();
@@ -704,16 +758,16 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         state.lastSweepTime = Date.now();
         state.sweepConfirmed = true;
         
-        if (this.config.verboseLogging) {
-          console.log(`[SMC-H1] ${this.currentSymbol}: 🎯 SWEEP DE FUNDO confirmado! Nível: ${swingLow.price.toFixed(5)}`);
-          console.log(`[SMC-H1] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
-        }
+        console.log(`[SMC-H1] ${this.currentSymbol}: SWEEP DE FUNDO CONFIRMADO!`);
+        console.log(`[SMC-H1] ${this.currentSymbol}: Nivel: ${swingLow.price.toFixed(5)}`);
+        console.log(`[SMC-H1] ${this.currentSymbol}: Pavio abaixo: ${lowExceedsPips.toFixed(1)} pips | Close acima: ${closeDistPips.toFixed(1)} pips`);
+        console.log(`[SMC-H1] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
         
         return true;
       }
     }
     
-    // Verificar se sweep expirou (tempo de validação)
+    // Verificar se sweep expirou (tempo de validacao)
     if (state.sweepConfirmed && state.lastSweepTime) {
       const elapsedMinutes = (Date.now() - state.lastSweepTime) / 60000;
       if (elapsedMinutes > this.config.sweepValidationMinutes) {
@@ -721,9 +775,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         state.chochDetected = false;
         state.activeOrderBlock = null;
         
-        if (this.config.verboseLogging) {
-          console.log(`[SMC] ${this.currentSymbol}: Sweep expirado após ${this.config.sweepValidationMinutes} minutos`);
-        }
+        console.log(`[SMC] ${this.currentSymbol}: Sweep EXPIRADO apos ${this.config.sweepValidationMinutes} minutos sem CHoCH`);
       }
     }
     
@@ -750,53 +802,87 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     const lookback = this.config.chochM15Lookback;
     const recentCandles = candles.slice(-lookback);
     const lastCandle = candles[candles.length - 1];
+    const pipValue = this.getPipValue();
+    const minPipsRequired = this.config.chochMinPips;
     
     if (state.lastSweepType === "HIGH") {
-      // Após sweep de topo: procurar CHoCH bearish
-      // Encontrar o último Higher Low (fundo que impulsionou para o topo)
+      // Apos sweep de topo: procurar CHoCH bearish
+      // Encontrar o ultimo Higher Low (fundo que impulsionou para o topo)
       const swingLow = this.findLastSwingInArray(recentCandles, "LOW");
       
-      if (swingLow && lastCandle.close < swingLow.price) {
-        // CHoCH confirmado - preço fechou abaixo do último fundo
-        state.chochDetected = true;
-        state.chochDirection = "BEARISH";
-        state.chochPrice = swingLow.price;
-        state.chochTime = Date.now();
+      if (swingLow) {
+        // Calcular movimento em pips (CORRECAO CRITICA)
+        const priceDiff = swingLow.price - lastCandle.close;
+        const movementPips = this.priceToPips(priceDiff);
         
-        // Identificar Order Block
-        state.activeOrderBlock = this.identifyOrderBlock(recentCandles, "BEARISH");
-        state.entryDirection = "SELL";
+        // Log de DEBUG obrigatorio
+        this.logPriceDebug(
+          `CHoCH BEARISH Check | SwingLow: ${swingLow.price.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`,
+          priceDiff,
+          movementPips
+        );
         
-        if (this.config.verboseLogging) {
-          console.log(`[SMC-M15] ${this.currentSymbol}: ⚡ CHoCH BEARISH confirmado!`);
+        // Verificar se movimento atinge minimo em pips
+        if (lastCandle.close < swingLow.price && movementPips >= minPipsRequired) {
+          // CHoCH confirmado - preco fechou abaixo do ultimo fundo com movimento suficiente
+          state.chochDetected = true;
+          state.chochDirection = "BEARISH";
+          state.chochPrice = swingLow.price;
+          state.chochTime = Date.now();
+          
+          // Identificar Order Block
+          state.activeOrderBlock = this.identifyOrderBlock(recentCandles, "BEARISH");
+          state.entryDirection = "SELL";
+          
+          console.log(`[SMC-M15] ${this.currentSymbol}: CHoCH BEARISH CONFIRMADO!`);
+          console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${movementPips.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
           console.log(`[SMC-M15] ${this.currentSymbol}: Fundo quebrado em ${swingLow.price.toFixed(5)}`);
           if (state.activeOrderBlock) {
-            console.log(`[SMC-M15] ${this.currentSymbol}: Order Block identificado: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
+            console.log(`[SMC-M15] ${this.currentSymbol}: Order Block: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
           }
+        } else if (lastCandle.close < swingLow.price) {
+          // Movimento insuficiente - LOG DE REJEICAO CLARO
+          console.log(`[SMC-M15] ${this.currentSymbol}: CHoCH REJEITADO | Motivo: Movimento de ${movementPips.toFixed(1)} pips menor que minimo de ${minPipsRequired} pips`);
         }
       }
     } else if (state.lastSweepType === "LOW") {
-      // Após sweep de fundo: procurar CHoCH bullish
-      // Encontrar o último Lower High (topo que impulsionou para o fundo)
+      // Apos sweep de fundo: procurar CHoCH bullish
+      // Encontrar o ultimo Lower High (topo que impulsionou para o fundo)
       const swingHigh = this.findLastSwingInArray(recentCandles, "HIGH");
       
-      if (swingHigh && lastCandle.close > swingHigh.price) {
-        // CHoCH confirmado - preço fechou acima do último topo
-        state.chochDetected = true;
-        state.chochDirection = "BULLISH";
-        state.chochPrice = swingHigh.price;
-        state.chochTime = Date.now();
+      if (swingHigh) {
+        // Calcular movimento em pips (CORRECAO CRITICA)
+        const priceDiff = lastCandle.close - swingHigh.price;
+        const movementPips = this.priceToPips(priceDiff);
         
-        // Identificar Order Block
-        state.activeOrderBlock = this.identifyOrderBlock(recentCandles, "BULLISH");
-        state.entryDirection = "BUY";
+        // Log de DEBUG obrigatorio
+        this.logPriceDebug(
+          `CHoCH BULLISH Check | SwingHigh: ${swingHigh.price.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`,
+          priceDiff,
+          movementPips
+        );
         
-        if (this.config.verboseLogging) {
-          console.log(`[SMC-M15] ${this.currentSymbol}: ⚡ CHoCH BULLISH confirmado!`);
+        // Verificar se movimento atinge minimo em pips
+        if (lastCandle.close > swingHigh.price && movementPips >= minPipsRequired) {
+          // CHoCH confirmado - preco fechou acima do ultimo topo com movimento suficiente
+          state.chochDetected = true;
+          state.chochDirection = "BULLISH";
+          state.chochPrice = swingHigh.price;
+          state.chochTime = Date.now();
+          
+          // Identificar Order Block
+          state.activeOrderBlock = this.identifyOrderBlock(recentCandles, "BULLISH");
+          state.entryDirection = "BUY";
+          
+          console.log(`[SMC-M15] ${this.currentSymbol}: CHoCH BULLISH CONFIRMADO!`);
+          console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${movementPips.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
           console.log(`[SMC-M15] ${this.currentSymbol}: Topo quebrado em ${swingHigh.price.toFixed(5)}`);
           if (state.activeOrderBlock) {
-            console.log(`[SMC-M15] ${this.currentSymbol}: Order Block identificado: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
+            console.log(`[SMC-M15] ${this.currentSymbol}: Order Block: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
           }
+        } else if (lastCandle.close > swingHigh.price) {
+          // Movimento insuficiente - LOG DE REJEICAO CLARO
+          console.log(`[SMC-M15] ${this.currentSymbol}: CHoCH REJEITADO | Motivo: Movimento de ${movementPips.toFixed(1)} pips menor que minimo de ${minPipsRequired} pips`);
         }
       }
     }
@@ -1147,19 +1233,103 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   }
   
   /**
-   * Obtém o valor do pip para o símbolo atual
+   * Mapeamento de pip values por simbolo
+   * CRITICO: Valores corretos para normalizacao de preco
+   * @see Briefing Tecnico - Correcao da Normalizacao de Preco
+   */
+  private static readonly PIP_VALUES: Record<string, number> = {
+    // Forex Major
+    "EURUSD": 0.0001,
+    "GBPUSD": 0.0001,
+    "USDJPY": 0.01,
+    "AUDUSD": 0.0001,
+    "USDCAD": 0.0001,
+    "USDCHF": 0.0001,
+    "NZDUSD": 0.0001,
+    // Forex Cross JPY
+    "EURJPY": 0.01,
+    "GBPJPY": 0.01,
+    "AUDJPY": 0.01,
+    "CADJPY": 0.01,
+    "CHFJPY": 0.01,
+    "NZDJPY": 0.01,
+    // Forex Cross
+    "EURGBP": 0.0001,
+    "EURAUD": 0.0001,
+    "EURNZD": 0.0001,
+    "GBPAUD": 0.0001,
+    // Metais Preciosos - CRITICO
+    "XAUUSD": 0.10,
+    "XAGUSD": 0.001,
+    // Indices
+    "US30": 1.0,
+    "US500": 0.1,
+    "US100": 0.1,
+    "DE40": 0.1,
+    "UK100": 0.1,
+  };
+
+  /**
+   * Obtem o valor do pip para o simbolo atual
+   * 
+   * IMPORTANTE: Esta funcao e critica para a normalizacao de precos.
+   * Um erro aqui faz o robo "cego" a magnitude real dos movimentos.
+   * 
+   * @returns Valor do pip para o simbolo atual
    */
   private getPipValue(): number {
-    // Para pares JPY: 0.01
-    // Para outros pares: 0.0001
-    // Para XAUUSD: 0.1
-    if (this.currentSymbol.includes("JPY")) {
+    const symbol = this.currentSymbol;
+    
+    // Verificar no mapeamento estatico primeiro
+    if (SMCStrategy.PIP_VALUES[symbol] !== undefined) {
+      return SMCStrategy.PIP_VALUES[symbol];
+    }
+    
+    // Fallback para pares JPY
+    if (symbol.includes("JPY")) {
       return 0.01;
     }
-    if (this.currentSymbol === "XAUUSD") {
-      return 0.1;
+    
+    // Fallback para metais (XAU, XAG)
+    if (symbol.startsWith("XAU")) {
+      return 0.10;
     }
+    if (symbol.startsWith("XAG")) {
+      return 0.001;
+    }
+    
+    // Default para Forex
     return 0.0001;
+  }
+
+  /**
+   * Converte diferenca de preco para pips
+   * 
+   * @param priceDiff Diferenca de preco bruta
+   * @param symbol Simbolo do ativo (opcional, usa currentSymbol se nao fornecido)
+   * @returns Valor em pips
+   */
+  private priceToPips(priceDiff: number, symbol?: string): number {
+    const sym = symbol || this.currentSymbol;
+    const pipValue = this.getPipValue();
+    const pips = Math.abs(priceDiff) / pipValue;
+    return pips;
+  }
+
+  /**
+   * Log de DEBUG para normalizacao de preco
+   * Mostra valor bruto e valor convertido em pips
+   * 
+   * @see Briefing Tecnico - Implementacao Obrigatoria de logs DEBUG
+   */
+  private logPriceDebug(context: string, rawPrice: number, convertedPips: number): void {
+    if (this.config.verboseLogging) {
+      const pipValue = this.getPipValue();
+      console.log(`[DEBUG] ${this.currentSymbol} | ${context}`);
+      console.log(`[DEBUG]   Movimento Bruto: ${rawPrice.toFixed(5)}`);
+      console.log(`[DEBUG]   Pip Value: ${pipValue}`);
+      console.log(`[DEBUG]   Convertido: ${convertedPips.toFixed(1)} Pips`);
+    }
   }
   
   /**
@@ -1211,27 +1381,58 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   }
   
   /**
-   * Constrói razão detalhada do estado atual
+   * Constroi razao detalhada do estado atual
+   * 
+   * IMPORTANTE: Logs de rejeicao devem ser claros e matematicos
+   * @see Briefing Tecnico - Logs de Rejeicao Claros
    */
   private buildStateReason(state: SymbolSwarmState): string {
     const parts: string[] = [];
+    const pipValue = this.getPipValue();
+    const lastPrice = this.getLastPrice();
     
+    // Info sobre Swing Points
     parts.push(`Swings H1: ${state.swingHighs.length} highs, ${state.swingLows.length} lows`);
     
+    // Estado do Sweep com detalhes matematicos
     if (state.sweepConfirmed) {
-      parts.push(`Sweep ${state.lastSweepType} confirmado`);
+      parts.push(`Sweep ${state.lastSweepType} confirmado em ${state.lastSweepPrice?.toFixed(5)}`);
     } else {
-      parts.push("Aguardando Sweep");
+      // Calcular distancia ate proximo sweep potencial
+      if (state.swingHighs.length > 0 || state.swingLows.length > 0) {
+        const nearestHigh = state.swingHighs.length > 0 
+          ? state.swingHighs[state.swingHighs.length - 1].price 
+          : null;
+        const nearestLow = state.swingLows.length > 0 
+          ? state.swingLows[state.swingLows.length - 1].price 
+          : null;
+        
+        if (nearestHigh && lastPrice > 0) {
+          const distToHigh = this.priceToPips(nearestHigh - lastPrice);
+          parts.push(`Aguardando Sweep | Dist. ao Topo: ${distToHigh.toFixed(1)} pips`);
+        } else if (nearestLow && lastPrice > 0) {
+          const distToLow = this.priceToPips(lastPrice - nearestLow);
+          parts.push(`Aguardando Sweep | Dist. ao Fundo: ${distToLow.toFixed(1)} pips`);
+        } else {
+          parts.push("Aguardando Varredura (Sweep)");
+        }
+      } else {
+        parts.push("Aguardando formacao de Swing Points");
+      }
     }
     
+    // Estado do CHoCH com detalhes matematicos
     if (state.chochDetected) {
-      parts.push(`CHoCH ${state.chochDirection} detectado`);
+      parts.push(`CHoCH ${state.chochDirection} em ${state.chochPrice?.toFixed(5)}`);
     } else if (state.sweepConfirmed) {
-      parts.push("Aguardando CHoCH");
+      parts.push(`Aguardando CHoCH (min: ${this.config.chochMinPips} pips)`);
     }
     
+    // Order Block
     if (state.activeOrderBlock) {
-      parts.push(`OB ativo: ${state.activeOrderBlock.high.toFixed(5)}-${state.activeOrderBlock.low.toFixed(5)}`);
+      const obMidpoint = (state.activeOrderBlock.high + state.activeOrderBlock.low) / 2;
+      const distToOB = this.priceToPips(Math.abs(lastPrice - obMidpoint));
+      parts.push(`OB: ${state.activeOrderBlock.high.toFixed(5)}-${state.activeOrderBlock.low.toFixed(5)} | Dist: ${distToOB.toFixed(1)} pips`);
     }
     
     return parts.join(" | ");

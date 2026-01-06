@@ -773,6 +773,14 @@ export class SMCTradingEngine extends EventEmitter {
       this.strategy.setCurrentSymbol(symbol);
     }
     
+    // Calcular spread atual em pips - AUDITORIA: Filtro de Spread
+    const pipValue = this.getPipValue(symbol);
+    const currentAsk = await this.getCurrentAsk(symbol);
+    const currentBid = this.lastTickPrice || m5Data[m5Data.length - 1]?.close;
+    const currentSpreadPips = currentAsk && currentBid 
+      ? (currentAsk - currentBid) / pipValue 
+      : undefined;
+    
     // Preparar dados MTF
     const mtfData: MultiTimeframeData = {
       h1: h1Data.map(c => ({
@@ -799,7 +807,9 @@ export class SMCTradingEngine extends EventEmitter {
         close: c.close,
         volume: c.volume || 0,
       })),
-      currentBid: this.lastTickPrice || m5Data[m5Data.length - 1]?.close,
+      currentBid: currentBid,
+      currentAsk: currentAsk,
+      currentSpreadPips: currentSpreadPips,
     };
     
     // Atualizar dados na estratégia MTF
@@ -1203,15 +1213,30 @@ export class SMCTradingEngine extends EventEmitter {
   }
   
   /**
-   * Log de conexão
+   * Log de conexao
    */
   public async logConnection(message: string, isError: boolean = false): Promise<void> {
     if (isError) {
-      console.error(`[SMCTradingEngine] 🔌 ${message}`);
+      console.error(`[SMCTradingEngine] CONNECTION: ${message}`);
       await this.logToDatabase("ERROR", "CONNECTION", message);
     } else {
-      console.log(`[SMCTradingEngine] 🔌 ${message}`);
+      console.log(`[SMCTradingEngine] CONNECTION: ${message}`);
       await this.logToDatabase("INFO", "CONNECTION", message);
+    }
+  }
+  
+  /**
+   * Obtem o preco ask atual para um simbolo
+   * AUDITORIA: Necessario para calculo de spread
+   */
+  private async getCurrentAsk(symbol: string): Promise<number | undefined> {
+    try {
+      const price = await ctraderAdapter.getPrice(symbol);
+      return price?.ask;
+    } catch (error) {
+      // Nao deixar erro de preco quebrar o fluxo principal
+      console.warn(`[SMCTradingEngine] Erro ao obter ask para ${symbol}:`, error);
+      return undefined;
     }
   }
 }

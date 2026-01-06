@@ -40,8 +40,15 @@ const TIMEFRAME_MAP: Record<string, TrendbarPeriod> = {
 
 /**
  * Pip values para diferentes pares
+ * 
+ * IMPORTANTE: Para Forex, 1 pip = 0.0001 (exceto pares JPY = 0.01)
+ * Para XAUUSD (Ouro), 1 pip = 0.10 (movimento de $0.10 no preco)
+ * Para indices, verificar com a corretora o tickSize
+ * 
+ * @see Briefing Tecnico - Correcao da Normalizacao de Preco
  */
 const PIP_VALUES: Record<string, number> = {
+  // Pares Forex Major
   "EURUSD": 0.0001,
   "GBPUSD": 0.0001,
   "USDJPY": 0.01,
@@ -49,6 +56,8 @@ const PIP_VALUES: Record<string, number> = {
   "USDCAD": 0.0001,
   "USDCHF": 0.0001,
   "NZDUSD": 0.0001,
+  
+  // Pares Forex Cross
   "EURGBP": 0.0001,
   "EURJPY": 0.01,
   "GBPJPY": 0.01,
@@ -56,6 +65,20 @@ const PIP_VALUES: Record<string, number> = {
   "EURAUD": 0.0001,
   "EURNZD": 0.0001,
   "GBPAUD": 0.0001,
+  "CADJPY": 0.01,
+  "CHFJPY": 0.01,
+  "NZDJPY": 0.01,
+  
+  // Metais Preciosos - CRITICO: XAUUSD usa 0.10 como pip
+  "XAUUSD": 0.10,
+  "XAGUSD": 0.001,
+  
+  // Indices (valores aproximados - verificar com corretora)
+  "US30": 1.0,
+  "US500": 0.1,
+  "US100": 0.1,
+  "DE40": 0.1,
+  "UK100": 0.1,
 };
 
 /**

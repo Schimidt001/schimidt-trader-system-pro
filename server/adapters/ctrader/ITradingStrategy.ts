@@ -73,7 +73,7 @@ export interface PositionSizeResult {
 }
 
 /**
- * Dados de múltiplos timeframes para análise MTF
+ * Dados de multiplos timeframes para analise MTF
  */
 export interface MultiTimeframeData {
   /** Candles do timeframe H1 */
@@ -84,10 +84,12 @@ export interface MultiTimeframeData {
   m5?: TrendbarData[];
   /** Candles do timeframe M1 */
   m1?: TrendbarData[];
-  /** Preço atual (bid) */
+  /** Preco atual (bid) */
   currentBid?: number;
-  /** Preço atual (ask) */
+  /** Preco atual (ask) */
   currentAsk?: number;
+  /** Spread atual em pips - AUDITORIA: Filtro de Spread */
+  currentSpreadPips?: number;
 }
 
 /**
