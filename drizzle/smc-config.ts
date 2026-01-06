@@ -26,6 +26,10 @@ export const smcStrategyConfig = mysqlTable("smcStrategyConfig", {
   /** Tipo de estratégia ativa: TREND_SNIPER ou SMC_SWARM */
   strategyType: varchar("strategyType", { length: 20 }).default("SMC_SWARM").notNull(),
   
+  // ============= TIMEFRAME DE ESTRUTURA (SWING POINTS) =============
+  /** Timeframe para identificação de Swing Points: H1 (Conservador), M15 (Agressivo), M5 (Scalper) */
+  structureTimeframe: varchar("structureTimeframe", { length: 5 }).default("H1").notNull(),
+  
   // ============= ATIVOS MONITORADOS (SWARM) =============
   /** Lista de símbolos ativos para monitoramento (JSON Array) */
   activeSymbols: text("activeSymbols").default('["EURUSD","GBPUSD","USDJPY","XAUUSD"]').notNull(),

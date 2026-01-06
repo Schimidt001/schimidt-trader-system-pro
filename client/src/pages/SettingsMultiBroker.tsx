@@ -139,6 +139,9 @@ export default function SettingsMultiBroker() {
   // Tipo de estratégia
   const [smcStrategyType, setSmcStrategyType] = useState("SMC_SWARM");
   
+  // Timeframe de Estrutura (Swing Points) - NOVO
+  const [smcStructureTimeframe, setSmcStructureTimeframe] = useState("H1");
+  
   // Símbolos ativos (Swarm)
   const [smcActiveSymbols, setSmcActiveSymbols] = useState<string[]>(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
   
@@ -382,6 +385,9 @@ export default function SettingsMultiBroker() {
       // Tipo de estratégia (CRÍTICO para persistência)
       setSmcStrategyType(icConfig.strategyType || "SMC_SWARM");
       
+      // Timeframe de Estrutura (Swing Points) - NOVO
+      setSmcStructureTimeframe(icConfig.structureTimeframe || "H1");
+      
       // Gestão de Risco SMC
       setSmcRiskPercentage((icConfig.riskPercentage || 0.75).toString());
       setSmcMaxOpenTrades((icConfig.maxOpenTrades || 3).toString());
@@ -584,6 +590,7 @@ export default function SettingsMultiBroker() {
         baseRisk: 10,
         // SMC Strategy Config
         strategyType: smcStrategyType,
+        structureTimeframe: smcStructureTimeframe,
         activeSymbols: JSON.stringify(smcActiveSymbols),
         swingH1Lookback: parseInt(smcSwingH1Lookback) || 50,
         fractalLeftBars: parseInt(smcFractalLeftBars) || 2,
@@ -1373,6 +1380,8 @@ export default function SettingsMultiBroker() {
               {smcStrategyType === "SMC_SWARM" && <SMCStrategySettings
                 strategyType={smcStrategyType}
                 setStrategyType={setSmcStrategyType}
+                structureTimeframe={smcStructureTimeframe}
+                setStructureTimeframe={setSmcStructureTimeframe}
                 activeSymbols={smcActiveSymbols}
                 setActiveSymbols={setSmcActiveSymbols}
                 swingH1Lookback={smcSwingH1Lookback}

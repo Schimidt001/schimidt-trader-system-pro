@@ -36,6 +36,9 @@ export interface SMCStrategyConfig extends BaseStrategyConfig {
   // Ativos monitorados
   activeSymbols: string[];
   
+  // Timeframe de Estrutura (Swing Points) - NOVO: Seleção dinâmica via UI
+  structureTimeframe: 'H1' | 'M15' | 'M5';
+  
   // Parametros de estrutura (H1)
   swingH1Lookback: number;
   fractalLeftBars: number;
@@ -156,6 +159,9 @@ export const DEFAULT_SMC_CONFIG: SMCStrategyConfig = {
   // Ativos padrao
   activeSymbols: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"],
   
+  // Timeframe de Estrutura (Swing Points) - NOVO: Default H1 (Conservador)
+  structureTimeframe: 'H1',
+  
   // Estrutura H1
   swingH1Lookback: 50,
   fractalLeftBars: 2,
@@ -232,6 +238,10 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   constructor(config: Partial<SMCStrategyConfig> = {}) {
     this.config = { ...DEFAULT_SMC_CONFIG, ...config };
     this.initializeSwarmStates();
+    
+    // Log de inicialização com configurações carregadas
+    console.log(`[SMC] Config carregada | Structure Timeframe: ${this.config.structureTimeframe}`);
+    console.log(`[SMC] Ativos monitorados: ${this.config.activeSymbols.join(', ')}`);
   }
   
   // ============= INTERFACE ITradingStrategy =============
@@ -455,6 +465,12 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       this.initializeSwarmStates();
     }
     
+    // Log de alteração de Structure Timeframe (sempre logar, pois é crítico)
+    if (config.structureTimeframe !== undefined) {
+      console.log(`[SMC] Structure Timeframe ALTERADO para: ${this.config.structureTimeframe}`);
+      console.log(`[SMC] Swing Points serão identificados no gráfico ${this.config.structureTimeframe}`);
+    }
+    
     // Log de alteracoes de sessao (sempre logar, pois e critico)
     const sessionChanged = 
       config.londonSessionStart !== undefined ||
@@ -571,6 +587,11 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   /**
    * ETAPA 1: Identificar Swing Points usando Fractais de Williams
    * 
+   * REFATORADO: Agora usa timeframe dinâmico baseado em config.structureTimeframe
+   * - H1 (Conservador): Menos sinais, maior precisão
+   * - M15 (Agressivo): Mais sinais, maior volume de operações
+   * - M5 (Scalper): Máximo de sinais, operações rápidas
+   * 
    * Um TOPO (Swing High) é válido se:
    * - A máxima do candle central é MAIOR que as máximas dos N candles à esquerda
    * - A máxima do candle central é MAIOR que as máximas dos N candles à direita
@@ -580,7 +601,24 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
    * - A mínima do candle central é MENOR que as mínimas dos N candles à direita
    */
   private identifySwingPoints(state: SymbolSwarmState): void {
-    const candles = this.h1Data;
+    // NOVO: Seleção dinâmica de timeframe baseada na configuração da UI
+    const tf = this.config.structureTimeframe || 'H1';
+    
+    let candles: TrendbarData[] = [];
+    let tfLabel: string = 'H1';
+    
+    // SELEÇÃO DINÂMICA DE DADOS
+    if (tf === 'M5') {
+      candles = this.m5Data;
+      tfLabel = 'M5';
+    } else if (tf === 'M15') {
+      candles = this.m15Data;
+      tfLabel = 'M15';
+    } else {
+      candles = this.h1Data; // Default H1
+      tfLabel = 'H1';
+    }
+    
     const leftBars = this.config.fractalLeftBars;
     const rightBars = this.config.fractalRightBars;
     const lookback = this.config.swingH1Lookback;
@@ -639,7 +677,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
           });
           
           if (this.config.verboseLogging) {
-            console.log(`[SMC-H1] ${this.currentSymbol}: Swing High detectado em ${currentCandle.high.toFixed(5)}`);
+            console.log(`[SMC-${tfLabel}] ${this.currentSymbol}: Swing High detectado em ${currentCandle.high.toFixed(5)}`);
           }
         }
       }
@@ -682,7 +720,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
           });
           
           if (this.config.verboseLogging) {
-            console.log(`[SMC-H1] ${this.currentSymbol}: Swing Low detectado em ${currentCandle.low.toFixed(5)}`);
+            console.log(`[SMC-${tfLabel}] ${this.currentSymbol}: Swing Low detectado em ${currentCandle.low.toFixed(5)}`);
           }
         }
       }
@@ -703,39 +741,44 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   }
   
   /**
-   * ETAPA 2: Detectar Sweep (Varredura de Liquidez)
+   * ETAPA 2: Detectar Sweep (Varredura de Liquidez) - REFATORADO PARA TEMPO REAL
    * 
-   * Condição de Sweep de Topo (Bearish):
+   * IMPORTANTE: Agora usa currentPrice (preço ao vivo) para detecção imediata,
+   * além de verificar também o lastCandle para confirmação tradicional.
+   * 
+   * Detecção em Tempo Real:
+   * - Se currentPrice > SwingHigh: SWEEP AO VIVO detectado (sem esperar fechamento)
+   * - Se currentPrice < SwingLow: SWEEP AO VIVO detectado (sem esperar fechamento)
+   * 
+   * Condição de Sweep Tradicional (Bearish):
    * - O preço supera a máxima do Swing High anterior
    * - MAS o candle fecha ABAIXO do nível (deixando pavio)
-   * 
-   * Regra: High[current] > SwingHigh AND Close[current] < SwingHigh
    */
   private detectSweep(state: SymbolSwarmState, currentPrice: number): boolean {
-    const lastCandle = this.h1Data[this.h1Data.length - 1];
-    if (!lastCandle) return false;
+    // Obter timeframe configurado para logs
+    const tf = this.config.structureTimeframe || 'H1';
     
+    // Obter candles do timeframe selecionado
+    let candles: TrendbarData[] = [];
+    if (tf === 'M5') {
+      candles = this.m5Data;
+    } else if (tf === 'M15') {
+      candles = this.m15Data;
+    } else {
+      candles = this.h1Data;
+    }
+    
+    const lastCandle = candles[candles.length - 1];
     const bufferPips = this.config.sweepBufferPips * this.getPipValue();
     const pipValue = this.getPipValue();
     
-    // ========== VERIFICAR SWEEP DE TOPO (BEARISH) ==========
+    // ========== VERIFICAR SWEEP DE TOPO (BEARISH) - TEMPO REAL ==========
     for (const swingHigh of state.swingHighs) {
       if (swingHigh.swept) continue;
       
-      // Log de DEBUG para analise de sweep
-      const highExceedsPips = this.priceToPips(lastCandle.high - swingHigh.price);
-      const closeDistPips = this.priceToPips(swingHigh.price - lastCandle.close);
-      
-      if (this.config.verboseLogging && lastCandle.high > swingHigh.price - bufferPips) {
-        this.logPriceDebug(
-          `Sweep HIGH Check | SwingHigh: ${swingHigh.price.toFixed(5)} | High: ${lastCandle.high.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`,
-          lastCandle.high - swingHigh.price,
-          highExceedsPips
-        );
-      }
-      
-      // Condicao: High superou o swing, mas Close ficou abaixo
-      if (lastCandle.high > swingHigh.price && lastCandle.close < swingHigh.price) {
+      // NOVO: DETECÇÃO EM TEMPO REAL usando currentPrice
+      // Verifica se o preço atual ultrapassou o swing high
+      if (currentPrice > swingHigh.price) {
         swingHigh.swept = true;
         swingHigh.sweptAt = Date.now();
         
@@ -744,33 +787,56 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         state.lastSweepTime = Date.now();
         state.sweepConfirmed = true;
         
-        console.log(`[SMC-H1] ${this.currentSymbol}: SWEEP DE TOPO CONFIRMADO!`);
-        console.log(`[SMC-H1] ${this.currentSymbol}: Nivel: ${swingHigh.price.toFixed(5)}`);
-        console.log(`[SMC-H1] ${this.currentSymbol}: Pavio acima: ${highExceedsPips.toFixed(1)} pips | Close abaixo: ${closeDistPips.toFixed(1)} pips`);
-        console.log(`[SMC-H1] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
+        const exceedPips = this.priceToPips(currentPrice - swingHigh.price);
+        
+        console.log(`[SMC-${tf}] ${this.currentSymbol}: ⚡ SWEEP AO VIVO DETECTADO (TOPO)!`);
+        console.log(`[SMC-${tf}] ${this.currentSymbol}: Nivel: ${swingHigh.price.toFixed(5)} | Preço Atual: ${currentPrice.toFixed(5)}`);
+        console.log(`[SMC-${tf}] ${this.currentSymbol}: Excedeu: ${exceedPips.toFixed(1)} pips`);
+        console.log(`[SMC-${tf}] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
         
         return true;
       }
+      
+      // Verificação tradicional (candle fechado) como fallback
+      if (lastCandle) {
+        const highExceedsPips = this.priceToPips(lastCandle.high - swingHigh.price);
+        const closeDistPips = this.priceToPips(swingHigh.price - lastCandle.close);
+        
+        if (this.config.verboseLogging && lastCandle.high > swingHigh.price - bufferPips) {
+          this.logPriceDebug(
+            `Sweep HIGH Check | SwingHigh: ${swingHigh.price.toFixed(5)} | High: ${lastCandle.high.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`,
+            lastCandle.high - swingHigh.price,
+            highExceedsPips
+          );
+        }
+        
+        // Condicao tradicional: High superou o swing, mas Close ficou abaixo
+        if (lastCandle.high > swingHigh.price && lastCandle.close < swingHigh.price) {
+          swingHigh.swept = true;
+          swingHigh.sweptAt = Date.now();
+          
+          state.lastSweepType = "HIGH";
+          state.lastSweepPrice = swingHigh.price;
+          state.lastSweepTime = Date.now();
+          state.sweepConfirmed = true;
+          
+          console.log(`[SMC-${tf}] ${this.currentSymbol}: SWEEP DE TOPO CONFIRMADO (Candle Fechado)!`);
+          console.log(`[SMC-${tf}] ${this.currentSymbol}: Nivel: ${swingHigh.price.toFixed(5)}`);
+          console.log(`[SMC-${tf}] ${this.currentSymbol}: Pavio acima: ${highExceedsPips.toFixed(1)} pips | Close abaixo: ${closeDistPips.toFixed(1)} pips`);
+          console.log(`[SMC-${tf}] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
+          
+          return true;
+        }
+      }
     }
     
-    // ========== VERIFICAR SWEEP DE FUNDO (BULLISH) ==========
+    // ========== VERIFICAR SWEEP DE FUNDO (BULLISH) - TEMPO REAL ==========
     for (const swingLow of state.swingLows) {
       if (swingLow.swept) continue;
       
-      // Log de DEBUG para analise de sweep
-      const lowExceedsPips = this.priceToPips(swingLow.price - lastCandle.low);
-      const closeDistPips = this.priceToPips(lastCandle.close - swingLow.price);
-      
-      if (this.config.verboseLogging && lastCandle.low < swingLow.price + bufferPips) {
-        this.logPriceDebug(
-          `Sweep LOW Check | SwingLow: ${swingLow.price.toFixed(5)} | Low: ${lastCandle.low.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`,
-          swingLow.price - lastCandle.low,
-          lowExceedsPips
-        );
-      }
-      
-      // Condicao: Low superou o swing (para baixo), mas Close ficou acima
-      if (lastCandle.low < swingLow.price && lastCandle.close > swingLow.price) {
+      // NOVO: DETECÇÃO EM TEMPO REAL usando currentPrice
+      // Verifica se o preço atual ultrapassou o swing low (para baixo)
+      if (currentPrice < swingLow.price) {
         swingLow.swept = true;
         swingLow.sweptAt = Date.now();
         
@@ -779,12 +845,46 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         state.lastSweepTime = Date.now();
         state.sweepConfirmed = true;
         
-        console.log(`[SMC-H1] ${this.currentSymbol}: SWEEP DE FUNDO CONFIRMADO!`);
-        console.log(`[SMC-H1] ${this.currentSymbol}: Nivel: ${swingLow.price.toFixed(5)}`);
-        console.log(`[SMC-H1] ${this.currentSymbol}: Pavio abaixo: ${lowExceedsPips.toFixed(1)} pips | Close acima: ${closeDistPips.toFixed(1)} pips`);
-        console.log(`[SMC-H1] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
+        const exceedPips = this.priceToPips(swingLow.price - currentPrice);
+        
+        console.log(`[SMC-${tf}] ${this.currentSymbol}: ⚡ SWEEP AO VIVO DETECTADO (FUNDO)!`);
+        console.log(`[SMC-${tf}] ${this.currentSymbol}: Nivel: ${swingLow.price.toFixed(5)} | Preço Atual: ${currentPrice.toFixed(5)}`);
+        console.log(`[SMC-${tf}] ${this.currentSymbol}: Excedeu: ${exceedPips.toFixed(1)} pips`);
+        console.log(`[SMC-${tf}] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
         
         return true;
+      }
+      
+      // Verificação tradicional (candle fechado) como fallback
+      if (lastCandle) {
+        const lowExceedsPips = this.priceToPips(swingLow.price - lastCandle.low);
+        const closeDistPips = this.priceToPips(lastCandle.close - swingLow.price);
+        
+        if (this.config.verboseLogging && lastCandle.low < swingLow.price + bufferPips) {
+          this.logPriceDebug(
+            `Sweep LOW Check | SwingLow: ${swingLow.price.toFixed(5)} | Low: ${lastCandle.low.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`,
+            swingLow.price - lastCandle.low,
+            lowExceedsPips
+          );
+        }
+        
+        // Condicao tradicional: Low superou o swing (para baixo), mas Close ficou acima
+        if (lastCandle.low < swingLow.price && lastCandle.close > swingLow.price) {
+          swingLow.swept = true;
+          swingLow.sweptAt = Date.now();
+          
+          state.lastSweepType = "LOW";
+          state.lastSweepPrice = swingLow.price;
+          state.lastSweepTime = Date.now();
+          state.sweepConfirmed = true;
+          
+          console.log(`[SMC-${tf}] ${this.currentSymbol}: SWEEP DE FUNDO CONFIRMADO (Candle Fechado)!`);
+          console.log(`[SMC-${tf}] ${this.currentSymbol}: Nivel: ${swingLow.price.toFixed(5)}`);
+          console.log(`[SMC-${tf}] ${this.currentSymbol}: Pavio abaixo: ${lowExceedsPips.toFixed(1)} pips | Close acima: ${closeDistPips.toFixed(1)} pips`);
+          console.log(`[SMC-${tf}] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
+          
+          return true;
+        }
       }
     }
     

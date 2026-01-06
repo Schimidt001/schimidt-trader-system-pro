@@ -47,6 +47,10 @@ interface SMCStrategySettingsProps {
   strategyType: string;
   setStrategyType: (type: string) => void;
   
+  // Timeframe de Estrutura (Swing Points) - NOVO
+  structureTimeframe: string;
+  setStructureTimeframe: (value: string) => void;
+  
   // Símbolos ativos
   activeSymbols: string[];
   setActiveSymbols: (symbols: string[]) => void;
@@ -135,6 +139,8 @@ interface SMCStrategySettingsProps {
 export function SMCStrategySettings({
   strategyType,
   setStrategyType,
+  structureTimeframe,
+  setStructureTimeframe,
   activeSymbols,
   setActiveSymbols,
   swingH1Lookback,
@@ -264,6 +270,78 @@ export function SMCStrategySettings({
       {/* Mostrar configurações SMC apenas se SMC_SWARM estiver selecionado */}
       {strategyType === "SMC_SWARM" && (
         <>
+          {/* Card de Timeframe de Estrutura (Swing Points) - NOVO */}
+          <Card className="bg-slate-900/50 border-slate-800 border-l-4 border-l-amber-500">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <Clock className="w-5 h-5 text-amber-400" />
+                <div>
+                  <CardTitle className="text-white">Timeframe de Estrutura (Swing Points)</CardTitle>
+                  <CardDescription className="text-slate-400">
+                    Define em qual gráfico o robô buscará Topos e Fundos para rompimento
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-slate-300">Timeframe para Swing Points</Label>
+                <Select value={structureTimeframe} onValueChange={setStructureTimeframe}>
+                  <SelectTrigger className="bg-slate-800 border-slate-700 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="H1">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-green-500/20 text-green-300 border-green-500/30">CONSERVADOR</Badge>
+                        H1 - Horário (Menos sinais, maior precisão)
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="M15">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30">AGRESSIVO</Badge>
+                        M15 - 15 Minutos (Mais sinais, maior volume)
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="M5">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-red-500/20 text-red-300 border-red-500/30">SCALPER</Badge>
+                        M5 - 5 Minutos (Máximo de sinais, operações rápidas)
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {structureTimeframe === "H1" && (
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3">
+                  <p className="text-sm text-green-300">
+                    <strong>H1 (Conservador):</strong> Identifica topos e fundos no gráfico de 1 hora. 
+                    Menos oportunidades, mas com maior probabilidade de sucesso.
+                  </p>
+                </div>
+              )}
+              
+              {structureTimeframe === "M15" && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                  <p className="text-sm text-amber-300">
+                    <strong>M15 (Agressivo):</strong> Identifica topos e fundos no gráfico de 15 minutos. 
+                    Mais oportunidades de entrada com bom equilíbrio risco/retorno.
+                  </p>
+                </div>
+              )}
+              
+              {structureTimeframe === "M5" && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                  <p className="text-sm text-red-300">
+                    <strong>M5 (Scalper):</strong> Identifica topos e fundos no gráfico de 5 minutos. 
+                    Máximo de sinais para scalping. Requer atenção ao spread.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Card de Seleção de Ativos (Swarm) */}
           <Card className="bg-slate-900/50 border-slate-800">
             <CardHeader>

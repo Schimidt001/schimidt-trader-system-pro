@@ -55,6 +55,7 @@ const icmarketsConfigSchema = z.object({
   baseRisk: z.number().default(10),
   // SMC Strategy Config
   strategyType: z.string().default("SMC_SWARM"),
+  structureTimeframe: z.string().default("H1"),
   activeSymbols: z.string().default('["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]'),
   swingH1Lookback: z.number().default(50),
   fractalLeftBars: z.number().default(2),
@@ -113,6 +114,9 @@ export const icmarketsRouter = router({
       ...config,
       // Garantir que strategyType venha do banco
       strategyType: config.strategyType || "SMC_SWARM",
+      
+      // Timeframe de Estrutura (Swing Points) - NOVO
+      structureTimeframe: smcConfig?.structureTimeframe || "H1",
       
       // Campos SMC (do smcStrategyConfig ou defaults)
       activeSymbols: smcConfig?.activeSymbols || JSON.stringify(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
@@ -284,6 +288,7 @@ export const icmarketsRouter = router({
       await upsertSMCStrategyConfig({
         userId: ctx.user.id,
         botId: 1,
+        structureTimeframe: input.structureTimeframe,
         activeSymbols: input.activeSymbols,
         swingH1Lookback: input.swingH1Lookback,
         fractalLeftBars: input.fractalLeftBars,
