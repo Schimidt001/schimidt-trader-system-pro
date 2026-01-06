@@ -237,6 +237,22 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   
   constructor(config: Partial<SMCStrategyConfig> = {}) {
     this.config = { ...DEFAULT_SMC_CONFIG, ...config };
+    
+    // Garantir que activeSymbols seja um array (pode vir como string JSON do banco)
+    if (typeof this.config.activeSymbols === 'string') {
+      try {
+        this.config.activeSymbols = JSON.parse(this.config.activeSymbols);
+      } catch (e) {
+        console.warn('[SMC] Erro ao parsear activeSymbols, usando default:', e);
+        this.config.activeSymbols = DEFAULT_SMC_CONFIG.activeSymbols;
+      }
+    }
+    
+    // Garantir que é um array válido
+    if (!Array.isArray(this.config.activeSymbols)) {
+      this.config.activeSymbols = DEFAULT_SMC_CONFIG.activeSymbols;
+    }
+    
     this.initializeSwarmStates();
     
     // Log de inicialização com configurações carregadas
