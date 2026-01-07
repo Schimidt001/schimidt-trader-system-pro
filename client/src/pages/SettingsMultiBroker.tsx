@@ -166,6 +166,10 @@ export default function SettingsMultiBroker() {
   const [smcEntryConfirmationType, setSmcEntryConfirmationType] = useState("ANY");
   const [smcRejectionWickPercent, setSmcRejectionWickPercent] = useState("60");
   
+  // Filtro de Spread SMC
+  const [smcSpreadFilterEnabled, setSmcSpreadFilterEnabled] = useState(true);
+  const [smcMaxSpreadPips, setSmcMaxSpreadPips] = useState("2.0");
+  
   // Gestão de risco SMC
   const [smcRiskPercentage, setSmcRiskPercentage] = useState("0.75");
   const [smcMaxOpenTrades, setSmcMaxOpenTrades] = useState("3");
@@ -426,6 +430,10 @@ export default function SettingsMultiBroker() {
       setSmcEntryConfirmationType(icConfig.entryConfirmationType || "ANY");
       setSmcRejectionWickPercent((icConfig.rejectionWickPercent || 60).toString());
       
+      // Filtro de Spread
+      setSmcSpreadFilterEnabled(icConfig.spreadFilterEnabled ?? true);
+      setSmcMaxSpreadPips((icConfig.maxSpreadPips || 2.0).toString());
+      
       // Gestão de Risco Avançada
       setSmcStopLossBufferPips((icConfig.stopLossBufferPips || 2).toString());
       setSmcRewardRiskRatio((icConfig.rewardRiskRatio || 4).toString());
@@ -603,6 +611,8 @@ export default function SettingsMultiBroker() {
         orderBlockExtensionPips: parseInt(smcOrderBlockExtensionPips) || 15,
         entryConfirmationType: smcEntryConfirmationType,
         rejectionWickPercent: parseInt(smcRejectionWickPercent) || 60,
+        spreadFilterEnabled: smcSpreadFilterEnabled,
+        maxSpreadPips: parseFloat(smcMaxSpreadPips) || 2.0,
         riskPercentage: parseFloat(smcRiskPercentage) || 0.75,
         maxOpenTrades: parseInt(smcMaxOpenTrades) || 3,
         dailyLossLimitPercent: parseFloat(smcDailyLossLimitPercent) || 3,
@@ -1406,6 +1416,10 @@ export default function SettingsMultiBroker() {
                 setEntryConfirmationType={setSmcEntryConfirmationType}
                 rejectionWickPercent={smcRejectionWickPercent}
                 setRejectionWickPercent={setSmcRejectionWickPercent}
+                spreadFilterEnabled={smcSpreadFilterEnabled}
+                setSpreadFilterEnabled={setSmcSpreadFilterEnabled}
+                maxSpreadPips={smcMaxSpreadPips}
+                setMaxSpreadPips={setSmcMaxSpreadPips}
                 riskPercentage={smcRiskPercentage}
                 setRiskPercentage={setSmcRiskPercentage}
                 maxOpenTrades={smcMaxOpenTrades}

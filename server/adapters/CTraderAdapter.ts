@@ -314,24 +314,39 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   
   /**
    * Obtém o preço atual de um símbolo
+   * 
+   * CORREÇÃO: Implementa subscrição persistente para evitar erro "Preço Indisponível"
+   * - Não cancela subscrição após obter preço (mantém conexão aberta)
+   * - Timeout aumentado para 10 segundos
+   * - Cache com validade de 5 segundos
    */
   async getPrice(symbol: string): Promise<PriceTick> {
     if (!this.isConnected()) {
       throw new Error("Não conectado à cTrader");
     }
-    
-    // Verificar cache primeiro
+
+    // 1. Garantir que símbolos foram carregados
+    if (this.symbolIdMap.size === 0) {
+      await this.loadAvailableSymbols();
+    }
+
+    // 2. Verificar cache primeiro (Validade: 5s)
     const cached = this.priceCache.get(symbol);
     if (cached && Date.now() - cached.timestamp < 5000) {
       return cached;
     }
-    
-    // Se não tiver subscrição ativa, criar uma temporária
-    if (!this.priceSubscriptions.has(symbol)) {
-      const symbolId = await this.getSymbolId(symbol);
-      await this.client.subscribeSpots([symbolId]);
+
+    // 3. Lógica de Subscrição Permanente (CORREÇÃO)
+    if (!this.symbolSubscriptions.has(symbol)) {
+      console.log(`[CTraderAdapter] Criando subscrição permanente para ${symbol}`);
       
-      // Aguardar primeiro tick
+      const symbolId = await this.getSymbolId(symbol);
+      this.symbolSubscriptions.set(symbol, symbolId);
+      
+      // Inscreve para receber Spots (Ticks)
+      await this.client.subscribeSpots([symbolId]);
+
+      // Aguarda o primeiro tick chegar (Timeout aumentado para 10s)
       await new Promise<void>((resolve) => {
         const checkCache = setInterval(() => {
           if (this.priceCache.has(symbol)) {
@@ -340,22 +355,23 @@ export class CTraderAdapter extends BaseBrokerAdapter {
           }
         }, 100);
         
-        // Timeout após 5 segundos
         setTimeout(() => {
           clearInterval(checkCache);
-          resolve();
-        }, 5000);
+          resolve(); // Resolve mesmo sem tick para tentar cache ou lançar erro depois
+        }, 10000);
       });
       
-      // Cancelar subscrição temporária
-      await this.client.unsubscribeSpots([symbolId]);
+      // IMPORTANTE: Removemos o 'unsubscribeSpots' aqui. 
+      // A conexão deve ficar aberta para o robô operar rápido.
     }
-    
+
+    // 4. Retorno Final
     const tick = this.priceCache.get(symbol);
     if (!tick) {
+      console.error(`[CTraderAdapter] Erro Crítico: Preço não disponível para ${symbol} após tentativa de subscrição.`);
       throw new Error(`Preço não disponível para ${symbol}`);
     }
-    
+
     return tick;
   }
   

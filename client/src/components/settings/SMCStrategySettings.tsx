@@ -87,6 +87,12 @@ interface SMCStrategySettingsProps {
   rejectionWickPercent: string;
   setRejectionWickPercent: (value: string) => void;
   
+  // Filtro de Spread
+  spreadFilterEnabled: boolean;
+  setSpreadFilterEnabled: (enabled: boolean) => void;
+  maxSpreadPips: string;
+  setMaxSpreadPips: (value: string) => void;
+  
   // Gestão de risco
   riskPercentage: string;
   setRiskPercentage: (value: string) => void;
@@ -165,6 +171,10 @@ export function SMCStrategySettings({
   setEntryConfirmationType,
   rejectionWickPercent,
   setRejectionWickPercent,
+  spreadFilterEnabled,
+  setSpreadFilterEnabled,
+  maxSpreadPips,
+  setMaxSpreadPips,
   riskPercentage,
   setRiskPercentage,
   maxOpenTrades,
@@ -421,6 +431,59 @@ export function SMCStrategySettings({
                   {activeSymbols.length} ativo(s) selecionado(s). Recomendado: 4-8 ativos para melhor performance.
                 </p>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Card de Filtro de Spread - NOVO */}
+          <Card className="bg-slate-900/50 border-slate-800 border-l-4 border-l-yellow-500">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-yellow-400" />
+                  <div>
+                    <CardTitle className="text-white">Filtro de Spread (Scalping)</CardTitle>
+                    <CardDescription className="text-slate-400">
+                      Protege contra entradas com spread alto
+                    </CardDescription>
+                  </div>
+                </div>
+                <Switch
+                  checked={spreadFilterEnabled}
+                  onCheckedChange={setSpreadFilterEnabled}
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {spreadFilterEnabled && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-slate-300">Max Spread (Pips)</Label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      min="0.5"
+                      max="10"
+                      value={maxSpreadPips}
+                      onChange={(e) => setMaxSpreadPips(e.target.value)}
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-500">Spread máximo permitido para entrada. Padrão: 2.0 pips</p>
+                  </div>
+                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                    <p className="text-sm text-yellow-300">
+                      <strong>Scalping M5:</strong> Recomendado manter entre 1.5 e 3.0 pips para XAUUSD/EURUSD.
+                      Trades serão bloqueados automaticamente se o spread exceder este valor.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {!spreadFilterEnabled && (
+                <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                  <p className="text-sm text-slate-400">
+                    Filtro de spread desativado. Trades podem ser executados com qualquer spread.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 

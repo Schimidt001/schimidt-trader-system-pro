@@ -68,6 +68,8 @@ const icmarketsConfigSchema = z.object({
   orderBlockExtensionPips: z.number().default(15),
   entryConfirmationType: z.string().default("ANY"),
   rejectionWickPercent: z.number().default(60),
+  spreadFilterEnabled: z.boolean().default(true),
+  maxSpreadPips: z.number().default(2.0),
   riskPercentage: z.number().default(0.75),
   maxOpenTrades: z.number().default(3),
   dailyLossLimitPercent: z.number().default(3),
@@ -145,6 +147,10 @@ export const icmarketsRouter = router({
       entryConfirmationType: smcConfig?.entryConfirmationType || "ANY",
       rejectionWickPercent: smcConfig?.rejectionWickPercent || "60",
       
+      // Filtro de Spread
+      spreadFilterEnabled: smcConfig?.spreadFilterEnabled ?? true,
+      maxSpreadPips: smcConfig?.maxSpreadPips || "2.0",
+      
       // Gestão de Risco Avançada
       stopLossBufferPips: smcConfig?.stopLossBufferPips || "2",
       rewardRiskRatio: smcConfig?.rewardRiskRatio || "4",
@@ -207,6 +213,8 @@ export const icmarketsRouter = router({
         orderBlockExtensionPips: "Order Block Extension (pips)",
         entryConfirmationType: "Tipo Confirmação Entrada",
         rejectionWickPercent: "Rejection Wick (%)",
+        spreadFilterEnabled: "Filtro de Spread",
+        maxSpreadPips: "Max Spread (pips)",
         riskPercentage: "Risco por Trade (%)",
         maxOpenTrades: "Máx. Trades Abertos",
         dailyLossLimitPercent: "Limite Perda Diária (%)",
@@ -301,6 +309,8 @@ export const icmarketsRouter = router({
         orderBlockExtensionPips: input.orderBlockExtensionPips.toString(),
         entryConfirmationType: input.entryConfirmationType,
         rejectionWickPercent: input.rejectionWickPercent.toString(),
+        spreadFilterEnabled: input.spreadFilterEnabled,
+        maxSpreadPips: input.maxSpreadPips.toString(),
         riskPercentage: input.riskPercentage.toString(),
         maxOpenTrades: input.maxOpenTrades,
         dailyLossLimitPercent: input.dailyLossLimitPercent.toString(),

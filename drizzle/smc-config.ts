@@ -66,6 +66,12 @@ export const smcStrategyConfig = mysqlTable("smcStrategyConfig", {
   /** Mínimo de pavio superior para rejeição (% do range do candle) */
   rejectionWickPercent: decimal("rejectionWickPercent", { precision: 5, scale: 2 }).default("60.00").notNull(),
   
+  // ============= FILTRO DE SPREAD =============
+  /** Habilitar filtro de spread máximo */
+  spreadFilterEnabled: boolean("spreadFilterEnabled").default(true).notNull(),
+  /** Spread máximo permitido em pips para entrada */
+  maxSpreadPips: decimal("maxSpreadPips", { precision: 5, scale: 1 }).default("2.0").notNull(),
+  
   // ============= GESTÃO DE RISCO =============
   /** Porcentagem do equity a arriscar por trade */
   riskPercentage: decimal("riskPercentage", { precision: 5, scale: 2 }).default("0.75").notNull(),
