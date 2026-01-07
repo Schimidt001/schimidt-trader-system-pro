@@ -305,7 +305,7 @@ export function SmartChart({
       const y1 = candleSeriesRef.current?.priceToCoordinate(line.startPrice);
       const y2 = candleSeriesRef.current?.priceToCoordinate(line.endPrice);
 
-      if (x1 === null || x2 === null || y1 === null || y2 === null) return;
+      if (x1 === null || x2 === null || y1 === null || y2 === null || x1 === undefined || x2 === undefined || y1 === undefined || y2 === undefined) return;
 
       ctx.beginPath();
       ctx.strokeStyle = line.color || "#f59e0b";
@@ -329,7 +329,7 @@ export function SmartChart({
       const x = timeScale.timeToCoordinate(annotation.time as Time);
       const y = candleSeriesRef.current?.priceToCoordinate(annotation.price);
 
-      if (x === null || y === null) return;
+      if (x === null || y === null || x === undefined || y === undefined) return;
 
       // Fundo da anotação
       ctx.font = "12px Arial";

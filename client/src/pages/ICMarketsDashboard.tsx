@@ -395,11 +395,11 @@ export default function ICMarketsDashboard() {
                   </div>
                   <div>
                     <p className="text-slate-400 text-sm">Símbolo</p>
-                    <p className="text-white font-mono">{botStatus.data.symbol || selectedSymbol}</p>
+                    <p className="text-white font-mono">{(botStatus.data as any).currentSymbol || (botStatus.data as any).symbol || selectedSymbol}</p>
                   </div>
                   <div>
                     <p className="text-slate-400 text-sm">Timeframe</p>
-                    <p className="text-white">{botStatus.data.timeframe || selectedTimeframe}</p>
+                    <p className="text-white">{selectedTimeframe}</p>
                   </div>
                   <div>
                     <p className="text-slate-400 text-sm">Último Tick</p>
