@@ -425,6 +425,20 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       throw new Error(`Preço não disponível para ${symbol}`);
     }
 
+    // ========== SANITY CHECK - VALIDAÇÃO DE RETORNO (CAMADA 3) ==========
+    // Garantir que nunca retornamos preços inválidos do cache.
+    // Esta é uma camada de segurança adicional caso algum tick inválido
+    // tenha passado pelas validações anteriores.
+    // 
+    // BUG FIX: 2026-01-07 - Spread Alto falso em XAUUSD
+    // =====================================================================
+    if (tick.bid <= 0 || tick.ask <= 0) {
+      console.error(`[CTraderAdapter] [getPrice] ❌ ERRO CRÍTICO: Preço inválido no cache para ${symbol} - Bid: ${tick.bid}, Ask: ${tick.ask}`);
+      // Remover o tick inválido do cache para forçar nova subscrição
+      this.priceCache.delete(symbol);
+      throw new Error(`Preço inválido no cache para ${symbol} (Bid: ${tick.bid}, Ask: ${tick.ask})`);
+    }
+
     console.log(`[CTraderAdapter] [getPrice] ✅ Retornando preço: ${symbol} Bid=${tick.bid} Ask=${tick.ask}`);
     return tick;
   }

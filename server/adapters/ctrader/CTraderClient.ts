@@ -548,14 +548,37 @@ export class CTraderClient extends EventEmitter {
           console.log(`[CTraderClient] [SPOT] DEBUG: symbolId era Long, convertido para ${symbolId}`);
         }
         
-        // [DEBUG] Log do tick recebido
+        // Converter preços do protocolo
+        const bid = this.priceFromProtocol(event.bid);
+        const ask = this.priceFromProtocol(event.ask);
+        
+        // ========== SANITY CHECK - FILTRO DE INTEGRIDADE (CAMADA 1) ==========
+        // A API cTrader ocasionalmente envia ticks parciais onde Bid ou Ask é undefined/0.
+        // Rejeitamos esses ticks na ORIGEM para evitar que valores inválidos propaguem
+        // pelo sistema e causem cálculos de spread absurdos (ex: 44530 pips).
+        // 
+        // BUG FIX: 2026-01-07 - Spread Alto falso em XAUUSD
+        // Causa: priceFromProtocol retornava 0 para valores undefined
+        // =====================================================================
+        if (bid <= 0 || ask <= 0) {
+          // console.debug(`[CTraderClient] [SPOT] Tick inválido ignorado na origem - symbolId: ${symbolId}, Bid: ${bid}, Ask: ${ask}`);
+          break; // Não emitir tick inválido
+        }
+        
+        // Validação adicional: Ask deve ser maior que Bid (spread positivo)
+        if (ask < bid) {
+          // console.debug(`[CTraderClient] [SPOT] Tick com spread negativo ignorado - symbolId: ${symbolId}, Bid: ${bid}, Ask: ${ask}`);
+          break; // Não emitir tick com spread negativo
+        }
+        
+        // [DEBUG] Log do tick válido recebido
         const symbolName = this.symbolIdToName.get(symbolId) || `ID:${symbolId}`;
-        console.log(`[CTraderClient] [SPOT] Tick recebido para ${symbolName}: Bid=${this.priceFromProtocol(event.bid)}, Ask=${this.priceFromProtocol(event.ask)}`);
+        console.log(`[CTraderClient] [SPOT] Tick válido para ${symbolName}: Bid=${bid}, Ask=${ask}`);
         
         const spotData: SpotEvent = {
           symbolId: symbolId, // Usar o ID já convertido
-          bid: this.priceFromProtocol(event.bid),
-          ask: this.priceFromProtocol(event.ask),
+          bid: bid,
+          ask: ask,
           timestamp: event.timestamp ? Number(event.timestamp) : Date.now(),
         };
         
