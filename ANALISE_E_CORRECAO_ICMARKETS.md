@@ -70,8 +70,57 @@ private isWithinTradingSession(currentTime?: number): boolean {
 }
 ```
 
-## 4. Conclusão
+## 4. Problema Adicional Identificado: Operadores de Fallback
 
-A implementação destas duas alterações irá resolver o problema de forma conclusiva. Ao remover a verificação de sessão redundante e com falha da `SMCStrategy`, o fluxo de dados será corrigido, permitindo que a lógica de trading principal seja executada sempre que o `RiskManager` confirmar que o sistema está dentro de uma sessão de negociação válida. O robô passará a analisar as condições de mercado SMC conforme esperado e a executar ordens quando os critérios forem satisfeitos.
+Durante a análise contínua, foi identificado um segundo problema potencial relacionado à persistência das configurações editadas na UI.
 
-Recomendo a aplicação imediata destas correções para restaurar a funcionalidade completa do módulo ICMarkets.
+### Descrição do Problema
+
+O código utilizava o operador `||` (OR lógico) para definir valores de fallback nas configurações de sessão:
+
+```typescript
+londonSessionStart: smcConfig.londonSessionStart || "04:00",
+```
+
+O problema é que o operador `||` em JavaScript retorna o valor da direita se o da esquerda for **falsy** (null, undefined, "", 0, false). Isto significa que se, por algum motivo, o valor viesse como string vazia ou outro valor falsy, seria substituído pelo default.
+
+### Correção Aplicada
+
+Substituímos todos os operadores `||` por `??` (nullish coalescing), que só substitui valores `null` ou `undefined`:
+
+```typescript
+londonSessionStart: smcConfig.londonSessionStart ?? "04:00",
+```
+
+### Logs de Debug Adicionados
+
+Foram adicionados logs de debug detalhados para diagnosticar exatamente o que está a ser carregado do banco de dados:
+
+- Tipo e valor de cada configuração de sessão
+- Configuração final aplicada ao RiskManager
+- Estado das configurações na inicialização do robô
+
+## 5. Resumo das Correções Aplicadas
+
+| Commit | Descrição | Ficheiros Alterados |
+|:---|:---|:---|
+| `255cda1` | Remover verificação duplicada de sessão na SMCStrategy | `SMCStrategy.ts` |
+| `594d178` | Adicionar logs de debug e corrigir operadores de fallback | `SMCTradingEngine.ts` |
+
+## 6. Próximos Passos Recomendados
+
+1. **Fazer deploy no Railway** - O código já está no GitHub
+2. **Iniciar o robô e verificar os logs** - Os novos logs de DEBUG mostrarão exatamente:
+   - Se as configurações estão a ser carregadas corretamente do banco
+   - Quais valores estão a ser aplicados ao RiskManager
+   - Se há algum problema de persistência
+3. **Se os logs mostrarem valores incorretos** - Isso indicará um problema na persistência UI -> Banco de Dados que precisará de investigação adicional
+
+## 7. Conclusão
+
+As correções aplicadas resolvem os dois problemas identificados:
+
+1. **Verificação de sessão duplicada** - Removida da SMCStrategy, centralizada no RiskManager
+2. **Operadores de fallback incorretos** - Substituídos por nullish coalescing
+
+Os logs de debug adicionados permitirão diagnosticar rapidamente se há algum problema adicional de persistência de configurações. Após o deploy, verifique os logs para confirmar que as configurações editadas na UI (como os horários 00:00-10:00 e 10:01-23:59) estão a ser carregadas corretamente.
