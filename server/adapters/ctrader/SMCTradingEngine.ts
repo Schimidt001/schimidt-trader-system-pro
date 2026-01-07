@@ -839,12 +839,29 @@ export class SMCTradingEngine extends EventEmitter {
     }
     
     // Calcular spread atual em pips - AUDITORIA: Filtro de Spread
+    // BUG FIX: 2026-01-07 - Obter bid E ask do MESMO símbolo via getPrice()
+    // Antes: currentBid usava lastTickPrice que podia ser de OUTRO símbolo!
+    // Exemplo do bug: XAUUSD usava bid de GBPUSD (1.34) + ask de XAUUSD (4456)
+    // Resultado: spread = (4456 - 1.34) / 0.10 = 44547 pips (ERRADO!)
     const pipValue = this.getPipValue(symbol);
-    const currentAsk = await this.getCurrentAsk(symbol);
-    const currentBid = this.lastTickPrice || m5Data[m5Data.length - 1]?.close;
-    const currentSpreadPips = currentAsk && currentBid 
-      ? (currentAsk - currentBid) / pipValue 
-      : undefined;
+    let currentBid: number | undefined;
+    let currentAsk: number | undefined;
+    let currentSpreadPips: number | undefined;
+    
+    try {
+      const price = await ctraderAdapter.getPrice(symbol);
+      if (price && price.bid > 0 && price.ask > 0) {
+        currentBid = price.bid;
+        currentAsk = price.ask;
+        currentSpreadPips = (currentAsk - currentBid) / pipValue;
+      }
+    } catch (error) {
+      // Fallback para dados de candles se getPrice falhar
+      console.warn(`[SMCTradingEngine] Erro ao obter preço para ${symbol}, usando fallback:`, error);
+      currentBid = m5Data[m5Data.length - 1]?.close;
+      currentAsk = undefined;
+      currentSpreadPips = undefined;
+    }
     
     // Preparar dados MTF
     const mtfData: MultiTimeframeData = {
@@ -967,18 +984,30 @@ export class SMCTradingEngine extends EventEmitter {
     
     // Calcular SL/TP usando a estratégia
     const direction = signal.signal === "BUY" ? TradeSide.BUY : TradeSide.SELL;
-    const currentPrice = this.lastTickPrice || 0;
     
-    // CORREÇÃO: Obter spread atual para passar ao cálculo de SL
-    // Isso permite que ordens SELL tenham SL ajustado pelo spread
+    // BUG FIX: 2026-01-07 - Obter preço do SÍMBOLO CORRETO via getPrice()
+    // Antes: usava lastTickPrice que podia ser de outro símbolo
+    let currentPrice = 0;
     let currentSpreadPips: number | undefined;
     try {
       const priceData = await ctraderAdapter.getPrice(symbol);
-      if (priceData && priceData.ask && priceData.bid) {
+      if (priceData && priceData.bid > 0 && priceData.ask > 0) {
+        // Usar bid para BUY (entry no ask, mas SL/TP calculado a partir do bid)
+        // Usar ask para SELL (entry no bid, mas SL/TP calculado a partir do ask)
+        currentPrice = direction === TradeSide.BUY ? priceData.ask : priceData.bid;
         currentSpreadPips = (priceData.ask - priceData.bid) / pipValue;
       }
     } catch (e) {
-      // Ignorar erro de spread - usar 0 como fallback
+      console.warn(`[SMCTradingEngine] Erro ao obter preço para ${symbol} em evaluateAndExecuteTrade:`, e);
+      // Fallback para lastTickPrice apenas se for do mesmo símbolo
+      if (this.currentSymbol === symbol && this.lastTickPrice && this.lastTickPrice > 0) {
+        currentPrice = this.lastTickPrice;
+      }
+    }
+    
+    if (currentPrice <= 0) {
+      console.error(`[SMCTradingEngine] Preço inválido para ${symbol}, abortando trade`);
+      return;
     }
     
     // Incluir spread no metadata para cálculo de SL
