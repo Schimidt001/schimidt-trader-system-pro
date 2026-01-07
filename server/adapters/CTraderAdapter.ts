@@ -859,9 +859,24 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       this.symbolIdToNameMap.clear();
       
       // Popular ambos os mapas: nome->ID e ID->nome
+      // DEBUG: Mostrar os primeiros 10 IDs para verificar o formato
+      const first10 = symbols.slice(0, 10);
+      console.log(`[CTraderAdapter] [loadSymbols] DEBUG - Primeiros 10 símbolos:`);
+      for (const s of first10) {
+        console.log(`[CTraderAdapter] [loadSymbols]   -> ${s.symbolName} = ID ${s.symbolId} (tipo: ${typeof s.symbolId})`);
+      }
+      
       for (const symbol of symbols) {
         this.symbolIdMap.set(symbol.symbolName, symbol.symbolId);
         this.symbolIdToNameMap.set(symbol.symbolId, symbol.symbolName);
+      }
+      
+      // DEBUG: Verificar se IDs 1, 2, 4, 41 estão no mapa
+      const testIds = [1, 2, 4, 41];
+      console.log(`[CTraderAdapter] [loadSymbols] DEBUG - Verificando IDs de teste:`);
+      for (const testId of testIds) {
+        const name = this.symbolIdToNameMap.get(testId);
+        console.log(`[CTraderAdapter] [loadSymbols]   -> ID ${testId} = ${name || 'NÃO ENCONTRADO'}`);
       }
       
       console.log(`[CTraderAdapter] [loadSymbols] ✅ ${this.availableSymbols.length} símbolos carregados`);

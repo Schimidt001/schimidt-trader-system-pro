@@ -539,12 +539,20 @@ export class CTraderClient extends EventEmitter {
         const SpotEvent = this.protoRoot.lookupType("ProtoOASpotEvent");
         const event = SpotEvent.decode(payload) as any;
         
+        // [DEBUG] Verificar tipo do symbolId - pode ser Long do protobuf
+        let symbolId = event.symbolId;
+        if (typeof symbolId === 'object' && symbolId !== null) {
+          // É um Long do protobuf - converter para number
+          symbolId = symbolId.toNumber ? symbolId.toNumber() : Number(symbolId);
+          console.log(`[CTraderClient] [SPOT] DEBUG: symbolId era Long, convertido para ${symbolId}`);
+        }
+        
         // [DEBUG] Log do tick recebido
-        const symbolName = this.symbolIdToName.get(event.symbolId) || `ID:${event.symbolId}`;
+        const symbolName = this.symbolIdToName.get(symbolId) || `ID:${symbolId}`;
         console.log(`[CTraderClient] [SPOT] Tick recebido para ${symbolName}: Bid=${this.priceFromProtocol(event.bid)}, Ask=${this.priceFromProtocol(event.ask)}`);
         
         const spotData: SpotEvent = {
-          symbolId: event.symbolId,
+          symbolId: symbolId, // Usar o ID já convertido
           bid: this.priceFromProtocol(event.bid),
           ask: this.priceFromProtocol(event.ask),
           timestamp: event.timestamp ? Number(event.timestamp) : Date.now(),
@@ -610,14 +618,24 @@ export class CTraderClient extends EventEmitter {
       ctidTraderAccountId: this.accountId,
     }, PayloadType.PROTO_OA_SYMBOLS_LIST_RES);
     
-    const symbols: SymbolInfo[] = (response.symbol || []).map((s: any) => ({
-      symbolId: s.symbolId,
-      symbolName: s.symbolName,
-      digits: s.digits || 5,
-      pipPosition: s.pipPosition || 4,
-      baseAssetId: s.baseAssetId,
-      quoteAssetId: s.quoteAssetId,
-    }));
+    const symbols: SymbolInfo[] = (response.symbol || []).map((s: any) => {
+      // Converter Long do protobuf para number se necessário
+      let symbolId = s.symbolId;
+      if (typeof symbolId === 'object' && symbolId !== null && symbolId.toNumber) {
+        symbolId = symbolId.toNumber();
+      } else if (typeof symbolId !== 'number') {
+        symbolId = Number(symbolId);
+      }
+      
+      return {
+        symbolId,
+        symbolName: s.symbolName,
+        digits: s.digits || 5,
+        pipPosition: s.pipPosition || 4,
+        baseAssetId: s.baseAssetId,
+        quoteAssetId: s.quoteAssetId,
+      };
+    });
     
     // Atualizar cache
     for (const symbol of symbols) {
