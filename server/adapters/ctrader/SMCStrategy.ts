@@ -300,10 +300,9 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       }
     }
     
-    // Verificar filtro de sessao
-    if (this.config.sessionFilterEnabled && !this.isWithinTradingSession()) {
-      return this.createNoSignal("Fora do horario de trading permitido");
-    }
+    // NOTA: Filtro de sessao REMOVIDO daqui - verificacao centralizada no RiskManager
+    // A verificacao de horario e feita pelo RiskManager.canOpenPosition() antes de chamar analyzeSignal()
+    // Isso evita duplicacao de logica e erros de fuso horario
     
     // Verificar circuit breaker
     if (this.config.tradingBlockedToday) {
@@ -512,10 +511,8 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       return false;
     }
     
-    // Verificar filtro de sessão
-    if (this.config.sessionFilterEnabled && !this.isWithinTradingSession(currentTime)) {
-      return false;
-    }
+    // NOTA: Filtro de sessao REMOVIDO - verificacao centralizada no RiskManager
+    // A verificacao de horario e feita pelo RiskManager.canOpenPosition()
     
     // Verificar circuit breaker
     if (this.config.tradingBlockedToday) {
