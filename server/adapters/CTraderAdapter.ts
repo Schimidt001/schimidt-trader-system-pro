@@ -155,14 +155,19 @@ export class CTraderAdapter extends BaseBrokerAdapter {
    * Processa eventos de preço
    * 
    * AUDITORIA: Adicionado log "Prova de Vida" conforme critério de aceitação
+   * CORREÇÃO: Usar o mapa do CTraderClient para resolver symbolId -> symbolName
    */
   private handleSpotEvent(spotEvent: SpotEvent): void {
-    // Encontrar nome do símbolo pelo ID
-    let symbolName: string | undefined;
-    for (const [name, id] of Array.from(this.symbolIdMap.entries())) {
-      if (id === spotEvent.symbolId) {
-        symbolName = name;
-        break;
+    // Encontrar nome do símbolo pelo ID usando o mapa do CTraderClient
+    let symbolName = this.client.getSymbolNameById(spotEvent.symbolId);
+    
+    // Fallback: tentar o mapa local (symbolIdMap) se o cliente não tiver
+    if (!symbolName) {
+      for (const [name, id] of Array.from(this.symbolIdMap.entries())) {
+        if (id === spotEvent.symbolId) {
+          symbolName = name;
+          break;
+        }
       }
     }
     

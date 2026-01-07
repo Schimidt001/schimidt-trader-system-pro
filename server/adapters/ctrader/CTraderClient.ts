@@ -625,7 +625,24 @@ export class CTraderClient extends EventEmitter {
       this.symbolIdToName.set(symbol.symbolId, symbol.symbolName);
     }
     
+    console.log(`[CTraderClient] [getSymbolsList] ${symbols.length} símbolos carregados no cache interno`);
+    
     return symbols;
+  }
+  
+  /**
+   * Obtém o mapa de ID para Nome de símbolo
+   * Usado pelo CTraderAdapter para sincronizar o mapeamento reverso
+   */
+  getSymbolIdToNameMap(): Map<number, string> {
+    return this.symbolIdToName;
+  }
+  
+  /**
+   * Obtém o nome do símbolo pelo ID
+   */
+  getSymbolNameById(symbolId: number): string | undefined {
+    return this.symbolIdToName.get(symbolId);
   }
   
   /**
