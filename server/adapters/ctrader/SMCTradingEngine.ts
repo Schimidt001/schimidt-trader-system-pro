@@ -356,6 +356,17 @@ export class SMCTradingEngine extends EventEmitter {
     
     const smcConfig = await this.getSMCConfigFromDB();
     
+    // DEBUG: Log completo das configuracoes carregadas do banco
+    console.log(`[SMCTradingEngine] [Config] DEBUG - Configuracoes brutas do banco:`);
+    console.log(`[SMCTradingEngine] [Config] DEBUG - smcConfig existe: ${!!smcConfig}`);
+    if (smcConfig) {
+      console.log(`[SMCTradingEngine] [Config] DEBUG - sessionFilterEnabled: ${smcConfig.sessionFilterEnabled} (tipo: ${typeof smcConfig.sessionFilterEnabled})`);
+      console.log(`[SMCTradingEngine] [Config] DEBUG - londonSessionStart: "${smcConfig.londonSessionStart}" (tipo: ${typeof smcConfig.londonSessionStart})`);
+      console.log(`[SMCTradingEngine] [Config] DEBUG - londonSessionEnd: "${smcConfig.londonSessionEnd}" (tipo: ${typeof smcConfig.londonSessionEnd})`);
+      console.log(`[SMCTradingEngine] [Config] DEBUG - nySessionStart: "${smcConfig.nySessionStart}" (tipo: ${typeof smcConfig.nySessionStart})`);
+      console.log(`[SMCTradingEngine] [Config] DEBUG - nySessionEnd: "${smcConfig.nySessionEnd}" (tipo: ${typeof smcConfig.nySessionEnd})`);
+    }
+    
     // Atualizar estrategia
     if (this.strategy && smcConfig) {
       this.strategy.updateConfig(smcConfig);
@@ -365,18 +376,21 @@ export class SMCTradingEngine extends EventEmitter {
     }
     
     // Atualizar RiskManager com configuracoes de sessao
+    // NOTA: Usar nullish coalescing (??) em vez de || para preservar strings vazias
     if (this.riskManager && smcConfig) {
-      this.riskManager.updateConfig({
+      const riskConfig = {
         sessionFilterEnabled: smcConfig.sessionFilterEnabled ?? true,
-        londonSessionStart: smcConfig.londonSessionStart || "04:00",
-        londonSessionEnd: smcConfig.londonSessionEnd || "07:00",
-        nySessionStart: smcConfig.nySessionStart || "09:30",
-        nySessionEnd: smcConfig.nySessionEnd || "12:30",
+        londonSessionStart: smcConfig.londonSessionStart ?? "04:00",
+        londonSessionEnd: smcConfig.londonSessionEnd ?? "07:00",
+        nySessionStart: smcConfig.nySessionStart ?? "09:30",
+        nySessionEnd: smcConfig.nySessionEnd ?? "12:30",
         riskPercentage: smcConfig.riskPercentage ? Number(smcConfig.riskPercentage) : undefined,
         maxOpenTrades: smcConfig.maxOpenTrades,
         dailyLossLimitPercent: smcConfig.dailyLossLimitPercent ? Number(smcConfig.dailyLossLimitPercent) : undefined,
         circuitBreakerEnabled: smcConfig.circuitBreakerEnabled,
-      });
+      };
+      console.log(`[SMCTradingEngine] [Config] DEBUG - RiskManager config a aplicar:`, JSON.stringify(riskConfig));
+      this.riskManager.updateConfig(riskConfig);
       console.log(`[SMCTradingEngine] [Config] RiskManager atualizado`);
     }
     
@@ -483,19 +497,33 @@ export class SMCTradingEngine extends EventEmitter {
   private async initializeRiskManager(): Promise<void> {
     const smcConfig = await this.getSMCConfigFromDB();
     
+    // DEBUG: Log das configuracoes carregadas do banco na inicializacao
+    console.log(`[SMCTradingEngine] [Init] DEBUG - Configuracoes SMC do banco:`);
+    if (smcConfig) {
+      console.log(`[SMCTradingEngine] [Init] DEBUG - londonSessionStart: "${smcConfig.londonSessionStart}"`);
+      console.log(`[SMCTradingEngine] [Init] DEBUG - londonSessionEnd: "${smcConfig.londonSessionEnd}"`);
+      console.log(`[SMCTradingEngine] [Init] DEBUG - nySessionStart: "${smcConfig.nySessionStart}"`);
+      console.log(`[SMCTradingEngine] [Init] DEBUG - nySessionEnd: "${smcConfig.nySessionEnd}"`);
+    } else {
+      console.log(`[SMCTradingEngine] [Init] DEBUG - smcConfig e NULL! Usando defaults.`);
+    }
+    
+    // CORRECAO: Usar ?? em vez de || para preservar strings vazias e valores falsy validos
     const riskConfig: RiskManagerConfig = {
       userId: this.config.userId,
       botId: this.config.botId,
       riskPercentage: smcConfig?.riskPercentage ? Number(smcConfig.riskPercentage) : DEFAULT_RISK_CONFIG.riskPercentage,
-      maxOpenTrades: smcConfig?.maxOpenTrades || DEFAULT_RISK_CONFIG.maxOpenTrades,
+      maxOpenTrades: smcConfig?.maxOpenTrades ?? DEFAULT_RISK_CONFIG.maxOpenTrades,
       dailyLossLimitPercent: smcConfig?.dailyLossLimitPercent ? Number(smcConfig.dailyLossLimitPercent) : DEFAULT_RISK_CONFIG.dailyLossLimitPercent,
       sessionFilterEnabled: smcConfig?.sessionFilterEnabled ?? DEFAULT_RISK_CONFIG.sessionFilterEnabled,
-      londonSessionStart: smcConfig?.londonSessionStart || DEFAULT_RISK_CONFIG.londonSessionStart,
-      londonSessionEnd: smcConfig?.londonSessionEnd || DEFAULT_RISK_CONFIG.londonSessionEnd,
-      nySessionStart: smcConfig?.nySessionStart || DEFAULT_RISK_CONFIG.nySessionStart,
-      nySessionEnd: smcConfig?.nySessionEnd || DEFAULT_RISK_CONFIG.nySessionEnd,
+      londonSessionStart: smcConfig?.londonSessionStart ?? DEFAULT_RISK_CONFIG.londonSessionStart,
+      londonSessionEnd: smcConfig?.londonSessionEnd ?? DEFAULT_RISK_CONFIG.londonSessionEnd,
+      nySessionStart: smcConfig?.nySessionStart ?? DEFAULT_RISK_CONFIG.nySessionStart,
+      nySessionEnd: smcConfig?.nySessionEnd ?? DEFAULT_RISK_CONFIG.nySessionEnd,
       circuitBreakerEnabled: smcConfig?.circuitBreakerEnabled ?? DEFAULT_RISK_CONFIG.circuitBreakerEnabled,
     };
+    
+    console.log(`[SMCTradingEngine] [Init] DEBUG - RiskConfig final:`, JSON.stringify(riskConfig));
     
     this.riskManager = createRiskManager(riskConfig);
     
