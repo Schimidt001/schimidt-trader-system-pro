@@ -153,6 +153,8 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   
   /**
    * Processa eventos de preço
+   * 
+   * AUDITORIA: Adicionado log "Prova de Vida" conforme critério de aceitação
    */
   private handleSpotEvent(spotEvent: SpotEvent): void {
     // Encontrar nome do símbolo pelo ID
@@ -164,7 +166,10 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       }
     }
     
-    if (!symbolName) return;
+    if (!symbolName) {
+      console.warn(`[CTraderAdapter] Tick recebido para symbolId desconhecido: ${spotEvent.symbolId}`);
+      return;
+    }
     
     const tick: PriceTick = {
       symbol: symbolName,
@@ -173,6 +178,9 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       timestamp: spotEvent.timestamp || Date.now(),
       spread: (spotEvent.ask - spotEvent.bid) / (PIP_VALUES[symbolName] || 0.0001),
     };
+    
+    // [PROVA DE VIDA] Log conforme critério de aceitação
+    console.log(`[CTraderAdapter] Tick recebido para ${symbolName}: Bid: ${tick.bid.toFixed(5)}, Ask: ${tick.ask.toFixed(5)}`);
     
     // Atualizar cache
     this.priceCache.set(symbolName, tick);
@@ -315,41 +323,59 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   /**
    * Obtém o preço atual de um símbolo
    * 
-   * CORREÇÃO: Implementa subscrição persistente para evitar erro "Preço Indisponível"
-   * - Não cancela subscrição após obter preço (mantém conexão aberta)
-   * - Timeout aumentado para 10 segundos
-   * - Cache com validade de 5 segundos
+   * CORREÇÃO v2: Implementa subscrição persistente com logs detalhados
+   * - PayloadTypes corrigidos para valores oficiais da API
+   * - Logs de debug para rastreamento completo
+   * - Timeout aumentado para 15 segundos
+   * - Cache com validade de 10 segundos
    */
   async getPrice(symbol: string): Promise<PriceTick> {
+    console.log(`[CTraderAdapter] [getPrice] Solicitando preço para ${symbol}...`);
+    
     if (!this.isConnected()) {
+      console.error(`[CTraderAdapter] [getPrice] Não conectado à cTrader`);
       throw new Error("Não conectado à cTrader");
     }
 
     // 1. Garantir que símbolos foram carregados
     if (this.symbolIdMap.size === 0) {
+      console.log(`[CTraderAdapter] [getPrice] Carregando símbolos disponíveis...`);
       await this.loadAvailableSymbols();
     }
 
-    // 2. Verificar cache primeiro (Validade: 5s)
+    // 2. Verificar cache primeiro (Validade: 10s)
     const cached = this.priceCache.get(symbol);
-    if (cached && Date.now() - cached.timestamp < 5000) {
+    if (cached && Date.now() - cached.timestamp < 10000) {
+      console.log(`[CTraderAdapter] [getPrice] Retornando preço do cache para ${symbol}`);
       return cached;
     }
 
-    // 3. Lógica de Subscrição Permanente (CORREÇÃO)
+    // 3. Lógica de Subscrição Permanente
     if (!this.symbolSubscriptions.has(symbol)) {
-      console.log(`[CTraderAdapter] Criando subscrição permanente para ${symbol}`);
+      console.log(`[CTraderAdapter] [getPrice] Criando subscrição permanente para ${symbol}`);
       
       const symbolId = await this.getSymbolId(symbol);
+      console.log(`[CTraderAdapter] [getPrice] Symbol ID mapeado: ${symbol} -> ${symbolId}`);
+      
+      if (!symbolId || symbolId === undefined) {
+        console.error(`[CTraderAdapter] [getPrice] ERRO: Symbol ID é undefined para ${symbol}`);
+        throw new Error(`Symbol ID não encontrado para ${symbol}`);
+      }
+      
       this.symbolSubscriptions.set(symbol, symbolId);
       
       // Inscreve para receber Spots (Ticks)
+      console.log(`[CTraderAdapter] [getPrice] Enviando subscrição de spots para symbolId: ${symbolId}`);
       await this.client.subscribeSpots([symbolId]);
+      console.log(`[CTraderAdapter] [getPrice] Subscrição enviada, aguardando primeiro tick...`);
 
-      // Aguarda o primeiro tick chegar (Timeout aumentado para 10s)
+      // Aguarda o primeiro tick chegar (Timeout: 15s)
+      const startWait = Date.now();
       await new Promise<void>((resolve) => {
         const checkCache = setInterval(() => {
           if (this.priceCache.has(symbol)) {
+            const elapsed = Date.now() - startWait;
+            console.log(`[CTraderAdapter] [getPrice] ✅ Tick recebido após ${elapsed}ms`);
             clearInterval(checkCache);
             resolve();
           }
@@ -357,21 +383,25 @@ export class CTraderAdapter extends BaseBrokerAdapter {
         
         setTimeout(() => {
           clearInterval(checkCache);
-          resolve(); // Resolve mesmo sem tick para tentar cache ou lançar erro depois
-        }, 10000);
+          const elapsed = Date.now() - startWait;
+          console.warn(`[CTraderAdapter] [getPrice] ⚠️ Timeout de ${elapsed}ms atingido sem receber tick`);
+          resolve();
+        }, 15000);
       });
-      
-      // IMPORTANTE: Removemos o 'unsubscribeSpots' aqui. 
-      // A conexão deve ficar aberta para o robô operar rápido.
+    } else {
+      console.log(`[CTraderAdapter] [getPrice] Subscrição já existe para ${symbol}`);
     }
 
     // 4. Retorno Final
     const tick = this.priceCache.get(symbol);
     if (!tick) {
-      console.error(`[CTraderAdapter] Erro Crítico: Preço não disponível para ${symbol} após tentativa de subscrição.`);
+      console.error(`[CTraderAdapter] [getPrice] ❌ ERRO CRÍTICO: Preço não disponível para ${symbol}`);
+      console.error(`[CTraderAdapter] [getPrice] Estado do cache: ${this.priceCache.size} símbolos`);
+      console.error(`[CTraderAdapter] [getPrice] Subscrições ativas: ${Array.from(this.symbolSubscriptions.keys()).join(", ")}`);
       throw new Error(`Preço não disponível para ${symbol}`);
     }
 
+    console.log(`[CTraderAdapter] [getPrice] ✅ Retornando preço: ${symbol} Bid=${tick.bid} Ask=${tick.ask}`);
     return tick;
   }
   
@@ -446,8 +476,11 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   
   /**
    * Executa uma ordem de compra/venda
+   * 
+   * TAREFA B: Adicionado filtro de spread para proteção em Scalping
+   * Se (Ask - Bid) > maxSpread -> ABORTAR TRADE
    */
-  async placeOrder(order: OrderRequest): Promise<OrderResult> {
+  async placeOrder(order: OrderRequest, maxSpread?: number): Promise<OrderResult> {
     if (!this.isConnected()) {
       return {
         success: false,
@@ -470,6 +503,31 @@ export class CTraderAdapter extends BaseBrokerAdapter {
         success: false,
         errorMessage: "Lote deve estar entre 0.01 e 100",
       };
+    }
+    
+    // ============= FILTRO DE SPREAD (TAREFA B) =============
+    // Verificar spread atual antes de executar a ordem
+    if (maxSpread !== undefined && maxSpread > 0) {
+      try {
+        const currentPrice = await this.getPrice(order.symbol);
+        const pipValue = PIP_VALUES[order.symbol] || 0.0001;
+        const currentSpreadPips = (currentPrice.ask - currentPrice.bid) / pipValue;
+        
+        console.log(`[CTraderAdapter] [SPREAD_CHECK] ${order.symbol}: Spread atual = ${currentSpreadPips.toFixed(2)} pips, Máximo = ${maxSpread} pips`);
+        
+        if (currentSpreadPips > maxSpread) {
+          console.warn(`[CTraderAdapter] [SPREAD_CHECK] ❌ TRADE ABORTADO: Spread (${currentSpreadPips.toFixed(2)}) > MaxSpread (${maxSpread})`);
+          return {
+            success: false,
+            errorMessage: `Spread muito alto: ${currentSpreadPips.toFixed(2)} pips > ${maxSpread} pips (máximo permitido)`,
+          };
+        }
+        
+        console.log(`[CTraderAdapter] [SPREAD_CHECK] ✅ Spread OK, prosseguindo com a ordem`);
+      } catch (spreadError) {
+        console.warn(`[CTraderAdapter] [SPREAD_CHECK] ⚠️ Não foi possível verificar spread:`, spreadError);
+        // Continuar mesmo sem verificar spread (fail-open)
+      }
     }
     
     try {
@@ -736,23 +794,39 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   // ============= MÉTODOS AUXILIARES =============
   
   /**
-   * Carrega lista de símbolos disponíveis
+   * Carrega lista de símbolos disponíveis da API
+   * 
+   * AUDITORIA: Adicionados logs detalhados para debug de mapeamento
    */
   private async loadAvailableSymbols(): Promise<void> {
+    console.log(`[CTraderAdapter] [loadSymbols] Carregando símbolos da API...`);
+    
     try {
       const symbols = await this.client.getSymbolsList();
       
       this.availableSymbols = symbols.map(s => s.symbolName);
       
+      // Limpar mapa anterior
+      this.symbolIdMap.clear();
+      
       for (const symbol of symbols) {
         this.symbolIdMap.set(symbol.symbolName, symbol.symbolId);
       }
       
-      console.log(`[CTraderAdapter] ${this.availableSymbols.length} símbolos carregados`);
-    } catch (error) {
-      console.error("[CTraderAdapter] Error loading symbols:", error);
+      console.log(`[CTraderAdapter] [loadSymbols] ✅ ${this.availableSymbols.length} símbolos carregados`);
       
-      // Fallback para lista estática
+      // Log dos principais símbolos para debug
+      const mainSymbols = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "AUDUSD"];
+      for (const sym of mainSymbols) {
+        const id = this.symbolIdMap.get(sym);
+        console.log(`[CTraderAdapter] [loadSymbols] Mapeamento: ${sym} -> ${id || "NÃO ENCONTRADO"}`);
+      }
+      
+    } catch (error) {
+      console.error("[CTraderAdapter] [loadSymbols] ❌ Erro ao carregar símbolos:", error);
+      
+      // Fallback para lista estática (NÃO RECOMENDADO - apenas para debug)
+      console.warn("[CTraderAdapter] [loadSymbols] ⚠️ Usando lista estática de fallback");
       this.availableSymbols = [
         "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
         "EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "EURAUD", "EURNZD", "GBPAUD",

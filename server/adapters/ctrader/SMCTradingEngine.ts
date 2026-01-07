@@ -48,6 +48,8 @@ export interface SMCTradingEngineConfig {
   lots: number;
   maxPositions: number;
   cooldownMs: number;
+  /** Spread máximo permitido em pips (TAREFA B - Proteção de Spread) */
+  maxSpread: number;
 }
 
 /**
@@ -100,6 +102,7 @@ const DEFAULT_ENGINE_CONFIG: Omit<SMCTradingEngineConfig, "userId" | "botId"> = 
   lots: 0.01,
   maxPositions: 3,
   cooldownMs: 60000,
+  maxSpread: 2.0, // TAREFA B: Spread máximo padrão de 2 pips
 };
 
 // ============= CLASSE PRINCIPAL =============
@@ -423,6 +426,12 @@ export class SMCTradingEngine extends EventEmitter {
         // Atualizar tipo de estratégia
         if (icConfig[0].strategyType) {
           this.config.strategyType = strategyFactory.parseStrategyType(icConfig[0].strategyType);
+        }
+        
+        // TAREFA B: Carregar maxSpread do banco de dados
+        if (icConfig[0].maxSpread !== undefined && icConfig[0].maxSpread !== null) {
+          this.config.maxSpread = parseFloat(String(icConfig[0].maxSpread));
+          console.log(`[SMCTradingEngine] [Config] maxSpread carregado: ${this.config.maxSpread} pips`);
         }
       }
       
@@ -974,6 +983,7 @@ export class SMCTradingEngine extends EventEmitter {
     console.log("═══════════════════════════════════════════════════════════════");
     
     try {
+      // TAREFA B: Passar maxSpread para filtro de spread
       const result = await ctraderAdapter.placeOrder({
         symbol,
         direction: signal.signal as "BUY" | "SELL",
@@ -982,7 +992,7 @@ export class SMCTradingEngine extends EventEmitter {
         stopLossPips: sltp.stopLossPips,
         takeProfitPips: sltp.takeProfitPips,
         comment: `SMC ${signal.signal} | ${signal.reason.substring(0, 50)}`,
-      });
+      }, this.config.maxSpread);
       
       if (result.success) {
         this.lastTradeTime.set(symbol, now);

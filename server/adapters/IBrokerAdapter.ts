@@ -321,8 +321,9 @@ export interface IBrokerAdapter {
   /**
    * Executa uma ordem de compra/venda
    * @param order Parâmetros da ordem
+   * @param maxSpread Spread máximo permitido em pips (opcional - TAREFA B)
    */
-  placeOrder(order: OrderRequest): Promise<OrderResult>;
+  placeOrder(order: OrderRequest, maxSpread?: number): Promise<OrderResult>;
   
   /**
    * Modifica uma posição aberta (SL/TP)
@@ -397,7 +398,7 @@ export abstract class BaseBrokerAdapter implements IBrokerAdapter {
   abstract subscribePrice(symbol: string, callback: (tick: PriceTick) => void): Promise<void>;
   abstract unsubscribePrice(symbol: string): Promise<void>;
   abstract getCandleHistory(symbol: string, timeframe: string, count: number): Promise<CandleData[]>;
-  abstract placeOrder(order: OrderRequest): Promise<OrderResult>;
+  abstract placeOrder(order: OrderRequest, maxSpread?: number): Promise<OrderResult>;
   abstract modifyPosition(params: ModifyPositionParams): Promise<boolean>;
   abstract closePosition(positionId: string): Promise<OrderResult>;
   abstract getOpenPositions(): Promise<OpenPosition[]>;

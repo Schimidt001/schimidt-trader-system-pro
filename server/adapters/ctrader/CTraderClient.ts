@@ -45,49 +45,54 @@ const CTRADER_ENDPOINTS = {
 
 // Payload Types (principais)
 export enum PayloadType {
-  // Common
+  // Common - Autenticação e Sistema
   PROTO_OA_APPLICATION_AUTH_REQ = 2100,
   PROTO_OA_APPLICATION_AUTH_RES = 2101,
   PROTO_OA_ACCOUNT_AUTH_REQ = 2102,
   PROTO_OA_ACCOUNT_AUTH_RES = 2103,
   PROTO_OA_ERROR_RES = 2142,
   PROTO_OA_CLIENT_DISCONNECT_EVENT = 2148,
-  PROTO_OA_HEARTBEAT_EVENT = 2111,
+  PROTO_OA_HEARTBEAT_EVENT = 51,  // ProtoHeartbeatEvent (comum)
   
-  // Account
+  // Account - Gestão de Conta
   PROTO_OA_TRADER_REQ = 2121,
   PROTO_OA_TRADER_RES = 2122,
+  PROTO_OA_TRADER_UPDATE_EVENT = 2123,
   PROTO_OA_GET_ACCOUNTS_BY_ACCESS_TOKEN_REQ = 2149,
   PROTO_OA_GET_ACCOUNTS_BY_ACCESS_TOKEN_RES = 2150,
   
-  // Symbols
+  // Symbols - Lista de Símbolos
   PROTO_OA_SYMBOLS_LIST_REQ = 2114,
   PROTO_OA_SYMBOLS_LIST_RES = 2115,
   PROTO_OA_SYMBOL_BY_ID_REQ = 2116,
   PROTO_OA_SYMBOL_BY_ID_RES = 2117,
   
-  // Prices
-  PROTO_OA_SUBSCRIBE_SPOTS_REQ = 2124,
-  PROTO_OA_SUBSCRIBE_SPOTS_RES = 2125,
-  PROTO_OA_UNSUBSCRIBE_SPOTS_REQ = 2126,
-  PROTO_OA_UNSUBSCRIBE_SPOTS_RES = 2127,
-  PROTO_OA_SPOT_EVENT = 2128,
+  // Prices - Subscrição de Preços (CORRIGIDO!)
+  PROTO_OA_SUBSCRIBE_SPOTS_REQ = 2127,    // Era 2124 - CORRIGIDO
+  PROTO_OA_SUBSCRIBE_SPOTS_RES = 2128,    // Era 2125 - CORRIGIDO
+  PROTO_OA_UNSUBSCRIBE_SPOTS_REQ = 2129,  // Era 2126 - CORRIGIDO
+  PROTO_OA_UNSUBSCRIBE_SPOTS_RES = 2130,  // Era 2127 - CORRIGIDO
+  PROTO_OA_SPOT_EVENT = 2131,             // Era 2128 - CORRIGIDO
   
-  // Trendbars
+  // Trendbars - Candles (CORRIGIDO!)
+  PROTO_OA_SUBSCRIBE_LIVE_TRENDBAR_REQ = 2135,  // Era 2139 - CORRIGIDO
+  PROTO_OA_UNSUBSCRIBE_LIVE_TRENDBAR_REQ = 2136,
   PROTO_OA_GET_TRENDBARS_REQ = 2137,
   PROTO_OA_GET_TRENDBARS_RES = 2138,
-  PROTO_OA_SUBSCRIBE_LIVE_TRENDBAR_REQ = 2139,
-  PROTO_OA_SUBSCRIBE_LIVE_TRENDBAR_RES = 2140,
+  PROTO_OA_SUBSCRIBE_LIVE_TRENDBAR_RES = 2165,  // Era 2140 - CORRIGIDO
+  PROTO_OA_UNSUBSCRIBE_LIVE_TRENDBAR_RES = 2166,
   
-  // Orders
+  // Orders - Ordens
   PROTO_OA_NEW_ORDER_REQ = 2106,
-  PROTO_OA_EXECUTION_EVENT = 2126,
+  PROTO_OA_TRAILING_SL_CHANGED_EVENT = 2107,
   PROTO_OA_CANCEL_ORDER_REQ = 2108,
   PROTO_OA_AMEND_ORDER_REQ = 2109,
   PROTO_OA_AMEND_POSITION_SLTP_REQ = 2110,
   PROTO_OA_CLOSE_POSITION_REQ = 2111,
+  PROTO_OA_EXECUTION_EVENT = 2126,
+  PROTO_OA_ORDER_ERROR_EVENT = 2132,
   
-  // Positions
+  // Positions - Reconciliação
   PROTO_OA_RECONCILE_REQ = 2124,
   PROTO_OA_RECONCILE_RES = 2125,
 }
@@ -518,14 +523,25 @@ export class CTraderClient extends EventEmitter {
   
   /**
    * Processa eventos do servidor
+   * 
+   * AUDITORIA: Adicionados logs de debug para rastrear eventos recebidos
    */
   private processEvent(payloadType: number, payload: Uint8Array): void {
     if (!this.protoRoot) return;
+    
+    // [DEBUG] Log de todos os eventos recebidos (exceto heartbeat para não poluir)
+    if (payloadType !== PayloadType.PROTO_OA_HEARTBEAT_EVENT && payloadType !== 51) {
+      console.log(`[CTraderClient] [EVENT] Recebido payloadType: ${payloadType}`);
+    }
     
     switch (payloadType) {
       case PayloadType.PROTO_OA_SPOT_EVENT: {
         const SpotEvent = this.protoRoot.lookupType("ProtoOASpotEvent");
         const event = SpotEvent.decode(payload) as any;
+        
+        // [DEBUG] Log do tick recebido
+        const symbolName = this.symbolIdToName.get(event.symbolId) || `ID:${event.symbolId}`;
+        console.log(`[CTraderClient] [SPOT] Tick recebido para ${symbolName}: Bid=${this.priceFromProtocol(event.bid)}, Ask=${this.priceFromProtocol(event.ask)}`);
         
         const spotData: SpotEvent = {
           symbolId: event.symbolId,
@@ -539,13 +555,15 @@ export class CTraderClient extends EventEmitter {
       }
       
       case PayloadType.PROTO_OA_EXECUTION_EVENT: {
+        console.log(`[CTraderClient] [EXECUTION] Evento de execução recebido`);
         const ExecutionEvent = this.protoRoot.lookupType("ProtoOAExecutionEvent");
         const event = ExecutionEvent.decode(payload);
         this.emit("execution", event);
         break;
       }
       
-      case PayloadType.PROTO_OA_HEARTBEAT_EVENT: {
+      case PayloadType.PROTO_OA_HEARTBEAT_EVENT:
+      case 51: { // ProtoHeartbeatEvent comum
         this.lastHeartbeat = Date.now();
         break;
       }
@@ -553,13 +571,31 @@ export class CTraderClient extends EventEmitter {
       case PayloadType.PROTO_OA_CLIENT_DISCONNECT_EVENT: {
         const DisconnectEvent = this.protoRoot.lookupType("ProtoOAClientDisconnectEvent");
         const event = DisconnectEvent.decode(payload) as any;
-        console.log(`[CTraderClient] Disconnected: ${event.reason}`);
+        console.log(`[CTraderClient] [DISCONNECT] Desconectado: ${event.reason}`);
         this.emit("clientDisconnect", event);
         break;
       }
       
+      case PayloadType.PROTO_OA_ORDER_ERROR_EVENT: {
+        console.log(`[CTraderClient] [ORDER_ERROR] Erro de ordem recebido`);
+        const OrderErrorEvent = this.protoRoot.lookupType("ProtoOAOrderErrorEvent");
+        const event = OrderErrorEvent.decode(payload) as any;
+        console.error(`[CTraderClient] [ORDER_ERROR] Código: ${event.errorCode}, Descrição: ${event.description}`);
+        this.emit("orderError", event);
+        break;
+      }
+      
+      case PayloadType.PROTO_OA_TRADER_UPDATE_EVENT: {
+        console.log(`[CTraderClient] [TRADER_UPDATE] Atualização de conta recebida`);
+        const TraderUpdateEvent = this.protoRoot.lookupType("ProtoOATraderUpdatedEvent");
+        const event = TraderUpdateEvent.decode(payload);
+        this.emit("traderUpdate", event);
+        break;
+      }
+      
       default:
-        // Emitir evento genérico
+        // [DEBUG] Log de eventos não tratados
+        console.log(`[CTraderClient] [UNKNOWN] Evento não tratado: payloadType=${payloadType}`);
         this.emit("message", { payloadType, payload });
     }
   }
@@ -611,17 +647,32 @@ export class CTraderClient extends EventEmitter {
   
   /**
    * Subscreve a preços em tempo real
+   * 
+   * AUDITORIA: Adicionados logs detalhados para debug de subscrição
    */
   async subscribeSpots(symbolIds: number[]): Promise<void> {
     if (!this.accountId) throw new Error("Not authenticated");
     
-    await this.sendRequest("ProtoOASubscribeSpotsReq", {
-      ctidTraderAccountId: this.accountId,
-      symbolId: symbolIds,
-      subscribeToSpotTimestamp: true,
-    }, PayloadType.PROTO_OA_SUBSCRIBE_SPOTS_RES);
+    // [DEBUG] Log detalhado da subscrição
+    const symbolNames = symbolIds.map(id => this.symbolIdToName.get(id) || `ID:${id}`);
+    console.log(`[CTraderClient] [SUBSCRIBE] Iniciando subscrição de spots...`);
+    console.log(`[CTraderClient] [SUBSCRIBE] Account ID: ${this.accountId}`);
+    console.log(`[CTraderClient] [SUBSCRIBE] Symbol IDs: ${symbolIds.join(", ")}`);
+    console.log(`[CTraderClient] [SUBSCRIBE] Symbol Names: ${symbolNames.join(", ")}`);
+    console.log(`[CTraderClient] [SUBSCRIBE] PayloadType usado: ${PayloadType.PROTO_OA_SUBSCRIBE_SPOTS_REQ} (esperado: 2127)`);
     
-    console.log(`[CTraderClient] Subscribed to spots for symbols: ${symbolIds.join(", ")}`);
+    try {
+      await this.sendRequest("ProtoOASubscribeSpotsReq", {
+        ctidTraderAccountId: this.accountId,
+        symbolId: symbolIds,
+        subscribeToSpotTimestamp: true,
+      }, PayloadType.PROTO_OA_SUBSCRIBE_SPOTS_RES);
+      
+      console.log(`[CTraderClient] [SUBSCRIBE] ✅ Subscrição confirmada para: ${symbolNames.join(", ")}`);
+    } catch (error) {
+      console.error(`[CTraderClient] [SUBSCRIBE] ❌ Erro na subscrição:`, error);
+      throw error;
+    }
   }
   
   /**

@@ -59,6 +59,14 @@ export const icmarketsConfig = mysqlTable("icmarketsConfig", {
   /** Take diário máximo em USD */
   takeDailyUsd: decimal("takeDailyUsd", { precision: 10, scale: 2 }).default("500.00").notNull(),
   
+  // ============= FILTRO DE SPREAD (TAREFA B) =============
+  /** 
+   * Spread máximo permitido em pips para execução de ordens
+   * Se (Ask - Bid) > maxSpread -> ABORTAR TRADE
+   * Essencial para estratégias de Scalping (M5)
+   */
+  maxSpread: decimal("maxSpread", { precision: 5, scale: 2 }).default("2.00").notNull(),
+  
   // ============= TRAILING STOP =============
   /** Habilitar Trailing Stop */
   trailingEnabled: boolean("trailingEnabled").default(true).notNull(),
