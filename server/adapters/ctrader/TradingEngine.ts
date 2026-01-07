@@ -264,9 +264,11 @@ export class TradingEngine extends EventEmitter {
     
     const now = Date.now();
     const spread = (tick.ask - tick.bid);
-    const spreadPips = this.config.symbol.includes('JPY') 
-      ? spread * 100  // Para pares JPY (2 decimais)
-      : spread * 10000; // Para outros pares (4-5 decimais)
+    // CORREÇÃO: Usar getPipValue() para cálculo correto de spread para todos os símbolos
+    // Antes: spreadPips = spread * 10000 (incorreto para XAUUSD - gerava 1000 pips para spread de $0.10)
+    // Agora: spreadPips = spread / pipValue (correto - gera 1 pip para spread de $0.10)
+    const pipValue = this.getPipValue(this.config.symbol);
+    const spreadPips = spread / pipValue;
     
     // LOG DE BATIMENTO CARDÍACO - A cada 5 segundos ou a cada 50 ticks
     // Isso garante visibilidade no terminal sem sobrecarregar
@@ -478,6 +480,25 @@ export class TradingEngine extends EventEmitter {
     } catch (error) {
       // Silenciar erros de trailing stop para não poluir logs
     }
+  }
+  
+  /**
+   * Obtém o valor do pip para um símbolo
+   * 
+   * IMPORTANTE: Para Forex, 1 pip = 0.0001 (exceto pares JPY = 0.01)
+   * Para XAUUSD (Ouro), 1 pip = 0.10 (movimento de $0.10 no preco)
+   */
+  private getPipValue(symbol: string): number {
+    if (symbol.includes("JPY")) {
+      return 0.01;
+    }
+    if (symbol === "XAUUSD") {
+      return 0.1;
+    }
+    if (symbol === "XAGUSD") {
+      return 0.001;
+    }
+    return 0.0001;
   }
   
   /**

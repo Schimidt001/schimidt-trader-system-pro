@@ -642,7 +642,11 @@ export class SMCTradingEngine extends EventEmitter {
     
     const now = Date.now();
     const spread = tick.ask - tick.bid;
-    const spreadPips = symbol.includes("JPY") ? spread * 100 : spread * 10000;
+    // CORREÇÃO: Usar getPipValue() para cálculo correto de spread para todos os símbolos
+    // Antes: spreadPips = spread * 10000 (incorreto para XAUUSD - gerava 1000 pips para spread de $0.10)
+    // Agora: spreadPips = spread / pipValue (correto - gera 1 pip para spread de $0.10)
+    const pipValue = this.getPipValue(symbol);
+    const spreadPips = spread / pipValue;
     
     // Log de batimento cardíaco a cada 5 segundos
     if (now - this.lastTickLogTime > 5000) {
