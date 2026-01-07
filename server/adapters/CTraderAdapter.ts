@@ -109,6 +109,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   // Símbolos disponíveis
   private availableSymbols: string[] = [];
   private symbolIdMap: Map<string, number> = new Map();
+  private symbolIdToNameMap: Map<number, string> = new Map(); // Mapa reverso: ID -> Nome
   
   // Estratégia Trend Sniper
   private strategy: TrendSniperStrategy;
@@ -155,24 +156,57 @@ export class CTraderAdapter extends BaseBrokerAdapter {
    * Processa eventos de preço
    * 
    * AUDITORIA: Adicionado log "Prova de Vida" conforme critério de aceitação
-   * CORREÇÃO: Usar o mapa do CTraderClient para resolver symbolId -> symbolName
+   * CORREÇÃO v3: Múltiplas fontes de mapeamento para garantir resolução do symbolId
+   * 
+   * Ordem de busca:
+   * 1. Mapa reverso local (symbolIdToNameMap) - mais rápido
+   * 2. Mapa do CTraderClient (symbolIdToName)
+   * 3. Mapa de subscrições ativas (symbolSubscriptions)
+   * 4. Busca iterativa no symbolIdMap (fallback)
    */
   private handleSpotEvent(spotEvent: SpotEvent): void {
-    // Encontrar nome do símbolo pelo ID usando o mapa do CTraderClient
-    let symbolName = this.client.getSymbolNameById(spotEvent.symbolId);
+    let symbolName: string | undefined;
     
-    // Fallback: tentar o mapa local (symbolIdMap) se o cliente não tiver
+    // 1. Tentar mapa reverso local primeiro (O(1))
+    symbolName = this.symbolIdToNameMap.get(spotEvent.symbolId);
+    
+    // 2. Tentar mapa do CTraderClient
+    if (!symbolName) {
+      symbolName = this.client.getSymbolNameById(spotEvent.symbolId);
+      // Se encontrou no client, sincronizar com mapa local
+      if (symbolName) {
+        this.symbolIdToNameMap.set(spotEvent.symbolId, symbolName);
+      }
+    }
+    
+    // 3. Tentar mapa de subscrições ativas (symbolSubscriptions: nome -> id)
+    if (!symbolName) {
+      for (const [name, id] of Array.from(this.symbolSubscriptions.entries())) {
+        if (id === spotEvent.symbolId) {
+          symbolName = name;
+          // Sincronizar com mapa reverso
+          this.symbolIdToNameMap.set(spotEvent.symbolId, name);
+          break;
+        }
+      }
+    }
+    
+    // 4. Fallback: busca iterativa no symbolIdMap
     if (!symbolName) {
       for (const [name, id] of Array.from(this.symbolIdMap.entries())) {
         if (id === spotEvent.symbolId) {
           symbolName = name;
+          // Sincronizar com mapa reverso para próximas consultas
+          this.symbolIdToNameMap.set(spotEvent.symbolId, name);
           break;
         }
       }
     }
     
     if (!symbolName) {
+      // Log detalhado para debug
       console.warn(`[CTraderAdapter] Tick recebido para symbolId desconhecido: ${spotEvent.symbolId}`);
+      console.warn(`[CTraderAdapter] Estado dos mapas - IdToName: ${this.symbolIdToNameMap.size}, IdMap: ${this.symbolIdMap.size}, Subscriptions: ${this.symbolSubscriptions.size}`);
       return;
     }
     
@@ -412,6 +446,8 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   
   /**
    * Subscreve a atualizações de preço em tempo real
+   * 
+   * CORREÇÃO v3: Garante que o mapa reverso seja populado antes da subscrição
    */
   async subscribePrice(symbol: string, callback: (tick: PriceTick) => void): Promise<void> {
     if (!this.isConnected()) {
@@ -422,10 +458,16 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     
     const symbolId = await this.getSymbolId(symbol);
     
+    // Garantir que o mapa reverso tenha esta entrada (CRÍTICO para handleSpotEvent)
+    this.symbolIdToNameMap.set(symbolId, symbol);
+    console.log(`[CTraderAdapter] [subscribePrice] Mapa reverso atualizado: ${symbolId} -> ${symbol}`);
+    
     this.priceSubscriptions.set(symbol, callback);
     this.symbolSubscriptions.set(symbol, symbolId);
     
     await this.client.subscribeSpots([symbolId]);
+    
+    console.log(`[CTraderAdapter] [subscribePrice] ✅ Subscrição ativa para ${symbol} (ID: ${symbolId})`);
   }
   
   /**
@@ -802,6 +844,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
    * Carrega lista de símbolos disponíveis da API
    * 
    * AUDITORIA: Adicionados logs detalhados para debug de mapeamento
+   * CORREÇÃO v3: Popula também o mapa reverso (ID -> Nome) para resolução rápida
    */
   private async loadAvailableSymbols(): Promise<void> {
     console.log(`[CTraderAdapter] [loadSymbols] Carregando símbolos da API...`);
@@ -811,20 +854,24 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       
       this.availableSymbols = symbols.map(s => s.symbolName);
       
-      // Limpar mapa anterior
+      // Limpar mapas anteriores
       this.symbolIdMap.clear();
+      this.symbolIdToNameMap.clear();
       
+      // Popular ambos os mapas: nome->ID e ID->nome
       for (const symbol of symbols) {
         this.symbolIdMap.set(symbol.symbolName, symbol.symbolId);
+        this.symbolIdToNameMap.set(symbol.symbolId, symbol.symbolName);
       }
       
       console.log(`[CTraderAdapter] [loadSymbols] ✅ ${this.availableSymbols.length} símbolos carregados`);
+      console.log(`[CTraderAdapter] [loadSymbols] ✅ Mapa reverso populado com ${this.symbolIdToNameMap.size} entradas`);
       
       // Log dos principais símbolos para debug
       const mainSymbols = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "AUDUSD"];
       for (const sym of mainSymbols) {
         const id = this.symbolIdMap.get(sym);
-        console.log(`[CTraderAdapter] [loadSymbols] Mapeamento: ${sym} -> ${id || "NÃO ENCONTRADO"}`);
+        console.log(`[CTraderAdapter] [loadSymbols] Mapeamento: ${sym} <-> ${id || "NÃO ENCONTRADO"}`);
       }
       
     } catch (error) {
@@ -884,10 +931,21 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   
   /**
    * Obtém nome do símbolo pelo ID
+   * 
+   * CORREÇÃO v3: Usa mapa reverso para busca O(1) em vez de iteração O(n)
    */
   private getSymbolNameById(symbolId: number): string | null {
+    // Primeiro tentar o mapa reverso (O(1))
+    const fromReverseMap = this.symbolIdToNameMap.get(symbolId);
+    if (fromReverseMap) return fromReverseMap;
+    
+    // Fallback: iteração no mapa original (O(n))
     for (const [name, id] of Array.from(this.symbolIdMap.entries())) {
-      if (id === symbolId) return name;
+      if (id === symbolId) {
+        // Sincronizar com mapa reverso para próximas consultas
+        this.symbolIdToNameMap.set(symbolId, name);
+        return name;
+      }
     }
     return null;
   }
