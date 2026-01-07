@@ -22,6 +22,8 @@ import { RiskManager, createRiskManager, RiskManagerConfig, DEFAULT_RISK_CONFIG 
 import { getDb, insertSystemLog, type LogLevel, type LogCategory } from "../../db";
 import { smcStrategyConfig, icmarketsConfig } from "../../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
+// REFATORAÇÃO: Importar módulo centralizado de normalização de pips
+import { getPipValue as getCentralizedPipValue, calculateSpreadPips } from "../../../shared/normalizationUtils";
 
 // ============= FUNÇÃO HELPER PARA DELAY =============
 
@@ -966,7 +968,26 @@ export class SMCTradingEngine extends EventEmitter {
     // Calcular SL/TP usando a estratégia
     const direction = signal.signal === "BUY" ? TradeSide.BUY : TradeSide.SELL;
     const currentPrice = this.lastTickPrice || 0;
-    const sltp = this.strategy!.calculateSLTP(currentPrice, direction, pipValue, signal.metadata);
+    
+    // CORREÇÃO: Obter spread atual para passar ao cálculo de SL
+    // Isso permite que ordens SELL tenham SL ajustado pelo spread
+    let currentSpreadPips: number | undefined;
+    try {
+      const priceData = await ctraderAdapter.getPrice(symbol);
+      if (priceData && priceData.ask && priceData.bid) {
+        currentSpreadPips = (priceData.ask - priceData.bid) / pipValue;
+      }
+    } catch (e) {
+      // Ignorar erro de spread - usar 0 como fallback
+    }
+    
+    // Incluir spread no metadata para cálculo de SL
+    const metadataWithSpread = {
+      ...signal.metadata,
+      currentSpreadPips: currentSpreadPips ?? 0,
+    };
+    
+    const sltp = this.strategy!.calculateSLTP(currentPrice, direction, pipValue, metadataWithSpread);
     
     // Calcular tamanho da posição
     let lotSize = this.config.lots;
@@ -1051,16 +1072,11 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Obtém o valor do pip para um símbolo
+   * 
+   * REFATORAÇÃO: Agora utiliza o módulo centralizado.
    */
   private getPipValue(symbol: string): number {
-    // Valores aproximados - em produção, obter da corretora
-    if (symbol.includes("JPY")) {
-      return 0.01;
-    }
-    if (symbol === "XAUUSD") {
-      return 0.1;
-    }
-    return 0.0001;
+    return getCentralizedPipValue(symbol);
   }
   
   // ============= MÉTODOS DE MÉTRICAS DE PERFORMANCE (AUDITORIA) =============

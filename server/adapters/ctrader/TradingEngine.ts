@@ -16,6 +16,8 @@ import { EventEmitter } from "events";
 import { ctraderAdapter } from "../CTraderAdapter";
 import { TrendSniperStrategy, trendSniperStrategy, SignalResult } from "./TrendSniperStrategy";
 import { TradeSide, SpotEvent, TrendbarPeriod } from "./CTraderClient";
+// REFATORAÇÃO: Importar módulo centralizado de normalização de pips
+import { getPipValue as getCentralizedPipValue } from "../../../shared/normalizationUtils";
 
 // Configuração do engine
 export interface TradingEngineConfig {
@@ -485,20 +487,10 @@ export class TradingEngine extends EventEmitter {
   /**
    * Obtém o valor do pip para um símbolo
    * 
-   * IMPORTANTE: Para Forex, 1 pip = 0.0001 (exceto pares JPY = 0.01)
-   * Para XAUUSD (Ouro), 1 pip = 0.10 (movimento de $0.10 no preco)
+   * REFATORAÇÃO: Agora utiliza o módulo centralizado.
    */
   private getPipValue(symbol: string): number {
-    if (symbol.includes("JPY")) {
-      return 0.01;
-    }
-    if (symbol === "XAUUSD") {
-      return 0.1;
-    }
-    if (symbol === "XAGUSD") {
-      return 0.001;
-    }
-    return 0.0001;
+    return getCentralizedPipValue(symbol);
   }
   
   /**

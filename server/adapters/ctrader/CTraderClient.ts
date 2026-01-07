@@ -186,10 +186,11 @@ export class CTraderClient extends EventEmitter {
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private lastHeartbeat: number = 0;
   
-  // Reconnection
+  // Reconnection - REFATORAÇÃO: Exponential Backoff com Jitter
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 10;
-  private reconnectDelay: number = 5000;
+  private baseReconnectDelay: number = 1000;  // Delay base: 1 segundo
+  private maxReconnectDelay: number = 60000;  // Delay máximo: 60 segundos
   
   // Symbol cache
   private symbolCache: Map<string, SymbolInfo> = new Map();
@@ -952,21 +953,46 @@ export class CTraderClient extends EventEmitter {
   }
   
   /**
-   * Agenda reconexão
+   * Agenda reconexão com Exponential Backoff + Jitter
+   * 
+   * REFATORAÇÃO: Implementação de backoff exponencial para evitar
+   * sobrecarga da API e possível bloqueio de IP pela corretora.
+   * 
+   * Fórmula: delay = min(baseDelay * 2^attempts, maxDelay) + jitter
+   * Jitter: valor aleatório entre 0 e 1000ms para evitar "thundering herd"
    */
   private scheduleReconnect(): void {
     this.reconnectAttempts++;
-    const delay = this.reconnectDelay * this.reconnectAttempts;
     
-    console.log(`[CTraderClient] Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    // Exponential Backoff: delay = baseDelay * 2^(attempts-1)
+    const exponentialDelay = this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    
+    // Limitar ao delay máximo
+    const cappedDelay = Math.min(exponentialDelay, this.maxReconnectDelay);
+    
+    // Adicionar jitter (0-1000ms) para evitar reconexões simultâneas
+    const jitter = Math.floor(Math.random() * 1000);
+    const finalDelay = cappedDelay + jitter;
+    
+    console.log(`[CTraderClient] 🔄 Scheduling reconnect in ${finalDelay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    console.log(`[CTraderClient]    Base: ${this.baseReconnectDelay}ms | Exponential: ${exponentialDelay}ms | Capped: ${cappedDelay}ms | Jitter: ${jitter}ms`);
     
     setTimeout(() => {
       if (this.credentials) {
+        console.log(`[CTraderClient] 🔄 Attempting reconnection #${this.reconnectAttempts}...`);
         this.connect(this.credentials).catch((error) => {
-          console.error("[CTraderClient] Reconnect failed:", error);
+          console.error(`[CTraderClient] ❌ Reconnect #${this.reconnectAttempts} failed:`, error);
+          
+          // Se ainda não atingiu o máximo, agendar próxima tentativa
+          if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.scheduleReconnect();
+          } else {
+            console.error(`[CTraderClient] 🛑 Max reconnection attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
+            this.emit("reconnect_failed", { attempts: this.reconnectAttempts });
+          }
         });
       }
-    }, delay);
+    }, finalDelay);
   }
   
   // Getters

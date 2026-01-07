@@ -26,6 +26,8 @@ import {
   MultiTimeframeData,
   BaseStrategyConfig,
 } from "./ITradingStrategy";
+// REFATORAÇÃO: Importar módulo centralizado de normalização de pips
+import { getPipValue as getCentralizedPipValue, priceToPips as centralizedPriceToPips } from "../../../shared/normalizationUtils";
 
 // ============= TIPOS E INTERFACES =============
 
@@ -360,23 +362,36 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     let stopLoss: number;
     let stopLossPips: number;
     
+    // CORREÇÃO: Obter spread atual para adicionar ao SL de vendas
+    // Ordens SELL são fechadas quando ASK atinge o SL, então precisamos de buffer extra
+    const currentSpreadPips = metadata?.currentSpreadPips ?? 0;
+    const spreadBuffer = currentSpreadPips * pipValue;
+    
     // SL baseado no Swing Point que originou o movimento
     if (direction === TradeSide.SELL && state.swingHighs.length > 0) {
-      // Para SELL: SL acima do Swing High + buffer
+      // Para SELL: SL acima do Swing High + buffer + spread
+      // CORREÇÃO: Adicionar spread ao SL para evitar stops prematuros
       const swingHigh = state.swingHighs[state.swingHighs.length - 1];
-      stopLoss = swingHigh.price + (this.config.stopLossBufferPips * pipValue);
+      stopLoss = swingHigh.price + (this.config.stopLossBufferPips * pipValue) + spreadBuffer;
       stopLossPips = Math.abs(stopLoss - entryPrice) / pipValue;
+      
+      if (this.config.verboseLogging && currentSpreadPips > 0) {
+        console.log(`[SMC] SELL SL ajustado: SwingHigh=${swingHigh.price.toFixed(5)} + Buffer=${this.config.stopLossBufferPips}pips + Spread=${currentSpreadPips.toFixed(1)}pips = SL=${stopLoss.toFixed(5)}`);
+      }
     } else if (direction === TradeSide.BUY && state.swingLows.length > 0) {
-      // Para BUY: SL abaixo do Swing Low - buffer
+      // Para BUY: SL abaixo do Swing Low - buffer (spread não afeta BUY)
       const swingLow = state.swingLows[state.swingLows.length - 1];
       stopLoss = swingLow.price - (this.config.stopLossBufferPips * pipValue);
       stopLossPips = Math.abs(entryPrice - stopLoss) / pipValue;
     } else {
       // Fallback: usar buffer padrão
       stopLossPips = 20; // 20 pips padrão
-      stopLoss = direction === TradeSide.BUY 
-        ? entryPrice - (stopLossPips * pipValue)
-        : entryPrice + (stopLossPips * pipValue);
+      // Para SELL no fallback, também adicionar spread
+      if (direction === TradeSide.SELL) {
+        stopLoss = entryPrice + (stopLossPips * pipValue) + spreadBuffer;
+      } else {
+        stopLoss = entryPrice - (stopLossPips * pipValue);
+      }
     }
     
     // TP baseado no Risk:Reward ratio
@@ -1367,77 +1382,27 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   }
   
   /**
-   * Mapeamento de pip values por simbolo
-   * CRITICO: Valores corretos para normalizacao de preco
-   * @see Briefing Tecnico - Correcao da Normalizacao de Preco
+   * REFATORAÇÃO: PIP_VALUES removido deste arquivo.
+   * Agora utiliza o módulo centralizado: shared/normalizationUtils.ts
+   * 
+   * @see shared/normalizationUtils.ts para a definição centralizada
    */
-  private static readonly PIP_VALUES: Record<string, number> = {
-    // Forex Major
-    "EURUSD": 0.0001,
-    "GBPUSD": 0.0001,
-    "USDJPY": 0.01,
-    "AUDUSD": 0.0001,
-    "USDCAD": 0.0001,
-    "USDCHF": 0.0001,
-    "NZDUSD": 0.0001,
-    // Forex Cross JPY
-    "EURJPY": 0.01,
-    "GBPJPY": 0.01,
-    "AUDJPY": 0.01,
-    "CADJPY": 0.01,
-    "CHFJPY": 0.01,
-    "NZDJPY": 0.01,
-    // Forex Cross
-    "EURGBP": 0.0001,
-    "EURAUD": 0.0001,
-    "EURNZD": 0.0001,
-    "GBPAUD": 0.0001,
-    // Metais Preciosos - CRITICO
-    "XAUUSD": 0.10,
-    "XAGUSD": 0.001,
-    // Indices
-    "US30": 1.0,
-    "US500": 0.1,
-    "US100": 0.1,
-    "DE40": 0.1,
-    "UK100": 0.1,
-  };
 
   /**
    * Obtem o valor do pip para o simbolo atual
    * 
-   * IMPORTANTE: Esta funcao e critica para a normalizacao de precos.
-   * Um erro aqui faz o robo "cego" a magnitude real dos movimentos.
+   * REFATORAÇÃO: Agora utiliza o módulo centralizado.
    * 
    * @returns Valor do pip para o simbolo atual
    */
   private getPipValue(): number {
-    const symbol = this.currentSymbol;
-    
-    // Verificar no mapeamento estatico primeiro
-    if (SMCStrategy.PIP_VALUES[symbol] !== undefined) {
-      return SMCStrategy.PIP_VALUES[symbol];
-    }
-    
-    // Fallback para pares JPY
-    if (symbol.includes("JPY")) {
-      return 0.01;
-    }
-    
-    // Fallback para metais (XAU, XAG)
-    if (symbol.startsWith("XAU")) {
-      return 0.10;
-    }
-    if (symbol.startsWith("XAG")) {
-      return 0.001;
-    }
-    
-    // Default para Forex
-    return 0.0001;
+    return getCentralizedPipValue(this.currentSymbol);
   }
 
   /**
    * Converte diferenca de preco para pips
+   * 
+   * REFATORAÇÃO: Agora utiliza o módulo centralizado.
    * 
    * @param priceDiff Diferenca de preco bruta
    * @param symbol Simbolo do ativo (opcional, usa currentSymbol se nao fornecido)
@@ -1445,9 +1410,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
    */
   private priceToPips(priceDiff: number, symbol?: string): number {
     const sym = symbol || this.currentSymbol;
-    const pipValue = this.getPipValue();
-    const pips = Math.abs(priceDiff) / pipValue;
-    return pips;
+    return centralizedPriceToPips(priceDiff, sym);
   }
 
   /**

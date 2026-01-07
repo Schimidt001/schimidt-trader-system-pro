@@ -23,6 +23,8 @@ import {
 } from "./IBrokerAdapter";
 import { CTraderClient, TradeSide, TrendbarPeriod, SpotEvent, ctraderClient } from "./ctrader/CTraderClient";
 import { TrendSniperStrategy, trendSniperStrategy, TrendSniperConfig } from "./ctrader/TrendSniperStrategy";
+// REFATORAÇÃO: Importar módulo centralizado de normalização de pips
+import { getPipValue, calculateSpreadPips } from "../../shared/normalizationUtils";
 
 /**
  * Mapeamento de timeframes para cTrader
@@ -39,47 +41,11 @@ const TIMEFRAME_MAP: Record<string, TrendbarPeriod> = {
 };
 
 /**
- * Pip values para diferentes pares
+ * REFATORAÇÃO: PIP_VALUES removido deste arquivo.
+ * Agora utiliza o módulo centralizado: shared/normalizationUtils.ts
  * 
- * IMPORTANTE: Para Forex, 1 pip = 0.0001 (exceto pares JPY = 0.01)
- * Para XAUUSD (Ouro), 1 pip = 0.10 (movimento de $0.10 no preco)
- * Para indices, verificar com a corretora o tickSize
- * 
- * @see Briefing Tecnico - Correcao da Normalizacao de Preco
+ * @see shared/normalizationUtils.ts para a definição centralizada
  */
-const PIP_VALUES: Record<string, number> = {
-  // Pares Forex Major
-  "EURUSD": 0.0001,
-  "GBPUSD": 0.0001,
-  "USDJPY": 0.01,
-  "AUDUSD": 0.0001,
-  "USDCAD": 0.0001,
-  "USDCHF": 0.0001,
-  "NZDUSD": 0.0001,
-  
-  // Pares Forex Cross
-  "EURGBP": 0.0001,
-  "EURJPY": 0.01,
-  "GBPJPY": 0.01,
-  "AUDJPY": 0.01,
-  "EURAUD": 0.0001,
-  "EURNZD": 0.0001,
-  "GBPAUD": 0.0001,
-  "CADJPY": 0.01,
-  "CHFJPY": 0.01,
-  "NZDJPY": 0.01,
-  
-  // Metais Preciosos - CRITICO: XAUUSD usa 0.10 como pip
-  "XAUUSD": 0.10,
-  "XAGUSD": 0.001,
-  
-  // Indices (valores aproximados - verificar com corretora)
-  "US30": 1.0,
-  "US500": 0.1,
-  "US100": 0.1,
-  "DE40": 0.1,
-  "UK100": 0.1,
-};
 
 /**
  * Adaptador para IC Markets via cTrader Open API
@@ -234,7 +200,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       bid: spotEvent.bid,
       ask: spotEvent.ask,
       timestamp: spotEvent.timestamp || Date.now(),
-      spread: (spotEvent.ask - spotEvent.bid) / (PIP_VALUES[symbolName] || 0.0001),
+      spread: calculateSpreadPips(spotEvent.bid, spotEvent.ask, symbolName),
     };
     
     // [PROVA DE VIDA] Log conforme critério de aceitação
@@ -576,8 +542,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     if (maxSpread !== undefined && maxSpread > 0) {
       try {
         const currentPrice = await this.getPrice(order.symbol);
-        const pipValue = PIP_VALUES[order.symbol] || 0.0001;
-        const currentSpreadPips = (currentPrice.ask - currentPrice.bid) / pipValue;
+        const currentSpreadPips = calculateSpreadPips(currentPrice.bid, currentPrice.ask, order.symbol);
         
         console.log(`[CTraderAdapter] [SPREAD_CHECK] ${order.symbol}: Spread atual = ${currentSpreadPips.toFixed(2)} pips, Máximo = ${maxSpread} pips`);
         
@@ -606,7 +571,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       
       if (order.stopLossPips || order.takeProfitPips) {
         const currentPrice = await this.getPrice(order.symbol);
-        const pipValue = PIP_VALUES[order.symbol] || 0.0001;
+        const pipValue = getPipValue(order.symbol);
         const entryPrice = order.direction === "BUY" ? currentPrice.ask : currentPrice.bid;
         
         if (order.stopLossPips) {
@@ -685,7 +650,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       
       if (params.stopLossPips || params.takeProfitPips) {
         const currentPrice = await this.getPrice(position.symbol);
-        const pipValue = PIP_VALUES[position.symbol] || 0.0001;
+        const pipValue = getPipValue(position.symbol);
         
         if (params.stopLossPips) {
           stopLoss = position.direction === "BUY"
@@ -835,7 +800,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     if (!position) return false;
     
     const currentPrice = await this.getPrice(position.symbol);
-    const pipValue = PIP_VALUES[position.symbol] || 0.0001;
+    const pipValue = getPipValue(position.symbol);
     
     const price = position.direction === "BUY" ? currentPrice.bid : currentPrice.ask;
     
