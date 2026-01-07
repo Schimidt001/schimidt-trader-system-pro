@@ -165,6 +165,25 @@ export class CTraderAdapter extends BaseBrokerAdapter {
    * 4. Busca iterativa no symbolIdMap (fallback)
    */
   private handleSpotEvent(spotEvent: SpotEvent): void {
+    // ========== SANITY CHECK - FILTRO DE INTEGRIDADE ==========
+    // A API cTrader ocasionalmente envia ticks parciais onde Bid ou Ask é 0.
+    // Isso causa cálculos de spread absurdos (ex: 44 milhões de pips) ou negativos.
+    // Ignoramos esses ticks inválidos para evitar falsos bloqueios de "Spread Alto".
+    // 
+    // Referência: Análise de logs 2026-01-07 - 1193 ocorrências de ticks inválidos
+    // ============================================================
+    if (spotEvent.bid <= 0 || spotEvent.ask <= 0) {
+      // Log apenas em modo debug para não poluir os logs de produção
+      // console.debug(`[CTraderAdapter] Tick inválido ignorado - symbolId: ${spotEvent.symbolId}, Bid: ${spotEvent.bid}, Ask: ${spotEvent.ask}`);
+      return;
+    }
+    
+    // Validação adicional: Ask deve ser maior que Bid (spread positivo)
+    if (spotEvent.ask < spotEvent.bid) {
+      // console.debug(`[CTraderAdapter] Tick com spread negativo ignorado - symbolId: ${spotEvent.symbolId}, Bid: ${spotEvent.bid}, Ask: ${spotEvent.ask}`);
+      return;
+    }
+    
     let symbolName: string | undefined;
     
     // 1. Tentar mapa reverso local primeiro (O(1))
