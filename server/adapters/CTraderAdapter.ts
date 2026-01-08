@@ -611,7 +611,30 @@ export class CTraderAdapter extends BaseBrokerAdapter {
         order.comment
       );
       
-      const orderId = response.position?.positionId?.toString() || `ORD-${Date.now()}`;
+      // DEBUG: Log completo da resposta da API para diagnóstico
+      console.log("[CTraderAdapter] [DEBUG] Resposta completa da API cTrader:");
+      console.log(JSON.stringify(response, null, 2));
+      
+      // Verificar se há erro na resposta
+      if (response.errorCode) {
+        console.error(`[CTraderAdapter] ❌ Erro da API cTrader: ${response.errorCode} - ${response.description || 'Sem descrição'}`);
+        return {
+          success: false,
+          errorMessage: `cTrader Error: ${response.errorCode} - ${response.description || 'Sem descrição'}`,
+        };
+      }
+      
+      // Verificar se a posição foi criada
+      if (!response.position && !response.deal) {
+        console.error("[CTraderAdapter] ❌ Resposta da API não contém position nem deal!");
+        console.error("[CTraderAdapter] Possíveis causas: saldo insuficiente, mercado fechado, símbolo inválido");
+        return {
+          success: false,
+          errorMessage: "Ordem não executada: resposta da API vazia (verifique saldo, mercado e símbolo)",
+        };
+      }
+      
+      const orderId = response.position?.positionId?.toString() || response.deal?.dealId?.toString() || `ORD-${Date.now()}`;
       const executionPrice = response.position?.price || response.deal?.executionPrice;
       
       // Criar posição local
