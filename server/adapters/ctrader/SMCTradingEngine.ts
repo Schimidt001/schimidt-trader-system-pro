@@ -856,6 +856,13 @@ export class SMCTradingEngine extends EventEmitter {
     
     // Verificar se temos dados suficientes
     if (h1Data.length < 50 || m15Data.length < 30 || m5Data.length < 20) {
+      // DEBUG: Log de dados insuficientes para o banco de dados
+      const msg = `Dados insuficientes para ${symbol}: H1=${h1Data.length}/50 M15=${m15Data.length}/30 M5=${m5Data.length}/20`;
+      console.log(`[SMCTradingEngine] ⚠️ ${msg}`);
+      // Gravar no banco apenas a cada 100 análises para não poluir
+      if (this.analysisCount % 100 === 0) {
+        await this.logToDatabase("WARN", "SYSTEM", msg, { symbol, data: { h1: h1Data.length, m15: m15Data.length, m5: m5Data.length } });
+      }
       return;
     }
     
@@ -1305,6 +1312,8 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Log de análise de sinal
+   * 
+   * ATUALIZADO: Agora inclui informações de Swing Points para debug
    */
   public async logAnalysis(
     symbol: string,
@@ -1312,7 +1321,24 @@ export class SMCTradingEngine extends EventEmitter {
     latencyMs: number,
     data?: Record<string, unknown>
   ): Promise<void> {
-    const message = `Tick processado em ${latencyMs.toFixed(2)}ms | ${symbol} | Sinal: ${signal}`;
+    // Obter informações de Swing Points da estratégia para debug
+    let swingInfo = '';
+    if (this.strategy instanceof SMCStrategy) {
+      const state = this.strategy.getSwarmState(symbol);
+      if (state) {
+        swingInfo = ` | Swings: H=${state.swingHighs.length} L=${state.swingLows.length}`;
+        if (state.sweepConfirmed) {
+          swingInfo += ` | Sweep: ${state.lastSweepType}`;
+        }
+        if (state.chochDetected) {
+          swingInfo += ` | CHoCH: ${state.chochDirection}`;
+        }
+      } else {
+        swingInfo = ' | State: NULL';
+      }
+    }
+    
+    const message = `Tick processado em ${latencyMs.toFixed(2)}ms | ${symbol} | Sinal: ${signal}${swingInfo}`;
     await this.logToDatabase("INFO", "ANALYSIS", message, {
       symbol,
       signal,
