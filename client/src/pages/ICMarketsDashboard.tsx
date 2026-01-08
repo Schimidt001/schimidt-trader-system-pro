@@ -213,6 +213,32 @@ export default function ICMarketsDashboard() {
       toast.success("Posição fechada");
     },
   });
+  // Mutation para forçar trade de teste (APENAS DEMO)
+  const forceTestTradeMutation = trpc.icmarkets.forceTestTrade.useMutation({
+    onSuccess: (data) => {
+      positionsQuery.refetch();
+      if (data.success) {
+        toast.success(`🧪 Trade de teste executado! Order ID: ${data.orderId}`);
+      } else {
+        toast.error(`Erro no trade de teste: ${data.errorMessage}`);
+      }
+    },
+    onError: (error) => {
+      toast.error(`Erro ao forçar trade: ${error.message}`);
+    },
+  });
+  
+  // Handler para forçar trade de teste
+  const handleForceTestTrade = () => {
+    forceTestTradeMutation.mutate({
+      symbol: selectedSymbol,
+      direction: "BUY",
+      lots: 0.01,
+      stopLossPips: 20,
+      takeProfitPips: 40,
+    });
+  };
+
   
   // Handlers - CONEXÃO (apenas WebSocket)
   const handleConnect = () => {
@@ -378,6 +404,23 @@ export default function ICMarketsDashboard() {
                   )}
                   Iniciar Robô
                 </Button>
+                {/* Botão de Teste de Trade (APENAS DEMO) */}
+                {isConnected && connectionStatus.data?.accountInfo?.isDemo && (
+                  <Button
+                    variant="outline"
+                    onClick={handleForceTestTrade}
+                    disabled={forceTestTradeMutation.isPending}
+                    className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/20"
+                  >
+                    {forceTestTradeMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Target className="w-4 h-4 mr-2" />
+                    )}
+                    🧪 Forçar Trade Teste
+                  </Button>
+                )}
+
               )
             )}
           </div>
