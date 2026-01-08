@@ -1052,11 +1052,36 @@ export class SMCTradingEngine extends EventEmitter {
     const sltp = this.strategy!.calculateSLTP(currentPrice, direction, pipValue, metadataWithSpread);
     
     // Calcular tamanho da posição
+    // REFATORAÇÃO: Obter specs de volume do símbolo para normalização correta
     let lotSize = this.config.lots;
     if (this.riskManager && sltp.stopLossPips) {
-      const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, pipValue);
-      if (posSize.canTrade) {
-        lotSize = posSize.lotSize;
+      try {
+        // Obter specs de volume do símbolo da cTrader API
+        const symbolInfo = await ctraderAdapter.getSymbolInfo(symbol);
+        const volumeSpecs = symbolInfo ? {
+          minVolume: symbolInfo.minVolume,
+          maxVolume: symbolInfo.maxVolume,
+          stepVolume: symbolInfo.stepVolume,
+        } : undefined;
+        
+        const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, pipValue, volumeSpecs);
+        if (posSize.canTrade) {
+          lotSize = posSize.lotSize;
+          console.log(`[SMCTradingEngine] Volume normalizado: ${lotSize} lotes (${posSize.volumeInCents} cents)`);
+          if (posSize.volumeAdjusted) {
+            console.log(`[SMCTradingEngine] ⚠️ Volume ajustado de ${posSize.originalLotSize?.toFixed(4)} para ${lotSize} lotes`);
+          }
+        } else {
+          console.warn(`[SMCTradingEngine] ❌ Não pode operar: ${posSize.reason}`);
+          return; // Abortar trade se não pode calcular volume válido
+        }
+      } catch (volumeError) {
+        console.warn(`[SMCTradingEngine] ⚠️ Erro ao obter specs de volume, usando fallback:`, volumeError);
+        // Fallback: usar cálculo sem specs (comportamento anterior)
+        const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, pipValue);
+        if (posSize.canTrade) {
+          lotSize = posSize.lotSize;
+        }
       }
     }
     

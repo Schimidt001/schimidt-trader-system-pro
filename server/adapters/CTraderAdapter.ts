@@ -615,22 +615,54 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       console.log("[CTraderAdapter] [DEBUG] Resposta completa da API cTrader:");
       console.log(JSON.stringify(response, null, 2));
       
+      // ============= TRATAMENTO DE ERROS MELHORADO =============
       // Verificar se há erro na resposta
       if (response.errorCode) {
-        console.error(`[CTraderAdapter] ❌ Erro da API cTrader: ${response.errorCode} - ${response.description || 'Sem descrição'}`);
+        const errorCode = String(response.errorCode);
+        const errorDesc = response.description || 'Sem descrição';
+        
+        // Log estruturado do erro
+        console.error(`[CTraderAdapter] ❌ ERRO DE EXECUÇÃO:`);
+        console.error(`  - Error Code: ${errorCode}`);
+        console.error(`  - Descrição: ${errorDesc}`);
+        console.error(`  - Símbolo: ${order.symbol}`);
+        console.error(`  - Volume: ${order.lots} lotes`);
+        console.error(`  - Direção: ${order.direction}`);
+        
+        // Mensagens específicas para erros comuns
+        let userMessage = `cTrader Error: ${errorCode}`;
+        if (errorCode.includes('VOLUME') || errorCode === 'INVALID_VOLUME') {
+          userMessage = `Volume inválido (${order.lots} lotes). Verifique os limites do símbolo.`;
+        } else if (errorCode.includes('PERMISSION') || errorCode === 'NO_TRADING_PERMISSION') {
+          userMessage = 'Token sem permissão de trading. Verifique se o token tem SCOPE_TRADE.';
+        } else if (errorCode.includes('MONEY') || errorCode === 'NOT_ENOUGH_MONEY') {
+          userMessage = 'Saldo insuficiente para abrir a posição.';
+        } else if (errorCode.includes('MARKET') || errorCode === 'MARKET_CLOSED') {
+          userMessage = 'Mercado fechado. Aguarde a abertura.';
+        } else {
+          userMessage = `${errorCode}: ${errorDesc}`;
+        }
+        
         return {
           success: false,
-          errorMessage: `cTrader Error: ${response.errorCode} - ${response.description || 'Sem descrição'}`,
+          errorMessage: userMessage,
+          errorCode: errorCode,
         };
       }
       
       // Verificar se a posição foi criada
       if (!response.position && !response.deal) {
         console.error("[CTraderAdapter] ❌ Resposta da API não contém position nem deal!");
-        console.error("[CTraderAdapter] Possíveis causas: saldo insuficiente, mercado fechado, símbolo inválido");
+        console.error("[CTraderAdapter] Resposta recebida:", JSON.stringify(response, null, 2));
+        console.error("[CTraderAdapter] Possíveis causas:");
+        console.error("  1. Volume inválido (abaixo do mínimo ou acima do máximo)");
+        console.error("  2. Token sem permissão de trading (SCOPE_VIEW apenas)");
+        console.error("  3. Saldo insuficiente");
+        console.error("  4. Mercado fechado");
+        console.error("  5. Símbolo inválido ou não disponível");
         return {
           success: false,
-          errorMessage: "Ordem não executada: resposta da API vazia (verifique saldo, mercado e símbolo)",
+          errorMessage: "Ordem não executada: resposta da API vazia. Verifique: volume, permissões do token, saldo e mercado.",
         };
       }
       
@@ -938,6 +970,29 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     }
     
     throw new Error(`Símbolo não encontrado: ${symbolName}`);
+  }
+  
+  /**
+   * Obtém informações completas do símbolo (incluindo specs de volume)
+   * 
+   * REFATORAÇÃO: Novo método para expor specs de volume para normalização
+   */
+  async getSymbolInfo(symbolName: string): Promise<{
+    symbolId: number;
+    symbolName: string;
+    digits: number;
+    pipPosition: number;
+    minVolume: number;
+    maxVolume: number;
+    stepVolume: number;
+  } | null> {
+    try {
+      const symbolInfo = await this.client.getSymbolInfo(symbolName);
+      return symbolInfo;
+    } catch (error) {
+      console.warn(`[CTraderAdapter] Erro ao obter info do símbolo ${symbolName}:`, error);
+      return null;
+    }
   }
   
   /**

@@ -55,16 +55,29 @@ export interface RiskState {
 }
 
 /**
+ * Especificações de volume do símbolo (da cTrader API)
+ * Valores em "cents" - 1 cent = 0.01 lote
+ */
+export interface VolumeSpecs {
+  minVolume: number;   // Volume mínimo em cents (ex: 100 = 1.00 lote)
+  maxVolume: number;   // Volume máximo em cents
+  stepVolume: number;  // Incremento de volume em cents (ex: 1 = 0.01 lote)
+}
+
+/**
  * Resultado do cálculo de posição
  */
 export interface PositionSizeCalculation {
   lotSize: number;
+  volumeInCents: number;  // Volume no formato da cTrader API
   riskAmount: number;
   riskPercent: number;
   stopLossPips: number;
   pipValue: number;
   canTrade: boolean;
   reason: string;
+  volumeAdjusted: boolean;  // Indica se o volume foi ajustado para respeitar limites
+  originalLotSize?: number; // Lote original antes do ajuste
 }
 
 /**
@@ -185,54 +198,119 @@ export class RiskManager {
    * Fórmula:
    * riskAmount = accountBalance * (riskPercentage / 100)
    * lotSize = riskAmount / (stopLossPips * pipValue)
+   * 
+   * REFATORAÇÃO: Agora respeita os limites de volume da cTrader API
+   * - minVolume: Volume mínimo permitido
+   * - maxVolume: Volume máximo permitido  
+   * - stepVolume: Incremento de volume obrigatório
    */
   calculatePositionSize(
     accountBalance: number,
     stopLossPips: number,
-    pipValue: number
+    pipValue: number,
+    volumeSpecs?: VolumeSpecs  // Specs do símbolo da cTrader API
   ): PositionSizeCalculation {
     // Verificar se pode operar
     if (this.state.tradingBlocked) {
       return {
         lotSize: 0,
+        volumeInCents: 0,
         riskAmount: 0,
         riskPercent: 0,
         stopLossPips,
         pipValue,
         canTrade: false,
         reason: this.state.blockReason || "Trading bloqueado",
+        volumeAdjusted: false,
       };
     }
+    
+    // Defaults conservadores se não houver specs (fallback para compatibilidade)
+    const specs: VolumeSpecs = volumeSpecs || {
+      minVolume: 1,       // 0.01 lote (micro lote)
+      maxVolume: 10000,   // 100 lotes
+      stepVolume: 1,      // 0.01 lote
+    };
     
     // Calcular risco em USD
     const riskAmount = accountBalance * (this.config.riskPercentage / 100);
     
-    // Calcular tamanho do lote
-    // lotSize = riskAmount / (stopLossPips * pipValue * 10)
-    // O *10 é porque pipValue geralmente é dado por lote standard
+    // Calcular tamanho do lote bruto
     let lotSize = riskAmount / (stopLossPips * pipValue);
+    const originalLotSize = lotSize;
     
-    // Arredondar para step de 0.01 (micro lote)
-    lotSize = Math.floor(lotSize * 100) / 100;
+    // Converter para "cents" (formato cTrader: 1 cent = 0.01 lote)
+    let volumeInCents = Math.round(lotSize * 100);
     
-    // Limitar entre 0.01 e 10 lotes
-    lotSize = Math.max(0.01, Math.min(10, lotSize));
+    // ============= NORMALIZAÇÃO DE VOLUME (cTrader API) =============
+    // 1. Arredondar para o stepVolume mais próximo (PARA BAIXO)
+    volumeInCents = Math.floor(volumeInCents / specs.stepVolume) * specs.stepVolume;
+    
+    // 2. Garantir que >= minVolume
+    if (volumeInCents < specs.minVolume) {
+      console.log(`[RiskManager] ⚠️ Volume ${volumeInCents} cents < minVolume ${specs.minVolume} cents`);
+      volumeInCents = specs.minVolume;
+    }
+    
+    // 3. Garantir que <= maxVolume
+    if (volumeInCents > specs.maxVolume) {
+      console.log(`[RiskManager] ⚠️ Volume ${volumeInCents} cents > maxVolume ${specs.maxVolume} cents`);
+      volumeInCents = specs.maxVolume;
+    }
+    
+    // Converter de volta para lotes
+    lotSize = volumeInCents / 100;
+    
+    // Verificar se o volume foi ajustado
+    const volumeAdjusted = Math.abs(lotSize - originalLotSize) > 0.001;
+    
+    // Verificar se o volume mínimo excede o risco permitido
+    const minLotSize = specs.minVolume / 100;
+    const actualRiskAmount = lotSize * stopLossPips * pipValue;
+    const actualRiskPercent = (actualRiskAmount / accountBalance) * 100;
+    
+    // Se o volume mínimo resultar em risco > 2x o configurado, bloquear
+    if (actualRiskPercent > this.config.riskPercentage * 2) {
+      console.log(`[RiskManager] ❌ Volume mínimo (${minLotSize} lotes) excede limite de risco seguro`);
+      console.log(`  - Risco real: ${actualRiskPercent.toFixed(2)}% vs configurado: ${this.config.riskPercentage}%`);
+      return {
+        lotSize: 0,
+        volumeInCents: 0,
+        riskAmount: 0,
+        riskPercent: 0,
+        stopLossPips,
+        pipValue,
+        canTrade: false,
+        reason: `Volume mínimo (${minLotSize} lotes) excede risco permitido (${actualRiskPercent.toFixed(1)}% > ${this.config.riskPercentage * 2}%)`,
+        volumeAdjusted: true,
+        originalLotSize,
+      };
+    }
     
     console.log(`[RiskManager] Cálculo de posição:`);
     console.log(`  - Balance: $${accountBalance.toFixed(2)}`);
-    console.log(`  - Risco: ${this.config.riskPercentage}% = $${riskAmount.toFixed(2)}`);
+    console.log(`  - Risco configurado: ${this.config.riskPercentage}% = $${riskAmount.toFixed(2)}`);
     console.log(`  - SL: ${stopLossPips} pips`);
     console.log(`  - Pip Value: $${pipValue}`);
-    console.log(`  - Lote calculado: ${lotSize}`);
+    console.log(`  - Volume Specs: min=${specs.minVolume} (${specs.minVolume/100} lotes), max=${specs.maxVolume} (${specs.maxVolume/100} lotes), step=${specs.stepVolume}`);
+    console.log(`  - Lote bruto: ${originalLotSize.toFixed(4)}`);
+    console.log(`  - Lote normalizado: ${lotSize} (${volumeInCents} cents)`);
+    console.log(`  - Risco real: ${actualRiskPercent.toFixed(2)}% = $${actualRiskAmount.toFixed(2)}`);
+    if (volumeAdjusted) {
+      console.log(`  - ⚠️ VOLUME AJUSTADO para respeitar limites da corretora`);
+    }
     
     return {
       lotSize,
-      riskAmount,
-      riskPercent: this.config.riskPercentage,
+      volumeInCents,
+      riskAmount: actualRiskAmount,
+      riskPercent: actualRiskPercent,
       stopLossPips,
       pipValue,
       canTrade: true,
       reason: "OK",
+      volumeAdjusted,
+      originalLotSize: volumeAdjusted ? originalLotSize : undefined,
     };
   }
   

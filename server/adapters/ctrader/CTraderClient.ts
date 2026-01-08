@@ -160,6 +160,10 @@ export interface SymbolInfo {
   pipPosition: number;
   baseAssetId: number;
   quoteAssetId: number;
+  // Volume specs (em cents - 1 = 0.01 lote)
+  minVolume: number;   // Volume mínimo permitido
+  maxVolume: number;   // Volume máximo permitido
+  stepVolume: number;  // Incremento de volume
 }
 
 type MessageHandler = (message: any) => void;
@@ -651,13 +655,26 @@ export class CTraderClient extends EventEmitter {
         symbolId = Number(symbolId);
       }
       
+      // Converter campos Long do protobuf para number
+      const convertLong = (val: any, defaultVal: number = 0): number => {
+        if (typeof val === 'object' && val !== null && val.toNumber) {
+          return val.toNumber();
+        }
+        return typeof val === 'number' ? val : (Number(val) || defaultVal);
+      };
+      
       return {
         symbolId,
         symbolName: s.symbolName,
         digits: s.digits || 5,
         pipPosition: s.pipPosition || 4,
-        baseAssetId: s.baseAssetId,
-        quoteAssetId: s.quoteAssetId,
+        baseAssetId: convertLong(s.baseAssetId),
+        quoteAssetId: convertLong(s.quoteAssetId),
+        // Volume specs (em cents - 1 = 0.01 lote)
+        // Defaults conservadores se não fornecidos pela API
+        minVolume: convertLong(s.minVolume, 100),      // Default: 1.00 lote
+        maxVolume: convertLong(s.maxVolume, 10000000), // Default: 100000 lotes
+        stepVolume: convertLong(s.stepVolume, 1),      // Default: 0.01 lote
       };
     });
     
@@ -668,6 +685,15 @@ export class CTraderClient extends EventEmitter {
     }
     
     console.log(`[CTraderClient] [getSymbolsList] ${symbols.length} símbolos carregados no cache interno`);
+    
+    // Log de debug para alguns símbolos importantes
+    const importantSymbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY'];
+    for (const symName of importantSymbols) {
+      const sym = this.symbolCache.get(symName);
+      if (sym) {
+        console.log(`[CTraderClient] [VOLUME_SPECS] ${symName}: minVol=${sym.minVolume} (${sym.minVolume/100} lotes), maxVol=${sym.maxVolume} (${sym.maxVolume/100} lotes), step=${sym.stepVolume} (${sym.stepVolume/100} lotes)`);
+      }
+    }
     
     return symbols;
   }
@@ -699,6 +725,23 @@ export class CTraderClient extends EventEmitter {
     
     if (this.symbolCache.has(symbolName)) {
       return this.symbolCache.get(symbolName)!.symbolId;
+    }
+    
+    throw new Error(`Symbol not found: ${symbolName}`);
+  }
+  
+  /**
+   * Obtém informações completas do símbolo (incluindo specs de volume)
+   */
+  async getSymbolInfo(symbolName: string): Promise<SymbolInfo> {
+    if (this.symbolCache.has(symbolName)) {
+      return this.symbolCache.get(symbolName)!;
+    }
+    
+    await this.getSymbolsList();
+    
+    if (this.symbolCache.has(symbolName)) {
+      return this.symbolCache.get(symbolName)!;
     }
     
     throw new Error(`Symbol not found: ${symbolName}`);
@@ -820,6 +863,8 @@ export class CTraderClient extends EventEmitter {
   
   /**
    * Cria uma nova ordem de mercado
+   * 
+   * REFATORAÇÃO: Adicionado logging detalhado e tratamento de erros explícito
    */
   async createMarketOrder(
     symbolId: number,
@@ -834,6 +879,14 @@ export class CTraderClient extends EventEmitter {
     
     // Volume em 0.01 de unidade (1000 = 10.00 lotes)
     const volumeInProtocol = Math.round(volume * 100);
+    
+    // Log detalhado dos parâmetros da ordem
+    console.log(`[CTraderClient] [ORDER] Preparando ordem de mercado:`);
+    console.log(`  - Symbol ID: ${symbolId}`);
+    console.log(`  - Side: ${tradeSide === TradeSide.BUY ? 'BUY' : 'SELL'}`);
+    console.log(`  - Volume: ${volume} lotes (${volumeInProtocol} cents no protocolo)`);
+    console.log(`  - Stop Loss: ${stopLoss !== undefined ? stopLoss : 'N/A'}`);
+    console.log(`  - Take Profit: ${takeProfit !== undefined ? takeProfit : 'N/A'}`);
     
     const orderParams: any = {
       ctidTraderAccountId: this.accountId,
@@ -859,9 +912,59 @@ export class CTraderClient extends EventEmitter {
       orderParams.comment = comment;
     }
     
-    const response = await this.sendRequest("ProtoOANewOrderReq", orderParams, PayloadType.PROTO_OA_EXECUTION_EVENT);
+    try {
+      const response = await this.sendRequest("ProtoOANewOrderReq", orderParams, PayloadType.PROTO_OA_EXECUTION_EVENT);
+      
+      // Verificar se há erro na resposta
+      if (response.errorCode) {
+        const errorMsg = this.translateErrorCode(response.errorCode, response.description);
+        console.error(`[CTraderClient] [ORDER] ❌ ERRO NA EXECUÇÃO:`);
+        console.error(`  - Error Code: ${response.errorCode}`);
+        console.error(`  - Descrição: ${errorMsg}`);
+        console.error(`  - Resposta completa:`, JSON.stringify(response, null, 2));
+      } else {
+        console.log(`[CTraderClient] [ORDER] ✅ Ordem enviada com sucesso`);
+      }
+      
+      return response;
+    } catch (error) {
+      console.error(`[CTraderClient] [ORDER] ❌ EXCEÇÃO ao enviar ordem:`);
+      console.error(`  - Erro: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+  
+  /**
+   * Traduz códigos de erro da cTrader API para mensagens legíveis
+   */
+  private translateErrorCode(errorCode: string | number, description?: string): string {
+    const errorMessages: Record<string, string> = {
+      // Erros de Volume
+      'INVALID_VOLUME': 'Volume inválido - verifique minVolume, maxVolume e stepVolume do símbolo',
+      'NOT_ENOUGH_MONEY': 'Saldo insuficiente para abrir a posição',
+      'MAX_EXPOSURE_REACHED': 'Exposição máxima atingida para este símbolo',
+      
+      // Erros de Símbolo
+      'SYMBOL_NOT_FOUND': 'Símbolo não encontrado',
+      'TRADING_DISABLED': 'Trading desativado para este símbolo',
+      'MARKET_CLOSED': 'Mercado fechado',
+      
+      // Erros de Permissão
+      'NO_TRADING_PERMISSION': 'Token sem permissão de trading (apenas SCOPE_VIEW)',
+      'TRADING_BAD_ACCOUNT_STATE': 'Estado da conta não permite trading',
+      
+      // Erros de Ordem
+      'INVALID_STOP_LOSS': 'Stop Loss inválido',
+      'INVALID_TAKE_PROFIT': 'Take Profit inválido',
+      'INVALID_PRICE': 'Preço inválido',
+      
+      // Outros
+      'TIMEOUT': 'Timeout na execução da ordem',
+      'SERVER_ERROR': 'Erro interno do servidor cTrader',
+    };
     
-    return response;
+    const code = String(errorCode);
+    return errorMessages[code] || description || `Erro desconhecido: ${code}`;
   }
   
   /**
