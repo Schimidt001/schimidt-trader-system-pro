@@ -286,8 +286,18 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       this.m5Data = candles;
     }
     
+    // ========== DEBUG: Verificar se os dados (velas) estão a chegar ==========
+    console.log(`[DATA] ${this.currentSymbol} | Candles H1: ${this.h1Data.length} | M15: ${this.m15Data.length} | M5: ${this.m5Data.length}`);
+    
+    // DEBUG: Verificar se os dados têm valores válidos (não são zeros)
+    if (this.h1Data.length > 0) {
+      const lastH1 = this.h1Data[this.h1Data.length - 1];
+      console.log(`[DATA] ${this.currentSymbol} | Última H1: O=${lastH1.open} H=${lastH1.high} L=${lastH1.low} C=${lastH1.close}`);
+    }
+    
     // Verificar se temos dados suficientes
     if (!this.hasAllTimeframeData()) {
+      console.log(`[DATA] ${this.currentSymbol} | ❌ Dados insuficientes - H1 min: ${this.config.swingH1Lookback + 10}, M15 min: ${this.config.chochM15Lookback + 10}, M5 min: 20`);
       return this.createNoSignal("Dados insuficientes para analise MTF");
     }
     
@@ -556,6 +566,27 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   }
   
   updateTimeframeData(timeframe: string, candles: TrendbarData[]): void {
+    // DEBUG: Log de atualização de dados
+    console.log(`[DEBUG-MTF] ${this.currentSymbol} | Atualizando ${timeframe}: ${candles.length} candles`);
+    
+    // DEBUG: Verificar se os candles têm dados válidos
+    if (candles.length > 0) {
+      const first = candles[0];
+      const last = candles[candles.length - 1];
+      console.log(`[DEBUG-MTF] ${this.currentSymbol} | ${timeframe} Primeiro: O=${first.open?.toFixed(5)} H=${first.high?.toFixed(5)} L=${first.low?.toFixed(5)} C=${first.close?.toFixed(5)}`);
+      console.log(`[DEBUG-MTF] ${this.currentSymbol} | ${timeframe} Último: O=${last.open?.toFixed(5)} H=${last.high?.toFixed(5)} L=${last.low?.toFixed(5)} C=${last.close?.toFixed(5)}`);
+      
+      // ALERTA: Verificar se os dados são zeros (problema de API)
+      if (first.open === 0 || first.high === 0 || first.low === 0 || first.close === 0) {
+        console.error(`[ALERTA] ${this.currentSymbol} | ${timeframe} PRIMEIRO CANDLE TEM VALORES ZERO!`);
+      }
+      if (last.open === 0 || last.high === 0 || last.low === 0 || last.close === 0) {
+        console.error(`[ALERTA] ${this.currentSymbol} | ${timeframe} ÚLTIMO CANDLE TEM VALORES ZERO!`);
+      }
+    } else {
+      console.error(`[ALERTA] ${this.currentSymbol} | ${timeframe} ARRAY DE CANDLES VAZIO!`);
+    }
+    
     switch (timeframe.toUpperCase()) {
       case "H1":
         this.h1Data = candles;
@@ -651,8 +682,12 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     const rightBars = this.config.fractalRightBars;
     const lookback = this.config.swingH1Lookback;
     
+    // ========== DEBUG: Verificar dados antes de processar Swing Points ==========
+    console.log(`[DEBUG-SWING] ${this.currentSymbol} | TF: ${tfLabel} | Candles: ${candles.length} | leftBars: ${leftBars} | rightBars: ${rightBars} | lookback: ${lookback}`);
+    
     // Precisamos de pelo menos leftBars + rightBars + 1 candles
     if (candles.length < leftBars + rightBars + 1) {
+      console.log(`[DEBUG-SWING] ${this.currentSymbol} | ❌ Candles insuficientes: ${candles.length} < ${leftBars + rightBars + 1} (mínimo necessário)`);
       return;
     }
     
@@ -765,6 +800,29 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     }
     if (state.swingLows.length > maxSwings) {
       state.swingLows = state.swingLows.slice(-maxSwings);
+    }
+    
+    // ========== DEBUG: Verificar resultado da deteção de Swings ==========
+    if (state.swingHighs.length === 0 && state.swingLows.length === 0) {
+      // ESTE É O ERRO QUE SUSPEITAMOS:
+      console.error(`[CRÍTICO] ${this.currentSymbol}: NENHUM Swing Point detetado! A estratégia parou aqui.`);
+      console.error(`[CRÍTICO] ${this.currentSymbol}: Candles processados: ${candles.length} | startIndex: ${startIndex} | Range: [${startIndex + leftBars}, ${candles.length - rightBars})`);
+      
+      // DEBUG: Verificar se os dados dos candles são válidos
+      if (candles.length > 0) {
+        const sampleCandle = candles[Math.floor(candles.length / 2)];
+        console.error(`[CRÍTICO] ${this.currentSymbol}: Candle de amostra (meio): O=${sampleCandle.open} H=${sampleCandle.high} L=${sampleCandle.low} C=${sampleCandle.close}`);
+      }
+    } else {
+      console.log(`[DEBUG] ${this.currentSymbol}: Swings High: ${state.swingHighs.length} | Swings Low: ${state.swingLows.length}`);
+      if (state.swingHighs.length > 0) {
+        const lastHigh = state.swingHighs[state.swingHighs.length - 1];
+        console.log(`[DEBUG] ${this.currentSymbol}: Último High: ${lastHigh.price.toFixed(5)} @ index ${lastHigh.index}`);
+      }
+      if (state.swingLows.length > 0) {
+        const lastLow = state.swingLows[state.swingLows.length - 1];
+        console.log(`[DEBUG] ${this.currentSymbol}: Último Low: ${lastLow.price.toFixed(5)} @ index ${lastLow.index}`);
+      }
     }
   }
   

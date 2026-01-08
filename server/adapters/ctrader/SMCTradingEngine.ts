@@ -562,16 +562,42 @@ export class SMCTradingEngine extends EventEmitter {
         // Carregar H1 (mínimo 200 candles)
         const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", 250);
         this.timeframeData.h1.set(symbol, h1Candles);
+        
+        // DEBUG: Verificar dados H1
+        if (h1Candles.length > 0) {
+          const lastH1 = h1Candles[h1Candles.length - 1];
+          console.log(`[DEBUG-LOAD] ${symbol} H1 último candle: O=${lastH1.open} H=${lastH1.high} L=${lastH1.low} C=${lastH1.close} ts=${lastH1.timestamp}`);
+        } else {
+          console.error(`[DEBUG-LOAD] ${symbol} H1: NENHUM CANDLE RETORNADO!`);
+        }
+        
         await sleep(API_REQUEST_DELAY_MS); // Delay para evitar rate limit
         
         // Carregar M15 (mínimo 200 candles)
         const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 250);
         this.timeframeData.m15.set(symbol, m15Candles);
+        
+        // DEBUG: Verificar dados M15
+        if (m15Candles.length > 0) {
+          const lastM15 = m15Candles[m15Candles.length - 1];
+          console.log(`[DEBUG-LOAD] ${symbol} M15 último candle: O=${lastM15.open} H=${lastM15.high} L=${lastM15.low} C=${lastM15.close} ts=${lastM15.timestamp}`);
+        } else {
+          console.error(`[DEBUG-LOAD] ${symbol} M15: NENHUM CANDLE RETORNADO!`);
+        }
+        
         await sleep(API_REQUEST_DELAY_MS); // Delay para evitar rate limit
         
         // Carregar M5 (mínimo 200 candles)
         const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 250);
         this.timeframeData.m5.set(symbol, m5Candles);
+        
+        // DEBUG: Verificar dados M5
+        if (m5Candles.length > 0) {
+          const lastM5 = m5Candles[m5Candles.length - 1];
+          console.log(`[DEBUG-LOAD] ${symbol} M5 último candle: O=${lastM5.open} H=${lastM5.high} L=${lastM5.low} C=${lastM5.close} ts=${lastM5.timestamp}`);
+        } else {
+          console.error(`[DEBUG-LOAD] ${symbol} M5: NENHUM CANDLE RETORNADO!`);
+        }
         
         console.log(`[SMCTradingEngine] ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length} candles`);
         
