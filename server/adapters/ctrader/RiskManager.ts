@@ -56,12 +56,17 @@ export interface RiskState {
 
 /**
  * Especificações de volume do símbolo (da cTrader API)
- * Valores em "cents" - 1 cent = 0.01 lote
+ * 
+ * CORREÇÃO DEFINITIVA: Valores em CENTS (protocolo cTrader)
+ * Matemática:
+ * - 1 Lote = 100,000 Unidades = 10,000,000 Cents
+ * - 0.01 Lotes (micro lote) = 1,000 Unidades = 100,000 Cents
+ * - A API retorna minVolume, maxVolume, stepVolume em CENTS
  */
 export interface VolumeSpecs {
-  minVolume: number;   // Volume mínimo em cents (ex: 100 = 1.00 lote)
+  minVolume: number;   // Volume mínimo em cents (ex: 100000 = 0.01 lotes)
   maxVolume: number;   // Volume máximo em cents
-  stepVolume: number;  // Incremento de volume em cents (ex: 1 = 0.01 lote)
+  stepVolume: number;  // Incremento de volume em cents (ex: 100000 = 0.01 lotes)
 }
 
 /**
@@ -69,7 +74,7 @@ export interface VolumeSpecs {
  */
 export interface PositionSizeCalculation {
   lotSize: number;
-  volumeInCents: number;  // Volume no formato da cTrader API
+  volumeInCents: number;  // CORREÇÃO DEFINITIVA: Volume em cents (1 lote = 10,000,000 cents)
   riskAmount: number;
   riskPercent: number;
   stopLossPips: number;
@@ -225,11 +230,14 @@ export class RiskManager {
       };
     }
     
-    // Defaults conservadores se não houver specs (fallback para compatibilidade)
+    // CORREÇÃO DEFINITIVA: Defaults em CENTS (protocolo cTrader)
+    // Matemática:
+    // - 1 Lote = 100,000 Unidades = 10,000,000 Cents
+    // - 0.01 Lotes = 1,000 Unidades = 100,000 Cents
     const specs: VolumeSpecs = volumeSpecs || {
-      minVolume: 1,       // 0.01 lote (micro lote)
-      maxVolume: 10000,   // 100 lotes
-      stepVolume: 1,      // 0.01 lote
+      minVolume: 100000,           // 0.01 lotes = 100,000 cents
+      maxVolume: 100000000000000,  // 10,000 lotes = 100 trilhões de cents
+      stepVolume: 100000,          // 0.01 lotes = 100,000 cents
     };
     
     // Calcular risco em USD
@@ -239,8 +247,8 @@ export class RiskManager {
     let lotSize = riskAmount / (stopLossPips * pipValue);
     const originalLotSize = lotSize;
     
-    // Converter para "cents" (formato cTrader: 1 cent = 0.01 lote)
-    let volumeInCents = Math.round(lotSize * 100);
+    // CORREÇÃO DEFINITIVA: Converter para CENTS (1 lote = 10,000,000 cents)
+    let volumeInCents = Math.round(lotSize * 10000000);
     
     // ============= NORMALIZAÇÃO DE VOLUME (cTrader API) =============
     // 1. Arredondar para o stepVolume mais próximo (PARA BAIXO)
@@ -258,14 +266,14 @@ export class RiskManager {
       volumeInCents = specs.maxVolume;
     }
     
-    // Converter de volta para lotes
-    lotSize = volumeInCents / 100;
+    // CORREÇÃO DEFINITIVA: Converter de volta para lotes (1 lote = 10,000,000 cents)
+    lotSize = volumeInCents / 10000000;
     
     // Verificar se o volume foi ajustado
-    const volumeAdjusted = Math.abs(lotSize - originalLotSize) > 0.001;
+    const volumeAdjusted = Math.abs(lotSize - originalLotSize) > 0.0001;
     
     // Verificar se o volume mínimo excede o risco permitido
-    const minLotSize = specs.minVolume / 100;
+    const minLotSize = specs.minVolume / 10000000;
     const actualRiskAmount = lotSize * stopLossPips * pipValue;
     const actualRiskPercent = (actualRiskAmount / accountBalance) * 100;
     
@@ -292,9 +300,9 @@ export class RiskManager {
     console.log(`  - Risco configurado: ${this.config.riskPercentage}% = $${riskAmount.toFixed(2)}`);
     console.log(`  - SL: ${stopLossPips} pips`);
     console.log(`  - Pip Value: $${pipValue}`);
-    console.log(`  - Volume Specs: min=${specs.minVolume} (${specs.minVolume/100} lotes), max=${specs.maxVolume} (${specs.maxVolume/100} lotes), step=${specs.stepVolume}`);
+    console.log(`  - Volume Specs: min=${specs.minVolume} cents (${minLotSize} lotes), max=${specs.maxVolume} cents, step=${specs.stepVolume} cents`);
     console.log(`  - Lote bruto: ${originalLotSize.toFixed(4)}`);
-    console.log(`  - Lote normalizado: ${lotSize} (${volumeInCents} cents)`);
+    console.log(`  - Lote normalizado: ${lotSize} lotes (${volumeInCents} cents)`);
     console.log(`  - Risco real: ${actualRiskPercent.toFixed(2)}% = $${actualRiskAmount.toFixed(2)}`);
     if (volumeAdjusted) {
       console.log(`  - ⚠️ VOLUME AJUSTADO para respeitar limites da corretora`);

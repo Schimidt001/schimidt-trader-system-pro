@@ -1052,27 +1052,50 @@ export class SMCTradingEngine extends EventEmitter {
     const sltp = this.strategy!.calculateSLTP(currentPrice, direction, pipValue, metadataWithSpread);
     
     // Calcular tamanho da posição
-    // REFATORAÇÃO: Obter specs de volume do símbolo para normalização correta
+    // CORREÇÃO: Usar volume mínimo REAL detectado (prioridade sobre API)
     let lotSize = this.config.lots;
     if (this.riskManager && sltp.stopLossPips) {
       try {
         // Obter specs de volume do símbolo da cTrader API
         const symbolInfo = await ctraderAdapter.getSymbolInfo(symbol);
+        
+        // CORREÇÃO DEFINITIVA: Verificar se temos um volume mínimo REAL detectado
+        // Isso é necessário porque algumas contas têm limites diferentes do padrão
+        const realMinVolume = ctraderAdapter.getRealMinVolume(symbol);
+        // Converter lotes para cents: 1 lote = 10,000,000 cents
+        const realMinVolumeCents = Math.round(realMinVolume * 10000000);
+        
         const volumeSpecs = symbolInfo ? {
-          minVolume: symbolInfo.minVolume,
+          // CORREÇÃO: symbolInfo.minVolume já está em cents (da API)
+          // Usar o MAIOR entre o minVolume da API e o detectado
+          minVolume: Math.max(symbolInfo.minVolume, realMinVolumeCents),
           maxVolume: symbolInfo.maxVolume,
           stepVolume: symbolInfo.stepVolume,
-        } : undefined;
+        } : {
+          minVolume: realMinVolumeCents,
+          maxVolume: 100000000000000, // 10,000 lotes
+          stepVolume: 100000,          // 0.01 lotes
+        };
+        
+        console.log(`[SMCTradingEngine] Volume specs para ${symbol}: minVol=${volumeSpecs.minVolume} cents (${volumeSpecs.minVolume/10000000} lotes), realMinDetected=${realMinVolume} lotes`);
         
         const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, pipValue, volumeSpecs);
         if (posSize.canTrade) {
           lotSize = posSize.lotSize;
-          console.log(`[SMCTradingEngine] Volume normalizado: ${lotSize} lotes (${posSize.volumeInCents} cents)`);
+          // CORREÇÃO DEFINITIVA: Usar volumeInCents (1 lote = 10,000,000 cents)
+          console.log(`[SMCTradingEngine] Volume normalizado: ${lotSize} lotes (${posSize.volumeInCents} cents = ${posSize.volumeInCents/100} unidades)`);
           if (posSize.volumeAdjusted) {
             console.log(`[SMCTradingEngine] ⚠️ Volume ajustado de ${posSize.originalLotSize?.toFixed(4)} para ${lotSize} lotes`);
           }
         } else {
           console.warn(`[SMCTradingEngine] ❌ Não pode operar: ${posSize.reason}`);
+          
+          // CORREÇÃO: Log adicional para ajudar no diagnóstico
+          if (realMinVolume > 1) {
+            console.warn(`[SMCTradingEngine] 📊 NOTA: Esta conta tem volume mínimo de ${realMinVolume} lotes`);
+            console.warn(`[SMCTradingEngine] 📊 Considere usar uma conta com volume mínimo menor para operar com risco controlado.`);
+          }
+          
           return; // Abortar trade se não pode calcular volume válido
         }
       } catch (volumeError) {

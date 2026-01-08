@@ -200,6 +200,11 @@ export class CTraderClient extends EventEmitter {
   private symbolCache: Map<string, SymbolInfo> = new Map();
   private symbolIdToName: Map<number, string> = new Map();
   
+  // CORREÇÃO: Cache de volume mínimo REAL detectado por símbolo
+  // A API pode reportar um minVolume diferente do que a conta realmente aceita
+  // Este cache armazena o volume mínimo real detectado via erro TRADING_BAD_VOLUME
+  private detectedMinVolumes: Map<string, number> = new Map();
+  
   constructor() {
     super();
     this.loadProtoFiles();
@@ -498,11 +503,42 @@ export class CTraderClient extends EventEmitter {
         clearTimeout(pending.timeout);
         this.pendingRequests.delete(clientMsgId);
         
-        // Verificar erro
+        // Verificar erro genérico
         if (payloadType === PayloadType.PROTO_OA_ERROR_RES) {
           const ErrorRes = this.protoRoot.lookupType("ProtoOAErrorRes");
           const error = ErrorRes.decode(protoMessage.payload);
           pending.reject(new Error(`cTrader Error: ${(error as any).errorCode} - ${(error as any).description}`));
+          return;
+        }
+        
+        // CORREÇÃO: Tratar PROTO_OA_ORDER_ERROR_EVENT como resposta a ordem
+        // Este evento é retornado quando uma ordem falha (ex: TRADING_BAD_VOLUME)
+        if (payloadType === PayloadType.PROTO_OA_ORDER_ERROR_EVENT) {
+          const OrderErrorEvent = this.protoRoot.lookupType("ProtoOAOrderErrorEvent");
+          const errorEvent = OrderErrorEvent.decode(protoMessage.payload) as any;
+          
+          console.error(`[CTraderClient] [ORDER_ERROR] Erro de ordem detectado:`);
+          console.error(`  - Error Code: ${errorEvent.errorCode}`);
+          console.error(`  - Descrição: ${errorEvent.description}`);
+          
+          // Extrair volume mínimo da mensagem de erro se disponível
+          // Formato: "Order volume = X is smaller than minimum allowed volume = Y"
+          let detectedMinVolume: number | undefined;
+          if (errorEvent.description && errorEvent.description.includes('minimum allowed volume')) {
+            const match = errorEvent.description.match(/minimum allowed volume = ([\d.]+)/);
+            if (match) {
+              detectedMinVolume = parseFloat(match[1]);
+              console.log(`[CTraderClient] [ORDER_ERROR] Volume mínimo detectado: ${detectedMinVolume} lotes`);
+            }
+          }
+          
+          // Resolver com objeto de erro estruturado (não rejeitar, para permitir tratamento no CTraderAdapter)
+          pending.resolve({
+            errorCode: errorEvent.errorCode,
+            description: errorEvent.description,
+            detectedMinVolume,
+            isOrderError: true,
+          });
           return;
         }
         
@@ -670,11 +706,13 @@ export class CTraderClient extends EventEmitter {
         pipPosition: s.pipPosition || 4,
         baseAssetId: convertLong(s.baseAssetId),
         quoteAssetId: convertLong(s.quoteAssetId),
-        // Volume specs (em cents - 1 = 0.01 lote)
-        // Defaults conservadores se não fornecidos pela API
-        minVolume: convertLong(s.minVolume, 100),      // Default: 1.00 lote
-        maxVolume: convertLong(s.maxVolume, 10000000), // Default: 100000 lotes
-        stepVolume: convertLong(s.stepVolume, 1),      // Default: 0.01 lote
+        // CORREÇÃO DEFINITIVA: Volume specs em CENTS (protocolo cTrader)
+        // Documentação: "Volume in cents (e.g. 1000 in protocol means 10.00 units)"
+        // Matemática: 1 Lote = 100,000 Unidades = 10,000,000 Cents
+        // A API retorna valores em CENTS
+        minVolume: convertLong(s.minVolume, 100000),       // Default: 0.01 lotes = 100,000 cents
+        maxVolume: convertLong(s.maxVolume, 100000000000000), // Default: 10,000 lotes
+        stepVolume: convertLong(s.stepVolume, 100000),     // Default: 0.01 lotes = 100,000 cents
       };
     });
     
@@ -691,7 +729,8 @@ export class CTraderClient extends EventEmitter {
     for (const symName of importantSymbols) {
       const sym = this.symbolCache.get(symName);
       if (sym) {
-        console.log(`[CTraderClient] [VOLUME_SPECS] ${symName}: minVol=${sym.minVolume} (${sym.minVolume/100} lotes), maxVol=${sym.maxVolume} (${sym.maxVolume/100} lotes), step=${sym.stepVolume} (${sym.stepVolume/100} lotes)`);
+        // CORREÇÃO DEFINITIVA: Mostrar conversão correta (1 lote = 10,000,000 cents)
+        console.log(`[CTraderClient] [VOLUME_SPECS] ${symName}: minVol=${sym.minVolume} cents (${sym.minVolume/10000000} lotes), maxVol=${sym.maxVolume} cents, step=${sym.stepVolume} cents`);
       }
     }
     
@@ -745,6 +784,60 @@ export class CTraderClient extends EventEmitter {
     }
     
     throw new Error(`Symbol not found: ${symbolName}`);
+  }
+  
+  /**
+   * CORREÇÃO: Obtém o volume mínimo REAL para um símbolo
+   * 
+   * Prioriza o volume detectado via erro TRADING_BAD_VOLUME sobre o reportado pela API,
+   * pois algumas contas têm limites diferentes do padrão.
+   * 
+   * @param symbolName Nome do símbolo (ex: "EURUSD")
+   * @returns Volume mínimo em lotes (ex: 0.01, 1.0, 1000.0)
+   */
+  getRealMinVolume(symbolName: string): number {
+    // Primeiro, verificar se temos um volume mínimo detectado via erro
+    const detectedMin = this.detectedMinVolumes.get(symbolName);
+    if (detectedMin !== undefined) {
+      console.log(`[CTraderClient] [MIN_VOLUME] ${symbolName}: Usando volume mínimo DETECTADO: ${detectedMin} lotes`);
+      return detectedMin;
+    }
+    
+    // Fallback: usar o minVolume reportado pela API
+    const symbolInfo = this.symbolCache.get(symbolName);
+    if (symbolInfo) {
+      // CORREÇÃO DEFINITIVA: Converter de CENTS para lotes (1 lote = 10,000,000 cents)
+      const apiMinVolume = symbolInfo.minVolume / 10000000;
+      console.log(`[CTraderClient] [MIN_VOLUME] ${symbolName}: Usando volume mínimo da API: ${apiMinVolume} lotes (${symbolInfo.minVolume} cents)`);
+      return apiMinVolume;
+    }
+    
+    // Default conservador se não houver informação
+    console.warn(`[CTraderClient] [MIN_VOLUME] ${symbolName}: Sem informação, usando default: 0.01 lotes`);
+    return 0.01;
+  }
+  
+  /**
+   * CORREÇÃO: Atualiza o volume mínimo detectado para um símbolo
+   * 
+   * Chamado quando recebemos erro TRADING_BAD_VOLUME com o volume mínimo real.
+   * 
+   * @param symbolName Nome do símbolo
+   * @param minVolumeLots Volume mínimo em lotes
+   */
+  setDetectedMinVolume(symbolName: string, minVolumeLots: number): void {
+    console.log(`[CTraderClient] [MIN_VOLUME] ${symbolName}: Atualizando volume mínimo detectado para ${minVolumeLots} lotes`);
+    this.detectedMinVolumes.set(symbolName, minVolumeLots);
+    
+    // Emitir evento para que outros componentes possam reagir
+    this.emit('minVolumeDetected', { symbolName, minVolumeLots });
+  }
+  
+  /**
+   * CORREÇÃO: Obtém todos os volumes mínimos detectados
+   */
+  getAllDetectedMinVolumes(): Map<string, number> {
+    return new Map(this.detectedMinVolumes);
   }
   
   /**
@@ -877,14 +970,26 @@ export class CTraderClient extends EventEmitter {
   ): Promise<any> {
     if (!this.accountId) throw new Error("Not authenticated");
     
-    // Volume em 0.01 de unidade (1000 = 10.00 lotes)
-    const volumeInProtocol = Math.round(volume * 100);
+    // CORREÇÃO DEFINITIVA DE VOLUME (cTrader Protocol)
+    // Documentação: "Volume in cents (e.g. 1000 in protocol means 10.00 units)"
+    // 
+    // Matemática:
+    // - 1 Lote Standard = 100,000 Unidades
+    // - 1 Unidade = 100 Cents (no protocolo)
+    // - Logo: 1 Lote = 100,000 * 100 = 10,000,000 Cents
+    // 
+    // Multiplicador: 10,000,000 (Dez Milhões)
+    // 
+    // Prova Real:
+    // - Se volume = 0.01 (Micro Lote)
+    // - 0.01 * 10,000,000 = 100,000 Cents = 1,000 Unidades ✅
+    const volumeInCents = Math.round(volume * 10000000);
     
     // Log detalhado dos parâmetros da ordem
     console.log(`[CTraderClient] [ORDER] Preparando ordem de mercado:`);
     console.log(`  - Symbol ID: ${symbolId}`);
     console.log(`  - Side: ${tradeSide === TradeSide.BUY ? 'BUY' : 'SELL'}`);
-    console.log(`  - Volume: ${volume} lotes (${volumeInProtocol} cents no protocolo)`);
+    console.log(`  - Volume: ${volume} lotes = ${volumeInCents} cents (${volumeInCents/100} unidades)`);
     console.log(`  - Stop Loss: ${stopLoss !== undefined ? stopLoss : 'N/A'}`);
     console.log(`  - Take Profit: ${takeProfit !== undefined ? takeProfit : 'N/A'}`);
     
@@ -893,7 +998,7 @@ export class CTraderClient extends EventEmitter {
       symbolId,
       orderType: OrderType.MARKET,
       tradeSide,
-      volume: volumeInProtocol,
+      volume: volumeInCents,
     };
     
     if (stopLoss !== undefined) {

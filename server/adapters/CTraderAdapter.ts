@@ -616,8 +616,8 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       console.log(JSON.stringify(response, null, 2));
       
       // ============= TRATAMENTO DE ERROS MELHORADO =============
-      // Verificar se há erro na resposta
-      if (response.errorCode) {
+      // CORREÇÃO: Verificar se é um erro de ordem (isOrderError) ou erro genérico
+      if (response.errorCode || response.isOrderError) {
         const errorCode = String(response.errorCode);
         const errorDesc = response.description || 'Sem descrição';
         
@@ -629,10 +629,17 @@ export class CTraderAdapter extends BaseBrokerAdapter {
         console.error(`  - Volume: ${order.lots} lotes`);
         console.error(`  - Direção: ${order.direction}`);
         
+        // CORREÇÃO: Detectar e armazenar volume mínimo real se disponível
+        if (response.detectedMinVolume !== undefined) {
+          console.log(`[CTraderAdapter] 📊 Volume mínimo REAL detectado para ${order.symbol}: ${response.detectedMinVolume} lotes`);
+          this.client.setDetectedMinVolume(order.symbol, response.detectedMinVolume);
+        }
+        
         // Mensagens específicas para erros comuns
         let userMessage = `cTrader Error: ${errorCode}`;
-        if (errorCode.includes('VOLUME') || errorCode === 'INVALID_VOLUME') {
-          userMessage = `Volume inválido (${order.lots} lotes). Verifique os limites do símbolo.`;
+        if (errorCode.includes('VOLUME') || errorCode === 'INVALID_VOLUME' || errorCode === 'TRADING_BAD_VOLUME') {
+          const minVol = response.detectedMinVolume ? ` Mínimo: ${response.detectedMinVolume} lotes.` : '';
+          userMessage = `Volume inválido (${order.lots} lotes).${minVol} Verifique os limites do símbolo.`;
         } else if (errorCode.includes('PERMISSION') || errorCode === 'NO_TRADING_PERMISSION') {
           userMessage = 'Token sem permissão de trading. Verifique se o token tem SCOPE_TRADE.';
         } else if (errorCode.includes('MONEY') || errorCode === 'NOT_ENOUGH_MONEY') {
@@ -647,6 +654,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
           success: false,
           errorMessage: userMessage,
           errorCode: errorCode,
+          detectedMinVolume: response.detectedMinVolume,
         };
       }
       
@@ -993,6 +1001,26 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       console.warn(`[CTraderAdapter] Erro ao obter info do símbolo ${symbolName}:`, error);
       return null;
     }
+  }
+  
+  /**
+   * CORREÇÃO: Obtém o volume mínimo REAL para um símbolo
+   * 
+   * Prioriza o volume detectado via erro TRADING_BAD_VOLUME sobre o reportado pela API.
+   * Isso é necessário porque algumas contas têm limites diferentes do padrão.
+   * 
+   * @param symbolName Nome do símbolo (ex: "EURUSD")
+   * @returns Volume mínimo em lotes
+   */
+  getRealMinVolume(symbolName: string): number {
+    return this.client.getRealMinVolume(symbolName);
+  }
+  
+  /**
+   * CORREÇÃO: Obtém todos os volumes mínimos detectados
+   */
+  getAllDetectedMinVolumes(): Map<string, number> {
+    return this.client.getAllDetectedMinVolumes();
   }
   
   /**
