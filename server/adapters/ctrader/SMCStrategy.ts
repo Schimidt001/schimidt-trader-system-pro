@@ -660,30 +660,33 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
    * - A mínima do candle central é MENOR que as mínimas dos N candles à direita
    */
   private identifySwingPoints(state: SymbolSwarmState): void {
-    // NOVO: Seleção dinâmica de timeframe baseada na configuração da UI
-    const tf = this.config.structureTimeframe || 'H1';
+    // ========== FIX CRÍTICO: FORÇAR H1 PARA DETECÇÃO DE SWINGS ==========
+    // PROBLEMA: A config do banco pode estar como 'M15', mas a estrutura macro
+    // DEVE ser calculada em H1 para maior precisão institucional.
+    // SOLUÇÃO: Ignorar config.structureTimeframe e forçar H1.
     
-    let candles: TrendbarData[] = [];
-    let tfLabel: string = 'H1';
+    // FORÇAR H1 - Independente da configuração do banco de dados
+    const candles: TrendbarData[] = this.h1Data;
+    const tfLabel: string = 'H1';
     
-    // SELEÇÃO DINÂMICA DE DADOS
-    if (tf === 'M5') {
-      candles = this.m5Data;
-      tfLabel = 'M5';
-    } else if (tf === 'M15') {
-      candles = this.m15Data;
-      tfLabel = 'M15';
-    } else {
-      candles = this.h1Data; // Default H1
-      tfLabel = 'H1';
+    // Log de diagnóstico: avisar se a config estava diferente
+    if (this.config.structureTimeframe !== 'H1') {
+      console.warn(`[SMC-FIX] ${this.currentSymbol}: Config tinha structureTimeframe='${this.config.structureTimeframe}', mas FORÇANDO H1 para Swing Points`);
     }
     
     const leftBars = this.config.fractalLeftBars;
     const rightBars = this.config.fractalRightBars;
     const lookback = this.config.swingH1Lookback;
     
+    // ========== VALIDAÇÃO CRÍTICA: Garantir dados H1 suficientes ==========
+    // FIX: Validação mínima de 50 candles H1 antes de processar
+    if (candles.length < 50) {
+      console.warn(`[SMC-FIX] ${this.currentSymbol}: H1 candles insuficientes (${candles.length} < 50). Aguardando mais dados...`);
+      return;
+    }
+    
     // ========== DEBUG: Verificar dados antes de processar Swing Points ==========
-    console.log(`[DEBUG-SWING] ${this.currentSymbol} | TF: ${tfLabel} | Candles: ${candles.length} | leftBars: ${leftBars} | rightBars: ${rightBars} | lookback: ${lookback}`);
+    console.log(`[DEBUG-SWING] ${this.currentSymbol} | TF: ${tfLabel} (FORÇADO) | Candles: ${candles.length} | leftBars: ${leftBars} | rightBars: ${rightBars} | lookback: ${lookback}`);
     
     // Precisamos de pelo menos leftBars + rightBars + 1 candles
     if (candles.length < leftBars + rightBars + 1) {
@@ -814,14 +817,18 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         console.error(`[CRÍTICO] ${this.currentSymbol}: Candle de amostra (meio): O=${sampleCandle.open} H=${sampleCandle.high} L=${sampleCandle.low} C=${sampleCandle.close}`);
       }
     } else {
-      console.log(`[DEBUG] ${this.currentSymbol}: Swings High: ${state.swingHighs.length} | Swings Low: ${state.swingLows.length}`);
+      // ========== LOG SOLICITADO: Contagem de Swing Points ==========
+      const totalSwingPoints = state.swingHighs.length + state.swingLows.length;
+      console.log(`Swing Points encontrados: ${totalSwingPoints}`);
+      console.log(`[SMC-SWINGS] ${this.currentSymbol}: Highs=${state.swingHighs.length} | Lows=${state.swingLows.length} | Total=${totalSwingPoints}`);
+      
       if (state.swingHighs.length > 0) {
         const lastHigh = state.swingHighs[state.swingHighs.length - 1];
-        console.log(`[DEBUG] ${this.currentSymbol}: Último High: ${lastHigh.price.toFixed(5)} @ index ${lastHigh.index}`);
+        console.log(`[SMC-SWINGS] ${this.currentSymbol}: Último High: ${lastHigh.price.toFixed(5)} @ index ${lastHigh.index}`);
       }
       if (state.swingLows.length > 0) {
         const lastLow = state.swingLows[state.swingLows.length - 1];
-        console.log(`[DEBUG] ${this.currentSymbol}: Último Low: ${lastLow.price.toFixed(5)} @ index ${lastLow.index}`);
+        console.log(`[SMC-SWINGS] ${this.currentSymbol}: Último Low: ${lastLow.price.toFixed(5)} @ index ${lastLow.index}`);
       }
     }
   }

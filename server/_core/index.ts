@@ -7,8 +7,10 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { engineManager } from "../prediction/engineManager";
 import { applyMigrations } from "../applyMigrations";
+
+// REMOVIDO: engineManager (Prediction Engine) - Sistema SMC Puro não usa ML/AI
+// REMOVIDO: newsScheduler - Sistema SMC Puro não usa análise de notícias
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -33,24 +35,13 @@ async function startServer() {
   // Aplicar migrações do banco de dados primeiro
   await applyMigrations();
 
-  // Iniciar engine de predição Python
-  console.log("🤖 Iniciando engine de predição proprietária...");
-  try {
-    await engineManager.start();
-    console.log("✅ Engine de predição iniciada com sucesso");
-  } catch (error) {
-    console.warn("⚠️ Engine de predição não iniciou, mas continuando...", error);
-  }
+  // REMOVIDO: Inicialização do Prediction Engine (ML/AI)
+  // O sistema SMC Puro opera apenas com Price Action Estrutural
+  console.log("🎯 Sistema SMC Puro inicializado (sem ML/AI)");
 
-  // Iniciar News Scheduler (Market Condition Detector v2)
-  console.log("📰 Iniciando News Scheduler (coleta automática de notícias)...");
-  try {
-    const { newsScheduler } = await import("../market-condition-v2/newsScheduler");
-    newsScheduler.start();
-    console.log("✅ News Scheduler iniciado com sucesso");
-  } catch (error) {
-    console.warn("⚠️ News Scheduler não iniciou, mas continuando...", error);
-  }
+  // REMOVIDO: Inicialização do News Scheduler
+  // O sistema SMC Puro não depende de análise de notícias
+  console.log("📊 Modo Price Action puro ativo");
 
   const app = express();
   const server = createServer(app);
@@ -166,19 +157,19 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
-    console.log("🚀 Sistema pronto para operar!");
+    console.log("🚀 Sistema SMC Puro pronto para operar!");
   });
 
   // Tratar sinais de encerramento
   process.on("SIGINT", async () => {
     console.log("\n🛑 Encerrando sistema...");
-    await engineManager.stop();
+    // REMOVIDO: engineManager.stop() - não existe mais
     process.exit(0);
   });
 
   process.on("SIGTERM", async () => {
     console.log("\n🛑 Encerrando sistema...");
-    await engineManager.stop();
+    // REMOVIDO: engineManager.stop() - não existe mais
     process.exit(0);
   });
 }
