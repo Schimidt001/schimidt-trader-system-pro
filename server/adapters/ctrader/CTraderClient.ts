@@ -750,6 +750,9 @@ export class CTraderClient extends EventEmitter {
   
   /**
    * Obtém histórico de candles
+   * 
+   * ATUALIZADO: Adicionada validação e logs de debug para diagnosticar
+   * problema de Swing Points não detetados.
    */
   async getTrendbars(
     symbolId: number,
@@ -769,7 +772,20 @@ export class CTraderClient extends EventEmitter {
       count,
     }, PayloadType.PROTO_OA_GET_TRENDBARS_RES);
     
-    return (response.trendbar || []).map((bar: any) => {
+    const rawBars = response.trendbar || [];
+    
+    // DEBUG: Log de quantidade de candles recebidos
+    console.log(`[CTraderClient] getTrendbars: symbolId=${symbolId} period=${period} rawBars=${rawBars.length}`);
+    
+    // DEBUG: Verificar primeiro e último candle raw
+    if (rawBars.length > 0) {
+      const firstRaw = rawBars[0];
+      const lastRaw = rawBars[rawBars.length - 1];
+      console.log(`[CTraderClient] Primeiro raw: low=${firstRaw.low} deltaOpen=${firstRaw.deltaOpen} deltaHigh=${firstRaw.deltaHigh} deltaClose=${firstRaw.deltaClose}`);
+      console.log(`[CTraderClient] Último raw: low=${lastRaw.low} deltaOpen=${lastRaw.deltaOpen} deltaHigh=${lastRaw.deltaHigh} deltaClose=${lastRaw.deltaClose}`);
+    }
+    
+    const result = rawBars.map((bar: any) => {
       const low = this.priceFromProtocol(bar.low);
       const open = low + this.priceFromProtocol(bar.deltaOpen || 0);
       const close = low + this.priceFromProtocol(bar.deltaClose || 0);
@@ -784,6 +800,22 @@ export class CTraderClient extends EventEmitter {
         volume: Number(bar.volume || 0),
       };
     });
+    
+    // DEBUG: Verificar se os candles processados têm valores válidos
+    const invalidCandles = result.filter((c: TrendbarData) => c.open === 0 || c.high === 0 || c.low === 0 || c.close === 0);
+    if (invalidCandles.length > 0) {
+      console.error(`[CTraderClient] ALERTA: ${invalidCandles.length}/${result.length} candles com valores ZERO!`);
+    }
+    
+    // DEBUG: Log do primeiro e último candle processado
+    if (result.length > 0) {
+      const first = result[0];
+      const last = result[result.length - 1];
+      console.log(`[CTraderClient] Primeiro processado: O=${first.open.toFixed(5)} H=${first.high.toFixed(5)} L=${first.low.toFixed(5)} C=${first.close.toFixed(5)}`);
+      console.log(`[CTraderClient] Último processado: O=${last.open.toFixed(5)} H=${last.high.toFixed(5)} L=${last.low.toFixed(5)} C=${last.close.toFixed(5)}`);
+    }
+    
+    return result;
   }
   
   /**
