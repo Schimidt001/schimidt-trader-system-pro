@@ -159,10 +159,12 @@ async function startServer() {
       }
       
       // Verificar se é conta demo
-      if (accountInfo.accountType !== "demo") {
+      console.log("[ForceTestTrade] AccountInfo:", JSON.stringify(accountInfo));
+      if (accountInfo.accountType !== "demo" && !accountInfo.isDemo) {
         return res.status(403).json({ 
           success: false, 
-          error: "Este endpoint só funciona em conta DEMO por segurança" 
+          error: "Este endpoint só funciona em conta DEMO por segurança",
+          accountInfo: accountInfo
         });
       }
       
