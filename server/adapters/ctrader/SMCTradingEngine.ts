@@ -981,6 +981,15 @@ export class SMCTradingEngine extends EventEmitter {
     
     // Executar trade se houver sinal
     if (signal.signal !== "NONE" && signal.confidence >= 50) {
+      // Log de sinal detectado ANTES de tentar executar
+      await this.logSignalDetected(
+        symbol,
+        signal.signal,
+        signal.confidence,
+        signal.reason,
+        signal.indicators
+      );
+      
       await this.evaluateAndExecuteTrade(symbol, signal);
     }
     
@@ -1166,7 +1175,18 @@ export class SMCTradingEngine extends EventEmitter {
         
         console.log(`[SMCTradingEngine] ✅ ORDEM EXECUTADA: ${result.orderId} @ ${result.executionPrice}`);
         
-        // Gravar log de trade no banco de dados
+        // Gravar log de entrada usando o novo método
+        await this.logEntry(
+          symbol,
+          signal.signal,
+          result.executionPrice || 0,
+          lotSize,
+          sltp.stopLoss || 0,
+          sltp.takeProfit || 0,
+          signal.reason
+        );
+        
+        // Gravar log de trade no banco de dados (manter para compatibilidade)
         await this.logTrade(
           `✅ ORDEM EXECUTADA #${result.orderId}`,
           symbol,

@@ -416,6 +416,18 @@ export const icmarketsRouter = router({
           data: JSON.stringify({ changes, timestamp: new Date().toISOString() }),
           timestampUtc: Math.floor(Date.now() / 1000),
         });
+        
+        // MELHORIA: Gravar também no systemLogs para aparecer na página de Logs em tempo real
+        await insertSystemLog({
+          userId: ctx.user.id,
+          botId: 1,
+          level: "INFO",
+          category: "CONFIG",
+          source: "UI",
+          message: `⚙️ CONFIGURAÇÃO ALTERADA VIA UI | ${changes.length} alterações: ${changes.join(' | ')}`,
+          data: { changes, timestamp: new Date().toISOString() },
+        });
+        
         console.log(`[ICMARKETS_CONFIG] User ${ctx.user.id} | ${changes.length} alterações`);
       }
       
@@ -497,6 +509,17 @@ export const icmarketsRouter = router({
       
       const accountInfo = await ctraderAdapter.connect(credentials);
       
+      // Log de conexão bem-sucedida
+      await insertSystemLog({
+        userId: ctx.user.id,
+        botId: 1,
+        level: "INFO",
+        category: "CONNECTION",
+        source: "UI",
+        message: `🔗 CONECTADO AO IC MARKETS | Conta: ${accountInfo?.accountId || 'N/A'} | Balance: $${accountInfo?.balance?.toFixed(2) || 'N/A'} | Demo: ${config.isDemo ? 'SIM' : 'NÃO'}`,
+        data: { accountId: accountInfo?.accountId, balance: accountInfo?.balance, isDemo: config.isDemo },
+      });
+      
       return {
         success: true,
         accountInfo,
@@ -512,8 +535,20 @@ export const icmarketsRouter = router({
   /**
    * Desconecta do IC Markets
    */
-  disconnect: protectedProcedure.mutation(async () => {
+  disconnect: protectedProcedure.mutation(async ({ ctx }) => {
     await ctraderAdapter.disconnect();
+    
+    // Log de desconexão
+    await insertSystemLog({
+      userId: ctx.user.id,
+      botId: 1,
+      level: "INFO",
+      category: "CONNECTION",
+      source: "UI",
+      message: `🔌 DESCONECTADO DO IC MARKETS`,
+      data: { timestamp: new Date().toISOString() },
+    });
+    
     return { success: true };
   }),
   
