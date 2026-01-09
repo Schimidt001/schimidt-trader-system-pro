@@ -48,6 +48,23 @@ const TIMEFRAME_MAP: Record<string, TrendbarPeriod> = {
  */
 
 /**
+ * Função utilitária para arredondar preço baseado nos digits do símbolo
+ * 
+ * CORREÇÃO: Resolve o bug de precisão de ponto flutuante que causava
+ * erro INVALID_REQUEST ao enviar ordens com preços como 4434.710000000003
+ * 
+ * @param price Preço a ser arredondado
+ * @param digits Número de casas decimais do símbolo (obtido via getSymbolInfo)
+ * @returns Preço arredondado para o número correto de casas decimais
+ * 
+ * @see https://help.ctrader.com/open-api/model-messages/#protooasymbol
+ */
+function roundToSymbolDigits(price: number, digits: number): number {
+  const multiplier = Math.pow(10, digits);
+  return Math.round(price * multiplier) / multiplier;
+}
+
+/**
  * Adaptador para IC Markets via cTrader Open API
  */
 export class CTraderAdapter extends BaseBrokerAdapter {
@@ -580,6 +597,26 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       const symbolId = await this.getSymbolId(order.symbol);
       const tradeSide = order.direction === "BUY" ? TradeSide.BUY : TradeSide.SELL;
       
+      // CORREÇÃO: Obter digits do símbolo para arredondamento correto de preços
+      // Isso resolve o bug de precisão de ponto flutuante (ex: 4434.710000000003)
+      // Referência: https://help.ctrader.com/open-api/model-messages/#protooasymbol
+      let symbolDigits = 5; // Default para pares Forex
+      try {
+        const symbolInfo = await this.client.getSymbolInfo(order.symbol);
+        symbolDigits = symbolInfo.digits;
+        console.log(`[CTraderAdapter] [PRICE_PRECISION] ${order.symbol}: digits = ${symbolDigits}`);
+      } catch (infoError) {
+        // Fallback para valores conhecidos se não conseguir obter do cache
+        if (order.symbol.includes('XAU') || order.symbol.includes('XAG')) {
+          symbolDigits = 2; // Metais preciosos
+        } else if (order.symbol.includes('JPY')) {
+          symbolDigits = 3; // Pares com JPY
+        } else {
+          symbolDigits = 5; // Pares Forex padrão
+        }
+        console.warn(`[CTraderAdapter] [PRICE_PRECISION] Usando fallback digits = ${symbolDigits} para ${order.symbol}`);
+      }
+      
       // Calcular SL/TP se especificado em pips
       let stopLoss = order.stopLoss;
       let takeProfit = order.takeProfit;
@@ -593,13 +630,27 @@ export class CTraderAdapter extends BaseBrokerAdapter {
           stopLoss = order.direction === "BUY" 
             ? entryPrice - (order.stopLossPips * pipValue)
             : entryPrice + (order.stopLossPips * pipValue);
+          // CORREÇÃO: Arredondar para digits do símbolo
+          stopLoss = roundToSymbolDigits(stopLoss, symbolDigits);
         }
         
         if (order.takeProfitPips) {
           takeProfit = order.direction === "BUY"
             ? entryPrice + (order.takeProfitPips * pipValue)
             : entryPrice - (order.takeProfitPips * pipValue);
+          // CORREÇÃO: Arredondar para digits do símbolo
+          takeProfit = roundToSymbolDigits(takeProfit, symbolDigits);
         }
+        
+        console.log(`[CTraderAdapter] [PRICE_PRECISION] SL/TP arredondados: SL=${stopLoss}, TP=${takeProfit}`);
+      }
+      
+      // CORREÇÃO: Arredondar também se SL/TP foram passados diretamente (não em pips)
+      if (stopLoss !== undefined) {
+        stopLoss = roundToSymbolDigits(stopLoss, symbolDigits);
+      }
+      if (takeProfit !== undefined) {
+        takeProfit = roundToSymbolDigits(takeProfit, symbolDigits);
       }
       
       const response = await this.client.createMarketOrder(
