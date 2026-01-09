@@ -236,6 +236,13 @@ export class SMCTradingEngine extends EventEmitter {
         { strategyType: this.config.strategyType, symbols: this.config.symbols }
       );
       
+      // Log detalhado das configurações iniciais
+      await this.logInfo(
+        `⚙️ Configurações carregadas | MaxSpread: ${this.config.maxSpread} pips | MaxPositions: ${this.config.maxPositions} | Lotes: ${this.config.lots}`,
+        "CONFIG" as LogCategory,
+        { maxSpread: this.config.maxSpread, maxPositions: this.config.maxPositions, lots: this.config.lots }
+      );
+      
     } catch (error) {
       console.error("[SMCTradingEngine] Erro ao iniciar:", error);
       // Gravar log de erro no banco de dados
@@ -283,10 +290,20 @@ export class SMCTradingEngine extends EventEmitter {
     
     // Gravar log de parada no banco de dados
     await this.logInfo(
-      `🛑 Robô SMC SWARM parado | Análises: ${this.analysisCount} | Trades: ${this.tradesExecuted}`,
+      `🛑 Robô SMC SWARM parado | Análises: ${this.analysisCount} | Trades: ${this.tradesExecuted} | Ticks: ${this.tickCount}`,
       "SYSTEM",
-      { analysisCount: this.analysisCount, tradesExecuted: this.tradesExecuted }
+      { analysisCount: this.analysisCount, tradesExecuted: this.tradesExecuted, tickCount: this.tickCount }
     );
+    
+    // Log de métricas de performance
+    const perfMetrics = this.getPerformanceMetrics();
+    if (perfMetrics.avgTickProcessingTime !== null) {
+      await this.logInfo(
+        `📊 Métricas de Performance | Avg: ${perfMetrics.avgTickProcessingTime?.toFixed(2)}ms | Max: ${perfMetrics.maxTickProcessingTime?.toFixed(2)}ms | Min: ${perfMetrics.minTickProcessingTime?.toFixed(2)}ms`,
+        "PERFORMANCE",
+        { ...perfMetrics }
+      );
+    }
   }
   
   /**
@@ -400,6 +417,17 @@ export class SMCTradingEngine extends EventEmitter {
     }
     
     console.log("[SMCTradingEngine] [Config] Parametros atualizados via UI");
+    
+    // Log para o banco de dados
+    await this.logInfo(
+      `⚙️ Parâmetros atualizados via UI | Sessão: ${smcConfig?.sessionFilterEnabled ? 'ATIVA' : 'DESATIVADA'} | Londres: ${smcConfig?.londonSessionStart}-${smcConfig?.londonSessionEnd} | NY: ${smcConfig?.nySessionStart}-${smcConfig?.nySessionEnd}`,
+      "CONFIG" as LogCategory,
+      { 
+        sessionFilterEnabled: smcConfig?.sessionFilterEnabled,
+        londonSession: `${smcConfig?.londonSessionStart}-${smcConfig?.londonSessionEnd}`,
+        nySession: `${smcConfig?.nySessionStart}-${smcConfig?.nySessionEnd}`
+      }
+    );
   }
   
   // ============= MÉTODOS PRIVADOS =============
@@ -987,6 +1015,7 @@ export class SMCTradingEngine extends EventEmitter {
     if (now - lastTrade < this.config.cooldownMs) {
       const remaining = Math.ceil((this.config.cooldownMs - (now - lastTrade)) / 1000);
       console.log(`[SMCTradingEngine] ⏳ Cooldown ativo para ${symbol}. Aguardando ${remaining}s...`);
+      await this.logFilter("COOLDOWN", symbol, `Aguardando ${remaining}s para próxima operação`, { remainingSeconds: remaining });
       return;
     }
     
@@ -995,6 +1024,7 @@ export class SMCTradingEngine extends EventEmitter {
       const canOpen = await this.riskManager.canOpenPosition();
       if (!canOpen.allowed) {
         console.log(`[SMCTradingEngine] ⚠️ ${canOpen.reason}`);
+        await this.logFilter("RISK_MANAGER", symbol, canOpen.reason);
         return;
       }
     }
@@ -1005,6 +1035,7 @@ export class SMCTradingEngine extends EventEmitter {
     
     if (symbolPositions.length >= 1) {
       console.log(`[SMCTradingEngine] ⚠️ Já existe posição aberta em ${symbol}`);
+      await this.logFilter("POSITION_EXISTS", symbol, `Já existe ${symbolPositions.length} posição(s) aberta(s)`, { openPositions: symbolPositions.length });
       return;
     }
     
@@ -1322,6 +1353,114 @@ export class SMCTradingEngine extends EventEmitter {
   public async logInfo(message: string, category: LogCategory = "SYSTEM", data?: Record<string, unknown>): Promise<void> {
     console.log(`[SMCTradingEngine] ${message}`);
     await this.logToDatabase("INFO", category, message, { data });
+  }
+  
+  /**
+   * Log de configuração alterada
+   * Usado quando parâmetros são modificados via UI
+   */
+  public async logConfigChange(paramName: string, oldValue: any, newValue: any, source: string = "UI"): Promise<void> {
+    const message = `⚙️ CONFIG ALTERADA | ${paramName}: ${JSON.stringify(oldValue)} → ${JSON.stringify(newValue)} | Fonte: ${source}`;
+    console.log(`[SMCTradingEngine] ${message}`);
+    await this.logToDatabase("INFO", "CONFIG" as LogCategory, message, { 
+      data: { paramName, oldValue, newValue, source } 
+    });
+  }
+  
+  /**
+   * Log de sinal detectado (antes da entrada)
+   */
+  public async logSignalDetected(
+    symbol: string,
+    signalType: string,
+    confidence: number,
+    reason: string,
+    indicators?: Record<string, unknown>
+  ): Promise<void> {
+    const message = `📡 SINAL DETECTADO | ${symbol} | ${signalType} | Confiança: ${confidence}% | ${reason}`;
+    console.log(`[SMCTradingEngine] ${message}`);
+    await this.logToDatabase("INFO", "SIGNAL" as LogCategory, message, {
+      symbol,
+      signal: signalType,
+      data: { confidence, reason, indicators }
+    });
+  }
+  
+  /**
+   * Log de entrada em posição
+   */
+  public async logEntry(
+    symbol: string,
+    direction: string,
+    price: number,
+    lots: number,
+    stopLoss: number,
+    takeProfit: number,
+    reason: string
+  ): Promise<void> {
+    const message = `✅ ENTRADA EXECUTADA | ${symbol} | ${direction} @ ${price.toFixed(5)} | Lotes: ${lots} | SL: ${stopLoss.toFixed(5)} | TP: ${takeProfit.toFixed(5)} | ${reason}`;
+    console.log(`[SMCTradingEngine] ${message}`);
+    await this.logToDatabase("INFO", "ENTRY" as LogCategory, message, {
+      symbol,
+      signal: direction,
+      data: { price, lots, stopLoss, takeProfit, reason }
+    });
+  }
+  
+  /**
+   * Log de saída de posição
+   */
+  public async logExit(
+    symbol: string,
+    direction: string,
+    entryPrice: number,
+    exitPrice: number,
+    pnl: number,
+    reason: string
+  ): Promise<void> {
+    const pnlEmoji = pnl >= 0 ? "🟢" : "🔴";
+    const message = `${pnlEmoji} SAÍDA EXECUTADA | ${symbol} | ${direction} | Entry: ${entryPrice.toFixed(5)} → Exit: ${exitPrice.toFixed(5)} | PnL: $${pnl.toFixed(2)} | ${reason}`;
+    console.log(`[SMCTradingEngine] ${message}`);
+    await this.logToDatabase("INFO", "EXIT" as LogCategory, message, {
+      symbol,
+      signal: direction,
+      data: { entryPrice, exitPrice, pnl, reason }
+    });
+  }
+  
+  /**
+   * Log de filtro aplicado (bloqueio de operação)
+   */
+  public async logFilter(
+    filterName: string,
+    symbol: string,
+    reason: string,
+    details?: Record<string, unknown>
+  ): Promise<void> {
+    const message = `🚫 FILTRO ATIVO | ${filterName} | ${symbol} | ${reason}`;
+    console.log(`[SMCTradingEngine] ${message}`);
+    await this.logToDatabase("WARN", "FILTER" as LogCategory, message, {
+      symbol,
+      data: { filterName, reason, ...details }
+    });
+  }
+  
+  /**
+   * Log de etapa da estratégia SMC
+   */
+  public async logStrategyStep(
+    symbol: string,
+    step: string,
+    status: string,
+    details?: Record<string, unknown>
+  ): Promise<void> {
+    const statusEmoji = status === "CONFIRMED" ? "✅" : status === "PENDING" ? "⏳" : "❌";
+    const message = `${statusEmoji} SMC | ${symbol} | ${step}: ${status}`;
+    console.log(`[SMCTradingEngine] ${message}`);
+    await this.logToDatabase("INFO", "STRATEGY" as LogCategory, message, {
+      symbol,
+      data: { step, status, ...details }
+    });
   }
   
   /**

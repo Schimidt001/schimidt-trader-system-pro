@@ -373,7 +373,7 @@ function ICMarketsLogsContent({ connectionStatus, positions, positionHistory, se
 
   // ============= QUERIES DE LOGS EM TEMPO REAL =============
   const { data: systemLogsData, isLoading: logsLoading, refetch: refetchLogs } = trpc.icmarkets.getSystemLogs.useQuery(
-    { botId: selectedBot, limit: 300 },
+    { botId: selectedBot, limit: 2000 },
     {
       enabled: true,
       refetchInterval: 2000, // Atualizar a cada 2 segundos
@@ -561,7 +561,7 @@ function ICMarketsLogsContent({ connectionStatus, positions, positionHistory, se
                     <div>
                       <CardTitle className="text-white text-xl">Console de Logs - Bot {selectedBot}</CardTitle>
                       <CardDescription className="text-slate-400">
-                        Últimos 300 logs do sistema em tempo real
+                        Últimos 2000 logs do sistema em tempo real
                       </CardDescription>
                     </div>
                   </div>

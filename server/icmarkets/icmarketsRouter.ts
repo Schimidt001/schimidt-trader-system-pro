@@ -1057,11 +1057,11 @@ export const icmarketsRouter = router({
   getSystemLogs: protectedProcedure
     .input(z.object({
       botId: z.number().default(1),
-      limit: z.number().min(1).max(500).default(300),
+      limit: z.number().min(1).max(2000).default(2000),
     }).optional())
     .query(async ({ ctx, input }) => {
       const botId = input?.botId ?? 1;
-      const limit = input?.limit ?? 300;
+      const limit = input?.limit ?? 2000;
       
       const logs = await getRecentSystemLogs(ctx.user.id, botId, limit);
       

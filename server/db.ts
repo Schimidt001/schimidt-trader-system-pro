@@ -1089,11 +1089,11 @@ export async function upsertSMCStrategyConfig(data: InsertSMCStrategyConfig): Pr
  * Tipos de níveis de log
  */
 export type LogLevel = "INFO" | "WARN" | "ERROR" | "DEBUG" | "PERFORMANCE";
+export type LogCategory = "TICK" | "ANALYSIS" | "TRADE" | "RISK" | "CONNECTION" | "SYSTEM" | "PERFORMANCE" | "CONFIG" | "SIGNAL" | "ENTRY" | "EXIT" | "FILTER" | "STRATEGY";
 
-/**
- * Categorias de log
- */
-export type LogCategory = "TICK" | "ANALYSIS" | "TRADE" | "RISK" | "CONNECTION" | "SYSTEM" | "PERFORMANCE";
+// Controle de rate limiting para logs de TICK (evitar spam)
+const tickLogRateLimit = new Map<string, number>(); // userId-botId-symbol -> lastLogTime
+const TICK_LOG_INTERVAL_MS = 30000; // Log de tick a cada 30 segundos por símbolo
 
 /**
  * Interface para inserção de log
@@ -1113,12 +1113,30 @@ export interface SystemLogInput {
 
 /**
  * Insere um novo log no sistema
+ * 
+ * MELHORIA: Implementa rate limiting para logs de TICK para evitar spam.
+ * Logs de TICK são limitados a 1 por símbolo a cada 30 segundos.
+ * Outras categorias não são afetadas.
  */
 export async function insertSystemLog(input: SystemLogInput): Promise<number | null> {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot insert system log: database not available");
     return null;
+  }
+  
+  // Rate limiting para logs de TICK (evitar spam)
+  if (input.category === "TICK") {
+    const key = `${input.userId}-${input.botId ?? 1}-${input.symbol ?? 'unknown'}`;
+    const lastLogTime = tickLogRateLimit.get(key) ?? 0;
+    const now = Date.now();
+    
+    if (now - lastLogTime < TICK_LOG_INTERVAL_MS) {
+      // Ignorar log de TICK se ainda não passou o intervalo mínimo
+      return null;
+    }
+    
+    tickLogRateLimit.set(key, now);
   }
   
   try {
@@ -1149,7 +1167,7 @@ export async function insertSystemLog(input: SystemLogInput): Promise<number | n
 export async function getRecentSystemLogs(
   userId: number,
   botId: number = 1,
-  limit: number = 300
+  limit: number = 2000
 ): Promise<SystemLog[]> {
   const db = await getDb();
   if (!db) return [];

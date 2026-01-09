@@ -179,9 +179,18 @@ export class RiskManager {
     
     // 3. Verificar filtro de horário
     if (this.config.sessionFilterEnabled && !this.isWithinTradingSession()) {
+      // Log detalhado do filtro de sessão
+      const now = new Date();
+      const brasiliaOffset = -3 * 60;
+      const localOffset = now.getTimezoneOffset();
+      const brasiliaTime = new Date(now.getTime() + (localOffset + brasiliaOffset) * 60000);
+      const currentTime = `${brasiliaTime.getHours().toString().padStart(2, '0')}:${brasiliaTime.getMinutes().toString().padStart(2, '0')}`;
+      
+      console.log(`[RiskManager] 🚫 Filtro de Sessão | Hora atual (Brasília): ${currentTime} | Londres: ${this.config.londonSessionStart}-${this.config.londonSessionEnd} | NY: ${this.config.nySessionStart}-${this.config.nySessionEnd}`);
+      
       return {
         allowed: false,
-        reason: "Fora do horário de trading permitido",
+        reason: `Fora do horário de trading permitido (${currentTime} Brasília)`,
       };
     }
     
