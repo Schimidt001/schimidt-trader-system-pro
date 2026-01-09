@@ -17,33 +17,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { DERIV_SYMBOLS } from "@/const";
-import { Loader2, Save, AlertTriangle, TrendingUp, Activity } from "lucide-react";
+import { Loader2, Save, AlertTriangle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { BotSelector, useBotSelector } from "@/components/BotSelector";
 import { useBroker, BrokerType } from "@/contexts/BrokerContext";
 import { BrokerIndicator } from "@/components/BrokerSwitch";
 import { DerivSettings } from "@/components/settings/DerivSettings";
+import { ICMarketsSettings } from "@/components/settings/ICMarketsSettings";
+import { SMCStrategySettings } from "@/components/settings/SMCStrategySettings";
+import { RsiVwapSettings } from "@/components/settings/RsiVwapSettings";
+import { HybridModeSettings } from "@/components/settings/HybridModeSettings";
 import { ICMARKETS_DEFAULTS } from "@/const/icmarkets";
 
-// Novos componentes refatorados (v2.0)
-import { OperationModeSelector } from "@/components/settings/OperationModeSelector";
-import { GlobalExposureSettings } from "@/components/settings/GlobalExposureSettings";
-import { SMCStrategySettingsClean } from "@/components/settings/SMCStrategySettingsClean";
-import { RsiVwapSettingsClean } from "@/components/settings/RsiVwapSettingsClean";
-
-/**
- * SettingsMultiBroker v2.0 - Refatorado
- * 
- * Implementa:
- * - Master Switch (Modo de Operação) como "Chefe" da tela
- * - Renderização condicional baseada no modo selecionado
- * - Single Source of Truth para cada configuração
- * - Eliminação de redundâncias em todos os componentes
- */
 export default function SettingsMultiBroker() {
   const { user, loading: authLoading } = useAuth();
   const { selectedBot, setSelectedBot } = useBotSelector();
@@ -89,23 +77,34 @@ export default function SettingsMultiBroker() {
   const [hedgeEnabled, setHedgeEnabled] = useState(true);
   
   // ============= FILTROS AVANÇADOS DERIV =============
+  // Filtro de Horário
   const [hourlyFilterEnabled, setHourlyFilterEnabled] = useState(false);
   const [hourlyFilterCustomHours, setHourlyFilterCustomHours] = useState<number[]>([]);
   const [hourlyFilterGoldHours, setHourlyFilterGoldHours] = useState<number[]>([]);
   const [hourlyFilterGoldMultiplier, setHourlyFilterGoldMultiplier] = useState("200");
+  
+  // Market Condition Detector
   const [marketConditionEnabled, setMarketConditionEnabled] = useState(false);
+  
+  // Payout Mínimo
   const [payoutCheckEnabled, setPayoutCheckEnabled] = useState(true);
   const [minPayoutPercent, setMinPayoutPercent] = useState("80");
   const [payoutRecheckDelay, setPayoutRecheckDelay] = useState("300");
+  
+  // DojiGuard (Filtro Anti-Doji)
   const [antiDojiEnabled, setAntiDojiEnabled] = useState(false);
   const [antiDojiRangeMin, setAntiDojiRangeMin] = useState("0.0500");
   const [antiDojiRatioMin, setAntiDojiRatioMin] = useState("18");
+  
+  // ExhaustionGuard (Filtro de Exaustão)
   const [exhaustionGuardEnabled, setExhaustionGuardEnabled] = useState(false);
   const [exhaustionRatioMax, setExhaustionRatioMax] = useState("70");
   const [exhaustionPositionMin, setExhaustionPositionMin] = useState("85");
   const [exhaustionRangeLookback, setExhaustionRangeLookback] = useState("10");
   const [exhaustionRangeMultiplier, setExhaustionRangeMultiplier] = useState("1.5");
   const [exhaustionGuardLogEnabled, setExhaustionGuardLogEnabled] = useState(true);
+  
+  // TTLFilter (Time-To-Live Filter)
   const [ttlEnabled, setTtlEnabled] = useState(false);
   const [ttlMinimumSeconds, setTtlMinimumSeconds] = useState("180");
   const [ttlTriggerDelayBuffer, setTtlTriggerDelayBuffer] = useState("120");
@@ -125,75 +124,115 @@ export default function SettingsMultiBroker() {
   const [icAccessToken, setIcAccessToken] = useState("");
   const [icIsDemo, setIcIsDemo] = useState(true);
   
-  // Configurações de Trading IC Markets (legado)
+  // Configurações de Trading IC Markets
   const [icSymbol, setIcSymbol] = useState("EURUSD");
   const [icLots, setIcLots] = useState(ICMARKETS_DEFAULTS.defaultLots.toString());
   const [icLeverage, setIcLeverage] = useState(ICMARKETS_DEFAULTS.defaultLeverage.toString());
   const [icTimeframe, setIcTimeframe] = useState(ICMARKETS_DEFAULTS.defaultTimeframe);
   const [icStopLossPips, setIcStopLossPips] = useState(ICMARKETS_DEFAULTS.defaultStopLossPips.toString());
   const [icTakeProfitPips, setIcTakeProfitPips] = useState(ICMARKETS_DEFAULTS.defaultTakeProfitPips.toString());
+  
+  // Trailing Stop IC Markets
   const [icTrailingEnabled, setIcTrailingEnabled] = useState(true);
   const [icTrailingTriggerPips, setIcTrailingTriggerPips] = useState(ICMARKETS_DEFAULTS.trailingTriggerPips.toString());
   const [icTrailingStepPips, setIcTrailingStepPips] = useState(ICMARKETS_DEFAULTS.trailingStepPips.toString());
   
-  // ============= MODO DE OPERAÇÃO (MASTER SWITCH) =============
-  // Este é o "Chefe" da tela - controla a renderização de todos os outros painéis
-  const [operationMode, setOperationMode] = useState("SMC_ONLY");
+  // ============= ESTADOS SMC STRATEGY =============
+  // Tipo de estratégia
+  const [smcStrategyType, setSmcStrategyType] = useState("SMC_SWARM");
   
-  // ============= ESTADOS GLOBAIS (HÍBRIDO) =============
-  const [maxTotalExposurePercent, setMaxTotalExposurePercent] = useState("7.0");
-  const [maxTradesPerSymbol, setMaxTradesPerSymbol] = useState("1");
-
-  // ============= ESTADOS SMC STRATEGY (Single Source of Truth) =============
+  // Timeframe de Estrutura (Swing Points) - NOVO
   const [smcStructureTimeframe, setSmcStructureTimeframe] = useState("H1");
+  
+  // Símbolos ativos (Swarm)
   const [smcActiveSymbols, setSmcActiveSymbols] = useState<string[]>(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+  
+  // Parâmetros de estrutura H1
   const [smcSwingH1Lookback, setSmcSwingH1Lookback] = useState("50");
   const [smcFractalLeftBars, setSmcFractalLeftBars] = useState("2");
   const [smcFractalRightBars, setSmcFractalRightBars] = useState("2");
+  
+  // Parâmetros de Sweep
   const [smcSweepBufferPips, setSmcSweepBufferPips] = useState("2");
   const [smcSweepValidationMinutes, setSmcSweepValidationMinutes] = useState("60");
+  
+  // Parâmetros de CHoCH
   const [smcChochM15Lookback, setSmcChochM15Lookback] = useState("20");
   const [smcChochMinPips, setSmcChochMinPips] = useState("10");
+  
+  // Parâmetros de Order Block
   const [smcOrderBlockLookback, setSmcOrderBlockLookback] = useState("10");
   const [smcOrderBlockExtensionPips, setSmcOrderBlockExtensionPips] = useState("15");
+  
+  // Parâmetros de entrada
   const [smcEntryConfirmationType, setSmcEntryConfirmationType] = useState("ANY");
   const [smcRejectionWickPercent, setSmcRejectionWickPercent] = useState("60");
+  
+  // Filtro de Spread SMC
   const [smcSpreadFilterEnabled, setSmcSpreadFilterEnabled] = useState(true);
   const [smcMaxSpreadPips, setSmcMaxSpreadPips] = useState("2.0");
+  
+  // Gestão de risco SMC
   const [smcRiskPercentage, setSmcRiskPercentage] = useState("0.75");
   const [smcMaxOpenTrades, setSmcMaxOpenTrades] = useState("3");
   const [smcDailyLossLimitPercent, setSmcDailyLossLimitPercent] = useState("3");
   const [smcStopLossBufferPips, setSmcStopLossBufferPips] = useState("2");
   const [smcRewardRiskRatio, setSmcRewardRiskRatio] = useState("4");
+  
+  // Sessões de trading SMC
   const [smcSessionFilterEnabled, setSmcSessionFilterEnabled] = useState(true);
   const [smcLondonSessionStart, setSmcLondonSessionStart] = useState("04:00");
   const [smcLondonSessionEnd, setSmcLondonSessionEnd] = useState("07:00");
   const [smcNySessionStart, setSmcNySessionStart] = useState("09:30");
   const [smcNySessionEnd, setSmcNySessionEnd] = useState("12:30");
+  
+  // Trailing Stop SMC
   const [smcTrailingEnabled, setSmcTrailingEnabled] = useState(true);
   const [smcTrailingTriggerPips, setSmcTrailingTriggerPips] = useState("20");
   const [smcTrailingStepPips, setSmcTrailingStepPips] = useState("10");
+  
+  // Circuit Breaker SMC
   const [smcCircuitBreakerEnabled, setSmcCircuitBreakerEnabled] = useState(true);
+  
+  // Logging SMC
   const [smcVerboseLogging, setSmcVerboseLogging] = useState(false);
 
-  // ============= ESTADOS RSI + VWAP (Single Source of Truth) =============
+  // ============= ESTADOS MODO HÍBRIDO =============
+  const [hybridMode, setHybridMode] = useState("SMC_ONLY");
+  const [maxTotalExposurePercent, setMaxTotalExposurePercent] = useState("7.0");
+  const [maxTradesPerSymbol, setMaxTradesPerSymbol] = useState("1");
+
+  // ============= ESTADOS RSI + VWAP =============
+  // Indicadores RSI
   const [rsiPeriod, setRsiPeriod] = useState("14");
   const [rsiOversold, setRsiOversold] = useState("30");
   const [rsiOverbought, setRsiOverbought] = useState("70");
+  
+  // VWAP
   const [vwapEnabled, setVwapEnabled] = useState(true);
+  
+  // Gestão de Risco RSI
   const [rsiRiskPercentage, setRsiRiskPercentage] = useState("1.0");
   const [rsiStopLossPips, setRsiStopLossPips] = useState("10");
   const [rsiTakeProfitPips, setRsiTakeProfitPips] = useState("20");
   const [rsiRewardRiskRatio, setRsiRewardRiskRatio] = useState("2.0");
+  
+  // Filtros RSI
   const [rsiMinCandleBodyPercent, setRsiMinCandleBodyPercent] = useState("30");
   const [rsiSpreadFilterEnabled, setRsiSpreadFilterEnabled] = useState(true);
   const [rsiMaxSpreadPips, setRsiMaxSpreadPips] = useState("2.0");
+  
+  // Horários RSI
   const [rsiSessionFilterEnabled, setRsiSessionFilterEnabled] = useState(true);
   const [rsiSessionStart, setRsiSessionStart] = useState("08:00");
   const [rsiSessionEnd, setRsiSessionEnd] = useState("17:00");
+  
+  // Trailing Stop RSI
   const [rsiTrailingEnabled, setRsiTrailingEnabled] = useState(false);
   const [rsiTrailingTriggerPips, setRsiTrailingTriggerPips] = useState("15");
   const [rsiTrailingStepPips, setRsiTrailingStepPips] = useState("5");
+  
+  // Logging RSI
   const [rsiVerboseLogging, setRsiVerboseLogging] = useState(true);
 
   // ============= QUERIES =============
@@ -207,6 +246,7 @@ export default function SettingsMultiBroker() {
     { enabled: !!user, refetchInterval: false }
   );
 
+  // Query para carregar configurações IC Markets
   const { data: icConfig } = trpc.icmarkets.getConfig.useQuery(undefined, {
     enabled: !!user && isICMarkets,
   });
@@ -254,6 +294,7 @@ export default function SettingsMultiBroker() {
     },
   });
 
+  // Mutation para salvar configurações IC Markets
   const saveICMarketsConfig = trpc.icmarkets.saveConfig.useMutation({
     onSuccess: () => {
       toast.success("Configurações IC Markets salvas com sucesso");
@@ -265,6 +306,7 @@ export default function SettingsMultiBroker() {
     },
   });
 
+  // Mutation para testar conexão IC Markets
   const testICMarketsConnection = trpc.icmarkets.testConnection.useMutation({
     onSuccess: (data) => {
       if (data.connected) {
@@ -315,7 +357,7 @@ export default function SettingsMultiBroker() {
       setUseCandleDuration(config.useCandleDuration ?? false);
       setHedgeEnabled(config.hedgeEnabled ?? true);
       
-      // Filtros Avançados DERIV
+      // Carregar Filtros Avançados DERIV
       setHourlyFilterEnabled(config.hourlyFilterEnabled ?? false);
       if (config.hourlyFilterCustomHours) {
         try {
@@ -332,14 +374,22 @@ export default function SettingsMultiBroker() {
         }
       }
       setHourlyFilterGoldMultiplier((config.hourlyFilterGoldMultiplier || 200).toString());
+      
+      // Market Condition Detector
       setMarketConditionEnabled(config.marketConditionEnabled ?? false);
+      
+      // Payout Mínimo
       setPayoutCheckEnabled(config.payoutCheckEnabled ?? true);
       setMinPayoutPercent((config.minPayoutPercent || 80).toString());
       setPayoutRecheckDelay((config.payoutRecheckDelay || 300).toString());
+      
+      // DojiGuard
       setAntiDojiEnabled(config.antiDojiEnabled ?? false);
       setAntiDojiRangeMin(config.antiDojiRangeMin ? config.antiDojiRangeMin.toString() : "0.0500");
       const ratioPercent = config.antiDojiRatioMin ? (parseFloat(config.antiDojiRatioMin.toString()) * 100).toFixed(0) : "18";
       setAntiDojiRatioMin(ratioPercent);
+      
+      // ExhaustionGuard
       setExhaustionGuardEnabled(config.exhaustionGuardEnabled ?? false);
       const exhaustionRatioPercent = config.exhaustionRatioMax ? (parseFloat(config.exhaustionRatioMax.toString()) * 100).toFixed(0) : "70";
       setExhaustionRatioMax(exhaustionRatioPercent);
@@ -348,6 +398,8 @@ export default function SettingsMultiBroker() {
       setExhaustionRangeLookback((config.exhaustionRangeLookback ?? 10).toString());
       setExhaustionRangeMultiplier(config.exhaustionRangeMultiplier ? config.exhaustionRangeMultiplier.toString() : "1.5");
       setExhaustionGuardLogEnabled(config.exhaustionGuardLogEnabled ?? true);
+      
+      // TTLFilter
       setTtlEnabled(config.ttlEnabled ?? false);
       setTtlMinimumSeconds((config.ttlMinimumSeconds ?? 180).toString());
       setTtlTriggerDelayBuffer((config.ttlTriggerDelayBuffer ?? 120).toString());
@@ -373,14 +425,11 @@ export default function SettingsMultiBroker() {
       setIcTrailingTriggerPips((icConfig.trailingTriggerPips || ICMARKETS_DEFAULTS.trailingTriggerPips).toString());
       setIcTrailingStepPips((icConfig.trailingStepPips || ICMARKETS_DEFAULTS.trailingStepPips).toString());
       
-      // MODO DE OPERAÇÃO (Master Switch)
-      setOperationMode(icConfig.hybridMode || "SMC_ONLY");
+      // ============= CARREGAR CAMPOS SMC =============
+      // Tipo de estratégia (CRÍTICO para persistência)
+      setSmcStrategyType(icConfig.strategyType || "SMC_SWARM");
       
-      // Configurações Globais
-      setMaxTotalExposurePercent((icConfig.maxTotalExposurePercent || 7.0).toString());
-      setMaxTradesPerSymbol((icConfig.maxTradesPerSymbol || 1).toString());
-      
-      // Timeframe de Estrutura
+      // Timeframe de Estrutura (Swing Points) - NOVO
       setSmcStructureTimeframe(icConfig.structureTimeframe || "H1");
       
       // Gestão de Risco SMC
@@ -388,7 +437,7 @@ export default function SettingsMultiBroker() {
       setSmcMaxOpenTrades((icConfig.maxOpenTrades || 3).toString());
       setSmcDailyLossLimitPercent((icConfig.dailyLossLimitPercent || 3).toString());
       
-      // Ativos do Enxame
+      // Ativos do Enxame (Multi-Ativos)
       if (icConfig.activeSymbols) {
         try {
           const symbols = typeof icConfig.activeSymbols === 'string' 
@@ -400,34 +449,59 @@ export default function SettingsMultiBroker() {
         }
       }
       
-      // Parâmetros de Estrutura
+      // Parâmetros de Estrutura H1
       setSmcSwingH1Lookback((icConfig.swingH1Lookback || 50).toString());
       setSmcFractalLeftBars((icConfig.fractalLeftBars || 2).toString());
       setSmcFractalRightBars((icConfig.fractalRightBars || 2).toString());
+      
+      // Parâmetros de Sweep
       setSmcSweepBufferPips((icConfig.sweepBufferPips || 2).toString());
       setSmcSweepValidationMinutes((icConfig.sweepValidationMinutes || 60).toString());
+      
+      // Parâmetros de CHoCH
       setSmcChochM15Lookback((icConfig.chochM15Lookback || 20).toString());
       setSmcChochMinPips((icConfig.chochMinPips || 10).toString());
+      
+      // Parâmetros de Order Block
       setSmcOrderBlockLookback((icConfig.orderBlockLookback || 10).toString());
       setSmcOrderBlockExtensionPips((icConfig.orderBlockExtensionPips || 15).toString());
+      
+      // Parâmetros de Entrada
       setSmcEntryConfirmationType(icConfig.entryConfirmationType || "ANY");
       setSmcRejectionWickPercent((icConfig.rejectionWickPercent || 60).toString());
+      
+      // Filtro de Spread
       setSmcSpreadFilterEnabled(icConfig.spreadFilterEnabled ?? true);
       setSmcMaxSpreadPips((icConfig.maxSpreadPips || 2.0).toString());
+      
+      // Gestão de Risco Avançada
       setSmcStopLossBufferPips((icConfig.stopLossBufferPips || 2).toString());
       setSmcRewardRiskRatio((icConfig.rewardRiskRatio || 4).toString());
+      
+      // Sessões de Trading
       setSmcSessionFilterEnabled(icConfig.sessionFilterEnabled ?? true);
       setSmcLondonSessionStart(icConfig.londonSessionStart || "04:00");
       setSmcLondonSessionEnd(icConfig.londonSessionEnd || "07:00");
       setSmcNySessionStart(icConfig.nySessionStart || "09:30");
       setSmcNySessionEnd(icConfig.nySessionEnd || "12:30");
+      
+      // Trailing Stop SMC
       setSmcTrailingEnabled(icConfig.smcTrailingEnabled ?? true);
       setSmcTrailingTriggerPips((icConfig.smcTrailingTriggerPips || 20).toString());
       setSmcTrailingStepPips((icConfig.smcTrailingStepPips || 10).toString());
+      
+      // Circuit Breaker e Logging
       setSmcCircuitBreakerEnabled(icConfig.circuitBreakerEnabled ?? true);
       setSmcVerboseLogging(icConfig.verboseLogging ?? false);
       
-      // RSI + VWAP
+      // ============= CARREGAR MODO HÍBRIDO =============
+      setHybridMode(icConfig.hybridMode || "SMC_ONLY");
+      setMaxTotalExposurePercent((icConfig.maxTotalExposurePercent || 7.0).toString());
+      setMaxTradesPerSymbol((icConfig.maxTradesPerSymbol || 1).toString());
+      
+      // ============= CARREGAR RSI + VWAP =============
+      // Nota: Estas configurações vêm da tabela rsiVwapConfig
+      // Por enquanto, usar valores padrão até implementar query separada
       if (icConfig.rsiPeriod) setRsiPeriod(icConfig.rsiPeriod.toString());
       if (icConfig.rsiOversold) setRsiOversold(icConfig.rsiOversold.toString());
       if (icConfig.rsiOverbought) setRsiOverbought(icConfig.rsiOverbought.toString());
@@ -494,6 +568,7 @@ export default function SettingsMultiBroker() {
       const forexMinDurationMinutesNum = parseInt(forexMinDurationMinutes);
       const repredictionDelayNum = parseInt(repredictionDelay);
 
+      // Validações básicas
       if (isNaN(stakeNum) || stakeNum <= 0) {
         toast.error("Stake deve ser um número positivo");
         setIsSaving(false);
@@ -512,6 +587,7 @@ export default function SettingsMultiBroker() {
         return;
       }
 
+      // VALIDAÇÃO CRÍTICA: Filtro de Horário não pode ter array vazio
       if (hourlyFilterEnabled && hourlyFilterCustomHours.length === 0) {
         toast.error("Selecione pelo menos 1 horário permitido ou desative o filtro de horário");
         setIsSaving(false);
@@ -542,6 +618,7 @@ export default function SettingsMultiBroker() {
         allowEquals,
         useCandleDuration,
         hedgeEnabled,
+        // Filtros Avançados DERIV
         hourlyFilterEnabled,
         hourlyFilterMode: "CUSTOM" as const,
         hourlyFilterCustomHours: JSON.stringify(hourlyFilterCustomHours),
@@ -551,22 +628,25 @@ export default function SettingsMultiBroker() {
         payoutCheckEnabled,
         minPayoutPercent: parseInt(minPayoutPercent) || 80,
         payoutRecheckDelay: parseInt(payoutRecheckDelay) || 300,
+        // DojiGuard
         antiDojiEnabled,
         antiDojiRangeMin: parseFloat(antiDojiRangeMin) || 0.0500,
         antiDojiRatioMin: (parseInt(antiDojiRatioMin) || 18) / 100,
+        // ExhaustionGuard
         exhaustionGuardEnabled,
         exhaustionRatioMax: (parseInt(exhaustionRatioMax) || 70) / 100,
         exhaustionPositionMin: (parseInt(exhaustionPositionMin) || 85) / 100,
         exhaustionRangeLookback: parseInt(exhaustionRangeLookback) || 10,
         exhaustionRangeMultiplier: parseFloat(exhaustionRangeMultiplier) || 1.5,
         exhaustionGuardLogEnabled,
+        // TTLFilter
         ttlEnabled,
         ttlMinimumSeconds: parseInt(ttlMinimumSeconds) || 180,
         ttlTriggerDelayBuffer: parseInt(ttlTriggerDelayBuffer) || 120,
         ttlLogEnabled,
       });
     } else {
-      // Salvar configurações IC Markets com TODOS os campos de uma vez (Single Source of Truth)
+      // Salvar configurações IC Markets + SMC Strategy
       saveICMarketsConfig.mutate({
         clientId: icClientId,
         clientSecret: icClientSecret,
@@ -583,13 +663,8 @@ export default function SettingsMultiBroker() {
         trailingStepPips: parseInt(icTrailingStepPips),
         compoundingEnabled: true,
         baseRisk: 10,
-        // Modo de Operação (Master Switch)
-        strategyType: "SMC_SWARM",
-        hybridMode: operationMode,
-        // Configurações Globais
-        maxTotalExposurePercent: parseFloat(maxTotalExposurePercent) || 7.0,
-        maxTradesPerSymbol: parseInt(maxTradesPerSymbol) || 1,
         // SMC Strategy Config
+        strategyType: smcStrategyType,
         structureTimeframe: smcStructureTimeframe,
         activeSymbols: JSON.stringify(smcActiveSymbols),
         swingH1Lookback: parseInt(smcSwingH1Lookback) || 50,
@@ -620,6 +695,10 @@ export default function SettingsMultiBroker() {
         smcTrailingStepPips: parseInt(smcTrailingStepPips) || 10,
         circuitBreakerEnabled: smcCircuitBreakerEnabled,
         verboseLogging: smcVerboseLogging,
+        // Modo Híbrido
+        hybridMode: hybridMode,
+        maxTotalExposurePercent: parseFloat(maxTotalExposurePercent) || 7.0,
+        maxTradesPerSymbol: parseInt(maxTradesPerSymbol) || 1,
         // RSI + VWAP Config
         rsiPeriod: parseInt(rsiPeriod) || 14,
         rsiOversold: parseInt(rsiOversold) || 30,
@@ -703,7 +782,7 @@ export default function SettingsMultiBroker() {
           {/* Renderização condicional baseada no broker selecionado */}
           {isDeriv ? (
             <>
-              {/* ============= CONFIGURAÇÕES DERIV ============= */}
+              {/* Configurações DERIV */}
               <DerivSettings
                 mode={mode}
                 setMode={setMode}
@@ -804,13 +883,14 @@ export default function SettingsMultiBroker() {
                 </CardContent>
               </Card>
 
-              {/* Configurações Avançadas DERIV em Accordion */}
+              {/* Configurações Avançadas DERIV */}
               <Accordion type="single" collapsible className="space-y-4">
                 <AccordionItem value="advanced" className="bg-slate-900/50 border-slate-800 rounded-lg">
                   <AccordionTrigger className="px-6 text-white hover:no-underline">
                     Configurações Avançadas DERIV
                   </AccordionTrigger>
                   <AccordionContent className="px-6 pb-6 space-y-4">
+                    {/* IA Hedge */}
                     <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
                       <div>
                         <Label className="text-slate-300">IA Hedge Inteligente</Label>
@@ -818,6 +898,8 @@ export default function SettingsMultiBroker() {
                       </div>
                       <Switch checked={hedgeEnabled} onCheckedChange={setHedgeEnabled} />
                     </div>
+
+                    {/* Re-predição */}
                     <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
                       <div>
                         <Label className="text-slate-300">Re-predição (M30/M60)</Label>
@@ -825,6 +907,8 @@ export default function SettingsMultiBroker() {
                       </div>
                       <Switch checked={repredictionEnabled} onCheckedChange={setRepredictionEnabled} />
                     </div>
+
+                    {/* Tipo de Contrato */}
                     <div className="space-y-2">
                       <Label className="text-slate-300">Tipo de Contrato</Label>
                       <Select value={contractType} onValueChange={(v) => setContractType(v as any)}>
@@ -841,287 +925,638 @@ export default function SettingsMultiBroker() {
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
-            </>
-          ) : (
-            <>
-              {/* ============= CONFIGURAÇÕES IC MARKETS ============= */}
+
+              {/* ============= FILTROS AVANÇADOS DERIV ============= */}
               
-              {/* CREDENCIAIS cTrader - Sempre visível */}
-              <Card className="bg-slate-900/50 border-slate-800">
+              {/* Filtro de Horário */}
+              <Card className="bg-slate-900 border-slate-800">
                 <CardHeader>
-                  <CardTitle className="text-white">Credenciais cTrader (IC Markets)</CardTitle>
-                  <CardDescription className="text-slate-400">
-                    Configure suas credenciais de acesso à API cTrader
-                  </CardDescription>
+                  <CardTitle className="text-white">🕒 Filtro de Horário</CardTitle>
+                  <CardDescription>Restringe operações a horários específicos para operação (ideal para Forex)</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Client ID</Label>
-                      <Input 
-                        value={icClientId} 
-                        onChange={e => setIcClientId(e.target.value)} 
-                        className="bg-slate-800 border-slate-700 text-white" 
-                        type="password" 
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Client Secret</Label>
-                      <Input 
-                        value={icClientSecret} 
-                        onChange={e => setIcClientSecret(e.target.value)} 
-                        className="bg-slate-800 border-slate-700 text-white" 
-                        type="password" 
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-300">Access Token</Label>
-                      <Input 
-                        value={icAccessToken} 
-                        onChange={e => setIcAccessToken(e.target.value)} 
-                        className="bg-slate-800 border-slate-700 text-white" 
-                        type="password" 
-                      />
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <Label className="text-slate-300">Modo Demo</Label>
-                      <input 
-                        type="checkbox" 
-                        checked={icIsDemo} 
-                        onChange={e => setIcIsDemo(e.target.checked)} 
-                        className="rounded"
-                      />
-                    </div>
-                  </div>
-                  <div className="pt-4">
-                    <Button 
-                      onClick={handleTestICMarketsConnection} 
-                      className="bg-green-600 hover:bg-green-500 w-full"
-                      disabled={isTesting}
-                    >
-                      {isTesting ? "Testando..." : "Testar Conexão"}
-                    </Button>
-                    {icConnectionStatus && (
-                      <p className={`mt-2 text-sm ${icConnectionStatus.connected ? 'text-green-400' : 'text-red-400'}`}>
-                        {icConnectionStatus.connected 
-                          ? `✓ Conectado - Saldo: ${icConnectionStatus.currency} ${icConnectionStatus.balance?.toFixed(2)}`
-                          : '✗ Não conectado'
-                        }
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="hourlyFilterEnabled" className="text-slate-300">
+                        Ativar Filtro de Horário
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Bot opera apenas nos horários permitidos (GMT - padrão Deriv)
                       </p>
-                    )}
+                    </div>
+                    <Switch
+                      id="hourlyFilterEnabled"
+                      checked={hourlyFilterEnabled}
+                      onCheckedChange={setHourlyFilterEnabled}
+                    />
+                  </div>
+                  {hourlyFilterEnabled && (
+                    <div className="space-y-4 pt-4 border-t border-slate-700">
+                      {/* Indicador de Horário Atual */}
+                      <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 mb-4">
+                        <div className="flex items-center justify-between text-sm">
+                          <div>
+                            <span className="text-slate-400">Horário GMT Atual:</span>
+                            <span className="ml-2 text-blue-400 font-semibold">
+                              {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} ({new Date().getUTCHours()}h GMT)
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Seu Horário:</span>
+                            <span className="ml-2 text-green-400 font-semibold">
+                              {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Grade de Horários */}
+                      <div className="space-y-2">
+                        <Label className="text-slate-300">
+                          Horários Permitidos (GMT)
+                        </Label>
+                        <p className="text-xs text-slate-500 mb-3">
+                          Clique nos horários para permitir/bloquear operações
+                        </p>
+                        <div className="grid grid-cols-6 gap-2">
+                          {Array.from({ length: 24 }, (_, i) => i).map((hour) => {
+                            const isSelected = hourlyFilterCustomHours.includes(hour);
+                            const isGold = hourlyFilterGoldHours.includes(hour);
+                            return (
+                              <button
+                                key={hour}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    const newHours = hourlyFilterCustomHours.filter(h => h !== hour);
+                                    setHourlyFilterCustomHours(newHours);
+                                    setHourlyFilterGoldHours(hourlyFilterGoldHours.filter(h => h !== hour));
+                                  } else {
+                                    const newHours = [...hourlyFilterCustomHours, hour].sort((a, b) => a - b);
+                                    setHourlyFilterCustomHours(newHours);
+                                  }
+                                }}
+                                className={`
+                                  px-3 py-2 rounded-lg font-semibold text-sm transition-all
+                                  ${isGold 
+                                    ? 'bg-yellow-500 text-black hover:bg-yellow-400 ring-2 ring-yellow-300' 
+                                    : isSelected 
+                                      ? 'bg-green-600 text-white hover:bg-green-500' 
+                                      : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                                  }
+                                `}
+                              >
+                                {isGold && '⭐ '}{hour}h
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2">
+                          {hourlyFilterCustomHours.length} horário(s) selecionado(s)
+                        </p>
+                      </div>
+                      {/* Horários GOLD */}
+                      <div className="space-y-2 pt-4 border-t border-slate-700">
+                        <Label className="text-slate-300">
+                          ⭐ Horários GOLD (opcional)
+                        </Label>
+                        <p className="text-xs text-slate-500 mb-3">
+                          Clique em um horário permitido para marcá-lo como GOLD (stake multiplicado)
+                        </p>
+                        <div className="grid grid-cols-6 gap-2">
+                          {hourlyFilterCustomHours.map((hour) => {
+                            const isGold = hourlyFilterGoldHours.includes(hour);
+                            return (
+                              <button
+                                key={hour}
+                                type="button"
+                                onClick={() => {
+                                  if (isGold) {
+                                    setHourlyFilterGoldHours(hourlyFilterGoldHours.filter(h => h !== hour));
+                                  } else {
+                                    if (hourlyFilterGoldHours.length < 2) {
+                                      setHourlyFilterGoldHours([...hourlyFilterGoldHours, hour].sort((a, b) => a - b));
+                                    }
+                                  }
+                                }}
+                                className={`
+                                  px-3 py-2 rounded-lg font-semibold text-sm transition-all
+                                  ${isGold 
+                                    ? 'bg-yellow-500 text-black hover:bg-yellow-400 ring-2 ring-yellow-300' 
+                                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                                  }
+                                `}
+                              >
+                                {isGold && '⭐ '}{hour}h
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {hourlyFilterGoldHours.length > 0 && (
+                          <p className="text-xs text-yellow-400 mt-2">
+                            {hourlyFilterGoldHours.length} horário(s) GOLD selecionado(s)
+                          </p>
+                        )}
+                      </div>
+                      {/* Multiplicador GOLD */}
+                      {hourlyFilterGoldHours.length > 0 && (
+                        <div className="space-y-2 pt-4 border-t border-slate-700">
+                          <Label htmlFor="hourlyFilterGoldMultiplier" className="text-slate-300">
+                            Multiplicador de Stake GOLD
+                          </Label>
+                          <div className="flex items-center gap-4">
+                            <Input
+                              id="hourlyFilterGoldMultiplier"
+                              type="number"
+                              value={hourlyFilterGoldMultiplier}
+                              onChange={(e) => setHourlyFilterGoldMultiplier(e.target.value)}
+                              className="bg-slate-800 border-slate-700 text-white"
+                              min="100"
+                              step="50"
+                            />
+                            <span className="text-yellow-400 font-semibold">
+                              {parseInt(hourlyFilterGoldMultiplier) / 100}x
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            Stake será multiplicado nos horários GOLD (100 = 1x, 200 = 2x, 300 = 3x)
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Market Condition Detector */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-white">🌐 Market Condition Detector</CardTitle>
+                  <CardDescription>Analisa condições de mercado e bloqueia operações em momentos de alto risco</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="marketConditionEnabled" className="text-slate-300">
+                        Ativar Market Condition Detector
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Analisa volatilidade, notícias e condições técnicas antes de operar
+                      </p>
+                    </div>
+                    <Switch
+                      id="marketConditionEnabled"
+                      checked={marketConditionEnabled}
+                      onCheckedChange={setMarketConditionEnabled}
+                    />
                   </div>
                 </CardContent>
               </Card>
 
-              {/* ============= MASTER SWITCH - MODO DE OPERAÇÃO ============= */}
-              {/* Este é o "Chefe" da tela - aparece logo após as credenciais */}
-              <OperationModeSelector
-                selectedMode={operationMode}
-                onModeChange={setOperationMode}
+              {/* Payout Mínimo */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-slate-100">💰 Payout Mínimo</CardTitle>
+                  <CardDescription>Verifica se o payout oferecido pela Deriv atinge o mínimo aceitável</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="payoutCheckEnabled" className="text-slate-300">
+                        Ativar Verificação de Payout
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Bot verifica payout antes de fazer predição
+                      </p>
+                    </div>
+                    <Switch
+                      id="payoutCheckEnabled"
+                      checked={payoutCheckEnabled}
+                      onCheckedChange={setPayoutCheckEnabled}
+                    />
+                  </div>
+                  {payoutCheckEnabled && (
+                    <div className="space-y-4 pt-4 border-t border-slate-700">
+                      <div className="space-y-2">
+                        <Label htmlFor="minPayoutPercent" className="text-slate-300">
+                          Payout Mínimo Aceitável (%)
+                        </Label>
+                        <Input
+                          id="minPayoutPercent"
+                          type="number"
+                          value={minPayoutPercent}
+                          onChange={(e) => setMinPayoutPercent(e.target.value)}
+                          placeholder="80"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 80 = 80%. Se payout for menor, aguarda e tenta novamente
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="payoutRecheckDelay" className="text-slate-300">
+                          Tempo de Espera para Retry (segundos)
+                        </Label>
+                        <Input
+                          id="payoutRecheckDelay"
+                          type="number"
+                          value={payoutRecheckDelay}
+                          onChange={(e) => setPayoutRecheckDelay(e.target.value)}
+                          placeholder="300"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Tempo de espera antes de verificar payout novamente (padrão: 300s = 5 min)
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* DojiGuard (Filtro Anti-Doji) */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-slate-100">🛡️ Filtro Anti-Doji (DojiGuard)</CardTitle>
+                  <CardDescription>Bloqueia entrada em candles com alta probabilidade de indecisão (doji)</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="antiDojiEnabled" className="text-slate-300">
+                        Ativar Filtro Anti-Doji
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Bot verifica se o candle tem características de doji antes de armar entrada
+                      </p>
+                    </div>
+                    <Switch
+                      id="antiDojiEnabled"
+                      checked={antiDojiEnabled}
+                      onCheckedChange={setAntiDojiEnabled}
+                    />
+                  </div>
+                  {antiDojiEnabled && (
+                    <div className="space-y-4 pt-4 border-t border-slate-700">
+                      <div className="space-y-2">
+                        <Label htmlFor="antiDojiRangeMin" className="text-slate-300">
+                          Range Mínimo Aceitável (pips)
+                        </Label>
+                        <Input
+                          id="antiDojiRangeMin"
+                          type="number"
+                          step="0.0001"
+                          value={antiDojiRangeMin}
+                          onChange={(e) => setAntiDojiRangeMin(e.target.value)}
+                          placeholder="0.0500"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 0.0500 = 50 pips. Candles com range menor que isso são bloqueados (volatilidade insuficiente)
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="antiDojiRatioMin" className="text-slate-300">
+                          Proporção Mínima Body/Range (%)
+                        </Label>
+                        <Input
+                          id="antiDojiRatioMin"
+                          type="number"
+                          value={antiDojiRatioMin}
+                          onChange={(e) => setAntiDojiRatioMin(e.target.value)}
+                          placeholder="18"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 18 = 18%. Se o corpo do candle for menor que 18% do range total, é bloqueado (doji)
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ExhaustionGuard (Filtro de Exaustão) */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-slate-100">⚡ Filtro de Exaustão (ExhaustionGuard)</CardTitle>
+                  <CardDescription>Bloqueia entrada quando o candle apresenta sinais de exaustão excessiva</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="exhaustionGuardEnabled" className="text-slate-300">
+                        Ativar Filtro de Exaustão
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Bot verifica se o candle apresenta sinais de exaustão excessiva antes de armar entrada
+                      </p>
+                    </div>
+                    <Switch
+                      id="exhaustionGuardEnabled"
+                      checked={exhaustionGuardEnabled}
+                      onCheckedChange={setExhaustionGuardEnabled}
+                    />
+                  </div>
+                  {exhaustionGuardEnabled && (
+                    <div className="space-y-4 pt-4 border-t border-slate-700">
+                      <div className="space-y-2">
+                        <Label htmlFor="exhaustionRatioMax" className="text-slate-300">
+                          Limite Máximo de Exaustão (%)
+                        </Label>
+                        <Input
+                          id="exhaustionRatioMax"
+                          type="number"
+                          value={exhaustionRatioMax}
+                          onChange={(e) => setExhaustionRatioMax(e.target.value)}
+                          placeholder="70"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 70 = 70%. Se o movimento direcional for maior que 70% do range total
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="exhaustionPositionMin" className="text-slate-300">
+                          Limite Mínimo de Posição (%)
+                        </Label>
+                        <Input
+                          id="exhaustionPositionMin"
+                          type="number"
+                          value={exhaustionPositionMin}
+                          onChange={(e) => setExhaustionPositionMin(e.target.value)}
+                          placeholder="85"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 85 = 85%. Preço deve estar próximo do extremo do range para bloquear (evita falsos bloqueios)
+                        </p>
+                      </div>
+                      <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-3">
+                        <p className="text-xs text-amber-400">
+                          ⚠️ <strong>Regra de Bloqueio (ADENDO TÉCNICO):</strong> Bloqueio por exaustão requer AMBOS: ExhaustionRatio &gt;= {exhaustionRatioMax}% <strong>E</strong> PositionRatio &gt;= {exhaustionPositionMin}%
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="exhaustionRangeLookback" className="text-slate-300">
+                          Candles para Média de Range (Opcional)
+                        </Label>
+                        <Input
+                          id="exhaustionRangeLookback"
+                          type="number"
+                          value={exhaustionRangeLookback}
+                          onChange={(e) => setExhaustionRangeLookback(e.target.value)}
+                          placeholder="10"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Número de candles anteriores para calcular a média de range (critério separado e opcional)
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="exhaustionRangeMultiplier" className="text-slate-300">
+                          Multiplicador de Range Anormal
+                        </Label>
+                        <Input
+                          id="exhaustionRangeMultiplier"
+                          type="number"
+                          step="0.1"
+                          value={exhaustionRangeMultiplier}
+                          onChange={(e) => setExhaustionRangeMultiplier(e.target.value)}
+                          placeholder="1.5"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Exemplo: 1.5 = 1.5x. Se o range atual for 1.5x maior que a média, é bloqueado (volatilidade anormal)
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="exhaustionGuardLogEnabled" className="text-slate-300">
+                            Log Detalhado
+                          </Label>
+                          <p className="text-xs text-slate-500">
+                            Exibir logs detalhados das verificações de exaustão no console
+                          </p>
+                        </div>
+                        <Switch
+                          id="exhaustionGuardLogEnabled"
+                          checked={exhaustionGuardLogEnabled}
+                          onCheckedChange={setExhaustionGuardLogEnabled}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* TTLFilter (Time-To-Live Filter) */}
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-slate-100">🕒 Filtro TTL (Time-To-Live)</CardTitle>
+                  <CardDescription>Bloqueia armamento do gatilho quando não há tempo suficiente dentro da janela operacional (35-45min no M60)</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="ttlEnabled" className="text-slate-300">
+                        Ativar Filtro TTL
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Bot verifica se ainda há tempo suficiente na janela operacional antes de armar o gatilho
+                      </p>
+                    </div>
+                    <Switch
+                      id="ttlEnabled"
+                      checked={ttlEnabled}
+                      onCheckedChange={setTtlEnabled}
+                    />
+                  </div>
+                  {ttlEnabled && (
+                    <div className="space-y-4 pt-4 border-t border-slate-700">
+                      <div className="bg-purple-900/30 border border-purple-700/50 rounded-lg p-3">
+                        <p className="text-sm text-purple-300">
+                          📍 <strong>Contexto da Janela Operacional (M60):</strong>
+                        </p>
+                        <ul className="text-xs text-purple-400 space-y-1 mt-2">
+                          <li>• Minuto 0–35: Formação / Análise (NÃO operável)</li>
+                          <li>• <strong>Minuto 35–45: Única janela operável (10 minutos)</strong></li>
+                          <li>• Minuto 45–60: Proibido pela Deriv</li>
+                        </ul>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="ttlMinimumSeconds" className="text-slate-300">
+                          Tempo Mínimo para Operação (segundos)
+                        </Label>
+                        <Input
+                          id="ttlMinimumSeconds"
+                          type="number"
+                          value={ttlMinimumSeconds}
+                          onChange={(e) => setTtlMinimumSeconds(e.target.value)}
+                          placeholder="180"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Tempo mínimo restante dentro da janela operacional (35-45min). Padrão: 180s = 3 minutos
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="ttlTriggerDelayBuffer" className="text-slate-300">
+                          Buffer de Atraso do Gatilho (segundos)
+                        </Label>
+                        <Input
+                          id="ttlTriggerDelayBuffer"
+                          type="number"
+                          value={ttlTriggerDelayBuffer}
+                          onChange={(e) => setTtlTriggerDelayBuffer(e.target.value)}
+                          placeholder="120"
+                          className="bg-slate-800 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Buffer para possível atraso no cruzamento do gatilho. Padrão: 120s = 2 minutos
+                        </p>
+                      </div>
+                      <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-3">
+                        <p className="text-xs text-amber-400">
+                          ⚠️ <strong>Tempo Total Exigido:</strong> {parseInt(ttlMinimumSeconds || "180") + parseInt(ttlTriggerDelayBuffer || "120")} segundos ({Math.floor((parseInt(ttlMinimumSeconds || "180") + parseInt(ttlTriggerDelayBuffer || "120")) / 60)} minutos) - compatível com janela de 10 min
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="ttlLogEnabled" className="text-slate-300">
+                            Log Detalhado
+                          </Label>
+                          <p className="text-xs text-slate-500">
+                            Exibir logs detalhados das verificações de TTL no console
+                          </p>
+                        </div>
+                        <Switch
+                          id="ttlLogEnabled"
+                          checked={ttlLogEnabled}
+                          onCheckedChange={setTtlLogEnabled}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <>
+              {/* Configurações IC MARKETS */}
+              <ICMarketsSettings
+                clientId={icClientId}
+                setClientId={setIcClientId}
+                clientSecret={icClientSecret}
+                setClientSecret={setIcClientSecret}
+                accessToken={icAccessToken}
+                setAccessToken={setIcAccessToken}
+                isDemo={icIsDemo}
+                setIsDemo={setIcIsDemo}
+                // Novos campos SMC
+                strategyType={smcStrategyType as "TREND_SNIPER" | "SMC_SWARM"}
+                setStrategyType={(v) => setSmcStrategyType(v)}
+                riskPercent={smcRiskPercentage}
+                setRiskPercent={setSmcRiskPercentage}
+                maxOpenTrades={smcMaxOpenTrades}
+                setMaxOpenTrades={setSmcMaxOpenTrades}
+                dailyLossLimit={smcDailyLossLimitPercent}
+                setDailyLossLimit={setSmcDailyLossLimitPercent}
+                activeSymbols={smcActiveSymbols}
+                setActiveSymbols={setSmcActiveSymbols}
+                // Campos legados (Trend Sniper)
+                symbol={icSymbol}
+                setSymbol={setIcSymbol}
+                lots={icLots}
+                setLots={setIcLots}
+                leverage={icLeverage}
+                setLeverage={setIcLeverage}
+                isTesting={isTesting}
+                onTestConnection={handleTestICMarketsConnection}
+                connectionStatus={icConnectionStatus}
               />
 
-              {/* ============= RENDERIZAÇÃO CONDICIONAL BASEADA NO MODO ============= */}
-              
-              {/* MODO HÍBRIDO: Mostra Gestão Global + Abas (SMC | RSI) */}
-              {operationMode === "HYBRID" && (
-                <>
-                  {/* Gestão de Exposição Global */}
-                  <GlobalExposureSettings
-                    maxTotalExposurePercent={maxTotalExposurePercent}
-                    setMaxTotalExposurePercent={setMaxTotalExposurePercent}
-                    maxTradesPerSymbol={maxTradesPerSymbol}
-                    setMaxTradesPerSymbol={setMaxTradesPerSymbol}
-                  />
-                  
-                  {/* Abas para SMC e RSI */}
-                  <Tabs defaultValue="smc" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2 bg-slate-800">
-                      <TabsTrigger value="smc" className="data-[state=active]:bg-blue-600">
-                        <TrendingUp className="w-4 h-4 mr-2" />
-                        Estratégia SMC
-                      </TabsTrigger>
-                      <TabsTrigger value="rsi" className="data-[state=active]:bg-orange-600">
-                        <Activity className="w-4 h-4 mr-2" />
-                        Estratégia RSI+VWAP
-                      </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="smc" className="mt-4">
-                      <SMCStrategySettingsClean
-                        structureTimeframe={smcStructureTimeframe}
-                        setStructureTimeframe={setSmcStructureTimeframe}
-                        activeSymbols={smcActiveSymbols}
-                        setActiveSymbols={setSmcActiveSymbols}
-                        swingH1Lookback={smcSwingH1Lookback}
-                        setSwingH1Lookback={setSmcSwingH1Lookback}
-                        fractalLeftBars={smcFractalLeftBars}
-                        setFractalLeftBars={setSmcFractalLeftBars}
-                        fractalRightBars={smcFractalRightBars}
-                        setFractalRightBars={setSmcFractalRightBars}
-                        sweepBufferPips={smcSweepBufferPips}
-                        setSweepBufferPips={setSmcSweepBufferPips}
-                        sweepValidationMinutes={smcSweepValidationMinutes}
-                        setSweepValidationMinutes={setSmcSweepValidationMinutes}
-                        chochM15Lookback={smcChochM15Lookback}
-                        setChochM15Lookback={setSmcChochM15Lookback}
-                        chochMinPips={smcChochMinPips}
-                        setChochMinPips={setSmcChochMinPips}
-                        orderBlockLookback={smcOrderBlockLookback}
-                        setOrderBlockLookback={setSmcOrderBlockLookback}
-                        orderBlockExtensionPips={smcOrderBlockExtensionPips}
-                        setOrderBlockExtensionPips={setSmcOrderBlockExtensionPips}
-                        entryConfirmationType={smcEntryConfirmationType}
-                        setEntryConfirmationType={setSmcEntryConfirmationType}
-                        rejectionWickPercent={smcRejectionWickPercent}
-                        setRejectionWickPercent={setSmcRejectionWickPercent}
-                        spreadFilterEnabled={smcSpreadFilterEnabled}
-                        setSpreadFilterEnabled={setSmcSpreadFilterEnabled}
-                        maxSpreadPips={smcMaxSpreadPips}
-                        setMaxSpreadPips={setSmcMaxSpreadPips}
-                        riskPercentage={smcRiskPercentage}
-                        setRiskPercentage={setSmcRiskPercentage}
-                        maxOpenTrades={smcMaxOpenTrades}
-                        setMaxOpenTrades={setSmcMaxOpenTrades}
-                        dailyLossLimitPercent={smcDailyLossLimitPercent}
-                        setDailyLossLimitPercent={setSmcDailyLossLimitPercent}
-                        stopLossBufferPips={smcStopLossBufferPips}
-                        setStopLossBufferPips={setSmcStopLossBufferPips}
-                        rewardRiskRatio={smcRewardRiskRatio}
-                        setRewardRiskRatio={setSmcRewardRiskRatio}
-                        sessionFilterEnabled={smcSessionFilterEnabled}
-                        setSessionFilterEnabled={setSmcSessionFilterEnabled}
-                        londonSessionStart={smcLondonSessionStart}
-                        setLondonSessionStart={setSmcLondonSessionStart}
-                        londonSessionEnd={smcLondonSessionEnd}
-                        setLondonSessionEnd={setSmcLondonSessionEnd}
-                        nySessionStart={smcNySessionStart}
-                        setNySessionStart={setSmcNySessionStart}
-                        nySessionEnd={smcNySessionEnd}
-                        setNySessionEnd={setSmcNySessionEnd}
-                        trailingEnabled={smcTrailingEnabled}
-                        setTrailingEnabled={setSmcTrailingEnabled}
-                        trailingTriggerPips={smcTrailingTriggerPips}
-                        setTrailingTriggerPips={setSmcTrailingTriggerPips}
-                        trailingStepPips={smcTrailingStepPips}
-                        setTrailingStepPips={setSmcTrailingStepPips}
-                        circuitBreakerEnabled={smcCircuitBreakerEnabled}
-                        setCircuitBreakerEnabled={setSmcCircuitBreakerEnabled}
-                        verboseLogging={smcVerboseLogging}
-                        setVerboseLogging={setSmcVerboseLogging}
-                      />
-                    </TabsContent>
-                    <TabsContent value="rsi" className="mt-4">
-                      <RsiVwapSettingsClean
-                        rsiPeriod={rsiPeriod}
-                        setRsiPeriod={setRsiPeriod}
-                        rsiOversold={rsiOversold}
-                        setRsiOversold={setRsiOversold}
-                        rsiOverbought={rsiOverbought}
-                        setRsiOverbought={setRsiOverbought}
-                        vwapEnabled={vwapEnabled}
-                        setVwapEnabled={setVwapEnabled}
-                        riskPercentage={rsiRiskPercentage}
-                        setRiskPercentage={setRsiRiskPercentage}
-                        stopLossPips={rsiStopLossPips}
-                        setStopLossPips={setRsiStopLossPips}
-                        takeProfitPips={rsiTakeProfitPips}
-                        setTakeProfitPips={setRsiTakeProfitPips}
-                        rewardRiskRatio={rsiRewardRiskRatio}
-                        setRewardRiskRatio={setRsiRewardRiskRatio}
-                        minCandleBodyPercent={rsiMinCandleBodyPercent}
-                        setMinCandleBodyPercent={setRsiMinCandleBodyPercent}
-                        spreadFilterEnabled={rsiSpreadFilterEnabled}
-                        setSpreadFilterEnabled={setRsiSpreadFilterEnabled}
-                        maxSpreadPips={rsiMaxSpreadPips}
-                        setMaxSpreadPips={setRsiMaxSpreadPips}
-                        sessionFilterEnabled={rsiSessionFilterEnabled}
-                        setSessionFilterEnabled={setRsiSessionFilterEnabled}
-                        sessionStart={rsiSessionStart}
-                        setSessionStart={setRsiSessionStart}
-                        sessionEnd={rsiSessionEnd}
-                        setSessionEnd={setRsiSessionEnd}
-                        trailingEnabled={rsiTrailingEnabled}
-                        setTrailingEnabled={setRsiTrailingEnabled}
-                        trailingTriggerPips={rsiTrailingTriggerPips}
-                        setTrailingTriggerPips={setRsiTrailingTriggerPips}
-                        trailingStepPips={rsiTrailingStepPips}
-                        setTrailingStepPips={setRsiTrailingStepPips}
-                        verboseLogging={rsiVerboseLogging}
-                        setVerboseLogging={setRsiVerboseLogging}
-                      />
-                    </TabsContent>
-                  </Tabs>
-                </>
-              )}
+              {/* Configurações do Modo Híbrido */}
+              <HybridModeSettings
+                hybridMode={hybridMode}
+                setHybridMode={setHybridMode}
+                maxTotalExposurePercent={maxTotalExposurePercent}
+                setMaxTotalExposurePercent={setMaxTotalExposurePercent}
+                maxTradesPerSymbol={maxTradesPerSymbol}
+                setMaxTradesPerSymbol={setMaxTradesPerSymbol}
+              />
 
-              {/* MODO SMC_ONLY: Mostra apenas painel SMC */}
-              {operationMode === "SMC_ONLY" && (
-                <SMCStrategySettingsClean
-                  structureTimeframe={smcStructureTimeframe}
-                  setStructureTimeframe={setSmcStructureTimeframe}
-                  activeSymbols={smcActiveSymbols}
-                  setActiveSymbols={setSmcActiveSymbols}
-                  swingH1Lookback={smcSwingH1Lookback}
-                  setSwingH1Lookback={setSmcSwingH1Lookback}
-                  fractalLeftBars={smcFractalLeftBars}
-                  setFractalLeftBars={setSmcFractalLeftBars}
-                  fractalRightBars={smcFractalRightBars}
-                  setFractalRightBars={setSmcFractalRightBars}
-                  sweepBufferPips={smcSweepBufferPips}
-                  setSweepBufferPips={setSmcSweepBufferPips}
-                  sweepValidationMinutes={smcSweepValidationMinutes}
-                  setSweepValidationMinutes={setSmcSweepValidationMinutes}
-                  chochM15Lookback={smcChochM15Lookback}
-                  setChochM15Lookback={setSmcChochM15Lookback}
-                  chochMinPips={smcChochMinPips}
-                  setChochMinPips={setSmcChochMinPips}
-                  orderBlockLookback={smcOrderBlockLookback}
-                  setOrderBlockLookback={setSmcOrderBlockLookback}
-                  orderBlockExtensionPips={smcOrderBlockExtensionPips}
-                  setOrderBlockExtensionPips={setSmcOrderBlockExtensionPips}
-                  entryConfirmationType={smcEntryConfirmationType}
-                  setEntryConfirmationType={setSmcEntryConfirmationType}
-                  rejectionWickPercent={smcRejectionWickPercent}
-                  setRejectionWickPercent={setSmcRejectionWickPercent}
-                  spreadFilterEnabled={smcSpreadFilterEnabled}
-                  setSpreadFilterEnabled={setSmcSpreadFilterEnabled}
-                  maxSpreadPips={smcMaxSpreadPips}
-                  setMaxSpreadPips={setSmcMaxSpreadPips}
-                  riskPercentage={smcRiskPercentage}
-                  setRiskPercentage={setSmcRiskPercentage}
-                  maxOpenTrades={smcMaxOpenTrades}
-                  setMaxOpenTrades={setSmcMaxOpenTrades}
-                  dailyLossLimitPercent={smcDailyLossLimitPercent}
-                  setDailyLossLimitPercent={setSmcDailyLossLimitPercent}
-                  stopLossBufferPips={smcStopLossBufferPips}
-                  setStopLossBufferPips={setSmcStopLossBufferPips}
-                  rewardRiskRatio={smcRewardRiskRatio}
-                  setRewardRiskRatio={setSmcRewardRiskRatio}
-                  sessionFilterEnabled={smcSessionFilterEnabled}
-                  setSessionFilterEnabled={setSmcSessionFilterEnabled}
-                  londonSessionStart={smcLondonSessionStart}
-                  setLondonSessionStart={setSmcLondonSessionStart}
-                  londonSessionEnd={smcLondonSessionEnd}
-                  setLondonSessionEnd={setSmcLondonSessionEnd}
-                  nySessionStart={smcNySessionStart}
-                  setNySessionStart={setSmcNySessionStart}
-                  nySessionEnd={smcNySessionEnd}
-                  setNySessionEnd={setSmcNySessionEnd}
-                  trailingEnabled={smcTrailingEnabled}
-                  setTrailingEnabled={setSmcTrailingEnabled}
-                  trailingTriggerPips={smcTrailingTriggerPips}
-                  setTrailingTriggerPips={setSmcTrailingTriggerPips}
-                  trailingStepPips={smcTrailingStepPips}
-                  setTrailingStepPips={setSmcTrailingStepPips}
-                  circuitBreakerEnabled={smcCircuitBreakerEnabled}
-                  setCircuitBreakerEnabled={setSmcCircuitBreakerEnabled}
-                  verboseLogging={smcVerboseLogging}
-                  setVerboseLogging={setSmcVerboseLogging}
-                />
-              )}
+              {/* Configurações Avançadas da Estratégia SMC - Só aparece quando SMC_SWARM está selecionado ou modo híbrido */}
+              {(smcStrategyType === "SMC_SWARM" || hybridMode === "HYBRID" || hybridMode === "SMC_ONLY") && <SMCStrategySettings
+                strategyType={smcStrategyType}
+                setStrategyType={setSmcStrategyType}
+                structureTimeframe={smcStructureTimeframe}
+                setStructureTimeframe={setSmcStructureTimeframe}
+                activeSymbols={smcActiveSymbols}
+                setActiveSymbols={setSmcActiveSymbols}
+                swingH1Lookback={smcSwingH1Lookback}
+                setSwingH1Lookback={setSmcSwingH1Lookback}
+                fractalLeftBars={smcFractalLeftBars}
+                setFractalLeftBars={setSmcFractalLeftBars}
+                fractalRightBars={smcFractalRightBars}
+                setFractalRightBars={setSmcFractalRightBars}
+                sweepBufferPips={smcSweepBufferPips}
+                setSweepBufferPips={setSmcSweepBufferPips}
+                sweepValidationMinutes={smcSweepValidationMinutes}
+                setSweepValidationMinutes={setSmcSweepValidationMinutes}
+                chochM15Lookback={smcChochM15Lookback}
+                setChochM15Lookback={setSmcChochM15Lookback}
+                chochMinPips={smcChochMinPips}
+                setChochMinPips={setSmcChochMinPips}
+                orderBlockLookback={smcOrderBlockLookback}
+                setOrderBlockLookback={setSmcOrderBlockLookback}
+                orderBlockExtensionPips={smcOrderBlockExtensionPips}
+                setOrderBlockExtensionPips={setSmcOrderBlockExtensionPips}
+                entryConfirmationType={smcEntryConfirmationType}
+                setEntryConfirmationType={setSmcEntryConfirmationType}
+                rejectionWickPercent={smcRejectionWickPercent}
+                setRejectionWickPercent={setSmcRejectionWickPercent}
+                spreadFilterEnabled={smcSpreadFilterEnabled}
+                setSpreadFilterEnabled={setSmcSpreadFilterEnabled}
+                maxSpreadPips={smcMaxSpreadPips}
+                setMaxSpreadPips={setSmcMaxSpreadPips}
+                riskPercentage={smcRiskPercentage}
+                setRiskPercentage={setSmcRiskPercentage}
+                maxOpenTrades={smcMaxOpenTrades}
+                setMaxOpenTrades={setSmcMaxOpenTrades}
+                dailyLossLimitPercent={smcDailyLossLimitPercent}
+                setDailyLossLimitPercent={setSmcDailyLossLimitPercent}
+                stopLossBufferPips={smcStopLossBufferPips}
+                setStopLossBufferPips={setSmcStopLossBufferPips}
+                rewardRiskRatio={smcRewardRiskRatio}
+                setRewardRiskRatio={setSmcRewardRiskRatio}
+                sessionFilterEnabled={smcSessionFilterEnabled}
+                setSessionFilterEnabled={setSmcSessionFilterEnabled}
+                londonSessionStart={smcLondonSessionStart}
+                setLondonSessionStart={setSmcLondonSessionStart}
+                londonSessionEnd={smcLondonSessionEnd}
+                setLondonSessionEnd={setSmcLondonSessionEnd}
+                nySessionStart={smcNySessionStart}
+                setNySessionStart={setSmcNySessionStart}
+                nySessionEnd={smcNySessionEnd}
+                setNySessionEnd={setSmcNySessionEnd}
+                trailingEnabled={smcTrailingEnabled}
+                setTrailingEnabled={setSmcTrailingEnabled}
+                trailingTriggerPips={smcTrailingTriggerPips}
+                setTrailingTriggerPips={setSmcTrailingTriggerPips}
+                trailingStepPips={smcTrailingStepPips}
+                setTrailingStepPips={setSmcTrailingStepPips}
+                circuitBreakerEnabled={smcCircuitBreakerEnabled}
+                setCircuitBreakerEnabled={setSmcCircuitBreakerEnabled}
+                verboseLogging={smcVerboseLogging}
+                setVerboseLogging={setSmcVerboseLogging}
+                onSave={handleSave}
+                isSaving={isSaving}
+              />}
 
-              {/* MODO RSI_VWAP_ONLY: Mostra apenas painel RSI */}
-              {operationMode === "RSI_VWAP_ONLY" && (
-                <RsiVwapSettingsClean
+              {/* Configurações RSI + VWAP - Só aparece quando modo híbrido ou RSI_VWAP_ONLY */}
+              {(hybridMode === "HYBRID" || hybridMode === "RSI_VWAP_ONLY") && (
+                <RsiVwapSettings
                   rsiPeriod={rsiPeriod}
                   setRsiPeriod={setRsiPeriod}
                   rsiOversold={rsiOversold}
@@ -1163,24 +1598,23 @@ export default function SettingsMultiBroker() {
             </>
           )}
 
-          {/* ============= BOTÃO SALVAR (ÚNICO E CENTRALIZADO) ============= */}
-          <div className="flex justify-end pt-4">
+          {/* Botão Salvar */}
+          <div className="flex justify-end">
             <Button
               onClick={handleSave}
               disabled={isSaving}
-              size="lg"
-              className={`gap-2 px-8 ${
+              className={`gap-2 ${
                 isDeriv 
                   ? "bg-red-600 hover:bg-red-700" 
                   : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
               {isSaving ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <Save className="w-5 h-5" />
+                <Save className="w-4 h-4" />
               )}
-              Salvar Todas as Configurações
+              Salvar Configurações {currentConfig.label}
             </Button>
           </div>
         </div>
