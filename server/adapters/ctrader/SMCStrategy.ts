@@ -875,6 +875,18 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         swingHigh.swept = true;
         swingHigh.sweptAt = Date.now();
         
+        // CORREÇÃO BUG: Resetar estado do CHoCH se a direção do sweep mudou
+        // Isso permite que a plataforma se adapte a reversões de mercado
+        if (state.lastSweepType !== null && state.lastSweepType !== "HIGH" && state.chochDetected) {
+          console.log(`[SMC-${tf}] ${this.currentSymbol}: ⚠️ Direção de sweep mudou de ${state.lastSweepType} para HIGH! Resetando estado do CHoCH anterior...`);
+          state.chochDetected = false;
+          state.chochDirection = null;
+          state.chochPrice = null;
+          state.chochTime = null;
+          state.activeOrderBlock = null;
+          state.entryDirection = null;
+        }
+        
         state.lastSweepType = "HIGH";
         state.lastSweepPrice = swingHigh.price;
         state.lastSweepTime = Date.now();
@@ -908,6 +920,18 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
           swingHigh.swept = true;
           swingHigh.sweptAt = Date.now();
           
+          // CORREÇÃO BUG: Resetar estado do CHoCH se a direção do sweep mudou
+          // Isso permite que a plataforma se adapte a reversões de mercado
+          if (state.lastSweepType !== null && state.lastSweepType !== "HIGH" && state.chochDetected) {
+            console.log(`[SMC-${tf}] ${this.currentSymbol}: ⚠️ Direção de sweep mudou de ${state.lastSweepType} para HIGH! Resetando estado do CHoCH anterior...`);
+            state.chochDetected = false;
+            state.chochDirection = null;
+            state.chochPrice = null;
+            state.chochTime = null;
+            state.activeOrderBlock = null;
+            state.entryDirection = null;
+          }
+          
           state.lastSweepType = "HIGH";
           state.lastSweepPrice = swingHigh.price;
           state.lastSweepTime = Date.now();
@@ -932,6 +956,18 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       if (currentPrice < swingLow.price) {
         swingLow.swept = true;
         swingLow.sweptAt = Date.now();
+        
+        // CORREÇÃO BUG: Resetar estado do CHoCH se a direção do sweep mudou
+        // Isso permite que a plataforma se adapte a reversões de mercado
+        if (state.lastSweepType !== null && state.lastSweepType !== "LOW" && state.chochDetected) {
+          console.log(`[SMC-${tf}] ${this.currentSymbol}: ⚠️ Direção de sweep mudou de ${state.lastSweepType} para LOW! Resetando estado do CHoCH anterior...`);
+          state.chochDetected = false;
+          state.chochDirection = null;
+          state.chochPrice = null;
+          state.chochTime = null;
+          state.activeOrderBlock = null;
+          state.entryDirection = null;
+        }
         
         state.lastSweepType = "LOW";
         state.lastSweepPrice = swingLow.price;
@@ -965,6 +1001,18 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         if (lastCandle.low < swingLow.price && lastCandle.close > swingLow.price) {
           swingLow.swept = true;
           swingLow.sweptAt = Date.now();
+          
+          // CORREÇÃO BUG: Resetar estado do CHoCH se a direção do sweep mudou
+          // Isso permite que a plataforma se adapte a reversões de mercado
+          if (state.lastSweepType !== null && state.lastSweepType !== "LOW" && state.chochDetected) {
+            console.log(`[SMC-${tf}] ${this.currentSymbol}: ⚠️ Direção de sweep mudou de ${state.lastSweepType} para LOW! Resetando estado do CHoCH anterior...`);
+            state.chochDetected = false;
+            state.chochDirection = null;
+            state.chochPrice = null;
+            state.chochTime = null;
+            state.activeOrderBlock = null;
+            state.entryDirection = null;
+          }
           
           state.lastSweepType = "LOW";
           state.lastSweepPrice = swingLow.price;
