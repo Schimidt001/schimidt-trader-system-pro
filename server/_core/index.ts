@@ -149,8 +149,9 @@ async function startServer() {
         });
       }
       
-      // Obter info da conta
-      const accountInfo = ctraderAdapter.getAccountInfo();
+      // Obter info da conta (método assíncrono)
+      const accountInfo = await ctraderAdapter.getAccountInfo();
+      console.log("[ForceTestTrade] AccountInfo obtido:", accountInfo);
       if (!accountInfo) {
         return res.status(400).json({ 
           success: false, 
