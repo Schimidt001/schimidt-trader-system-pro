@@ -28,6 +28,8 @@ import { BrokerIndicator } from "@/components/BrokerSwitch";
 import { DerivSettings } from "@/components/settings/DerivSettings";
 import { ICMarketsSettings } from "@/components/settings/ICMarketsSettings";
 import { SMCStrategySettings } from "@/components/settings/SMCStrategySettings";
+import { RsiVwapSettings } from "@/components/settings/RsiVwapSettings";
+import { HybridModeSettings } from "@/components/settings/HybridModeSettings";
 import { ICMARKETS_DEFAULTS } from "@/const/icmarkets";
 
 export default function SettingsMultiBroker() {
@@ -194,6 +196,44 @@ export default function SettingsMultiBroker() {
   
   // Logging SMC
   const [smcVerboseLogging, setSmcVerboseLogging] = useState(false);
+
+  // ============= ESTADOS MODO HÍBRIDO =============
+  const [hybridMode, setHybridMode] = useState("SMC_ONLY");
+  const [maxTotalExposurePercent, setMaxTotalExposurePercent] = useState("7.0");
+  const [maxTradesPerSymbol, setMaxTradesPerSymbol] = useState("1");
+
+  // ============= ESTADOS RSI + VWAP =============
+  // Indicadores RSI
+  const [rsiPeriod, setRsiPeriod] = useState("14");
+  const [rsiOversold, setRsiOversold] = useState("30");
+  const [rsiOverbought, setRsiOverbought] = useState("70");
+  
+  // VWAP
+  const [vwapEnabled, setVwapEnabled] = useState(true);
+  
+  // Gestão de Risco RSI
+  const [rsiRiskPercentage, setRsiRiskPercentage] = useState("1.0");
+  const [rsiStopLossPips, setRsiStopLossPips] = useState("10");
+  const [rsiTakeProfitPips, setRsiTakeProfitPips] = useState("20");
+  const [rsiRewardRiskRatio, setRsiRewardRiskRatio] = useState("2.0");
+  
+  // Filtros RSI
+  const [rsiMinCandleBodyPercent, setRsiMinCandleBodyPercent] = useState("30");
+  const [rsiSpreadFilterEnabled, setRsiSpreadFilterEnabled] = useState(true);
+  const [rsiMaxSpreadPips, setRsiMaxSpreadPips] = useState("2.0");
+  
+  // Horários RSI
+  const [rsiSessionFilterEnabled, setRsiSessionFilterEnabled] = useState(true);
+  const [rsiSessionStart, setRsiSessionStart] = useState("08:00");
+  const [rsiSessionEnd, setRsiSessionEnd] = useState("17:00");
+  
+  // Trailing Stop RSI
+  const [rsiTrailingEnabled, setRsiTrailingEnabled] = useState(false);
+  const [rsiTrailingTriggerPips, setRsiTrailingTriggerPips] = useState("15");
+  const [rsiTrailingStepPips, setRsiTrailingStepPips] = useState("5");
+  
+  // Logging RSI
+  const [rsiVerboseLogging, setRsiVerboseLogging] = useState(true);
 
   // ============= QUERIES =============
   const { data: config, isLoading } = trpc.config.get.useQuery(
@@ -453,6 +493,33 @@ export default function SettingsMultiBroker() {
       // Circuit Breaker e Logging
       setSmcCircuitBreakerEnabled(icConfig.circuitBreakerEnabled ?? true);
       setSmcVerboseLogging(icConfig.verboseLogging ?? false);
+      
+      // ============= CARREGAR MODO HÍBRIDO =============
+      setHybridMode(icConfig.hybridMode || "SMC_ONLY");
+      setMaxTotalExposurePercent((icConfig.maxTotalExposurePercent || 7.0).toString());
+      setMaxTradesPerSymbol((icConfig.maxTradesPerSymbol || 1).toString());
+      
+      // ============= CARREGAR RSI + VWAP =============
+      // Nota: Estas configurações vêm da tabela rsiVwapConfig
+      // Por enquanto, usar valores padrão até implementar query separada
+      if (icConfig.rsiPeriod) setRsiPeriod(icConfig.rsiPeriod.toString());
+      if (icConfig.rsiOversold) setRsiOversold(icConfig.rsiOversold.toString());
+      if (icConfig.rsiOverbought) setRsiOverbought(icConfig.rsiOverbought.toString());
+      if (icConfig.vwapEnabled !== undefined) setVwapEnabled(icConfig.vwapEnabled);
+      if (icConfig.rsiRiskPercentage) setRsiRiskPercentage(icConfig.rsiRiskPercentage.toString());
+      if (icConfig.rsiStopLossPips) setRsiStopLossPips(icConfig.rsiStopLossPips.toString());
+      if (icConfig.rsiTakeProfitPips) setRsiTakeProfitPips(icConfig.rsiTakeProfitPips.toString());
+      if (icConfig.rsiRewardRiskRatio) setRsiRewardRiskRatio(icConfig.rsiRewardRiskRatio.toString());
+      if (icConfig.rsiMinCandleBodyPercent) setRsiMinCandleBodyPercent(icConfig.rsiMinCandleBodyPercent.toString());
+      if (icConfig.rsiSpreadFilterEnabled !== undefined) setRsiSpreadFilterEnabled(icConfig.rsiSpreadFilterEnabled);
+      if (icConfig.rsiMaxSpreadPips) setRsiMaxSpreadPips(icConfig.rsiMaxSpreadPips.toString());
+      if (icConfig.rsiSessionFilterEnabled !== undefined) setRsiSessionFilterEnabled(icConfig.rsiSessionFilterEnabled);
+      if (icConfig.rsiSessionStart) setRsiSessionStart(icConfig.rsiSessionStart);
+      if (icConfig.rsiSessionEnd) setRsiSessionEnd(icConfig.rsiSessionEnd);
+      if (icConfig.rsiTrailingEnabled !== undefined) setRsiTrailingEnabled(icConfig.rsiTrailingEnabled);
+      if (icConfig.rsiTrailingTriggerPips) setRsiTrailingTriggerPips(icConfig.rsiTrailingTriggerPips.toString());
+      if (icConfig.rsiTrailingStepPips) setRsiTrailingStepPips(icConfig.rsiTrailingStepPips.toString());
+      if (icConfig.rsiVerboseLogging !== undefined) setRsiVerboseLogging(icConfig.rsiVerboseLogging);
     }
   }, [icConfig]);
 
@@ -628,6 +695,29 @@ export default function SettingsMultiBroker() {
         smcTrailingStepPips: parseInt(smcTrailingStepPips) || 10,
         circuitBreakerEnabled: smcCircuitBreakerEnabled,
         verboseLogging: smcVerboseLogging,
+        // Modo Híbrido
+        hybridMode: hybridMode,
+        maxTotalExposurePercent: parseFloat(maxTotalExposurePercent) || 7.0,
+        maxTradesPerSymbol: parseInt(maxTradesPerSymbol) || 1,
+        // RSI + VWAP Config
+        rsiPeriod: parseInt(rsiPeriod) || 14,
+        rsiOversold: parseInt(rsiOversold) || 30,
+        rsiOverbought: parseInt(rsiOverbought) || 70,
+        vwapEnabled: vwapEnabled,
+        rsiRiskPercentage: parseFloat(rsiRiskPercentage) || 1.0,
+        rsiStopLossPips: parseFloat(rsiStopLossPips) || 10,
+        rsiTakeProfitPips: parseFloat(rsiTakeProfitPips) || 20,
+        rsiRewardRiskRatio: parseFloat(rsiRewardRiskRatio) || 2.0,
+        rsiMinCandleBodyPercent: parseFloat(rsiMinCandleBodyPercent) || 30,
+        rsiSpreadFilterEnabled: rsiSpreadFilterEnabled,
+        rsiMaxSpreadPips: parseFloat(rsiMaxSpreadPips) || 2.0,
+        rsiSessionFilterEnabled: rsiSessionFilterEnabled,
+        rsiSessionStart: rsiSessionStart,
+        rsiSessionEnd: rsiSessionEnd,
+        rsiTrailingEnabled: rsiTrailingEnabled,
+        rsiTrailingTriggerPips: parseInt(rsiTrailingTriggerPips) || 15,
+        rsiTrailingStepPips: parseInt(rsiTrailingStepPips) || 5,
+        rsiVerboseLogging: rsiVerboseLogging,
       });
     }
   };
@@ -1386,8 +1476,18 @@ export default function SettingsMultiBroker() {
                 connectionStatus={icConnectionStatus}
               />
 
-              {/* Configurações Avançadas da Estratégia SMC - Só aparece quando SMC_SWARM está selecionado */}
-              {smcStrategyType === "SMC_SWARM" && <SMCStrategySettings
+              {/* Configurações do Modo Híbrido */}
+              <HybridModeSettings
+                hybridMode={hybridMode}
+                setHybridMode={setHybridMode}
+                maxTotalExposurePercent={maxTotalExposurePercent}
+                setMaxTotalExposurePercent={setMaxTotalExposurePercent}
+                maxTradesPerSymbol={maxTradesPerSymbol}
+                setMaxTradesPerSymbol={setMaxTradesPerSymbol}
+              />
+
+              {/* Configurações Avançadas da Estratégia SMC - Só aparece quando SMC_SWARM está selecionado ou modo híbrido */}
+              {(smcStrategyType === "SMC_SWARM" || hybridMode === "HYBRID" || hybridMode === "SMC_ONLY") && <SMCStrategySettings
                 strategyType={smcStrategyType}
                 setStrategyType={setSmcStrategyType}
                 structureTimeframe={smcStructureTimeframe}
@@ -1453,6 +1553,48 @@ export default function SettingsMultiBroker() {
                 onSave={handleSave}
                 isSaving={isSaving}
               />}
+
+              {/* Configurações RSI + VWAP - Só aparece quando modo híbrido ou RSI_VWAP_ONLY */}
+              {(hybridMode === "HYBRID" || hybridMode === "RSI_VWAP_ONLY") && (
+                <RsiVwapSettings
+                  rsiPeriod={rsiPeriod}
+                  setRsiPeriod={setRsiPeriod}
+                  rsiOversold={rsiOversold}
+                  setRsiOversold={setRsiOversold}
+                  rsiOverbought={rsiOverbought}
+                  setRsiOverbought={setRsiOverbought}
+                  vwapEnabled={vwapEnabled}
+                  setVwapEnabled={setVwapEnabled}
+                  riskPercentage={rsiRiskPercentage}
+                  setRiskPercentage={setRsiRiskPercentage}
+                  stopLossPips={rsiStopLossPips}
+                  setStopLossPips={setRsiStopLossPips}
+                  takeProfitPips={rsiTakeProfitPips}
+                  setTakeProfitPips={setRsiTakeProfitPips}
+                  rewardRiskRatio={rsiRewardRiskRatio}
+                  setRewardRiskRatio={setRsiRewardRiskRatio}
+                  minCandleBodyPercent={rsiMinCandleBodyPercent}
+                  setMinCandleBodyPercent={setRsiMinCandleBodyPercent}
+                  spreadFilterEnabled={rsiSpreadFilterEnabled}
+                  setSpreadFilterEnabled={setRsiSpreadFilterEnabled}
+                  maxSpreadPips={rsiMaxSpreadPips}
+                  setMaxSpreadPips={setRsiMaxSpreadPips}
+                  sessionFilterEnabled={rsiSessionFilterEnabled}
+                  setSessionFilterEnabled={setRsiSessionFilterEnabled}
+                  sessionStart={rsiSessionStart}
+                  setSessionStart={setRsiSessionStart}
+                  sessionEnd={rsiSessionEnd}
+                  setSessionEnd={setRsiSessionEnd}
+                  trailingEnabled={rsiTrailingEnabled}
+                  setTrailingEnabled={setRsiTrailingEnabled}
+                  trailingTriggerPips={rsiTrailingTriggerPips}
+                  setTrailingTriggerPips={setRsiTrailingTriggerPips}
+                  trailingStepPips={rsiTrailingStepPips}
+                  setTrailingStepPips={setRsiTrailingStepPips}
+                  verboseLogging={rsiVerboseLogging}
+                  setVerboseLogging={setRsiVerboseLogging}
+                />
+              )}
             </>
           )}
 

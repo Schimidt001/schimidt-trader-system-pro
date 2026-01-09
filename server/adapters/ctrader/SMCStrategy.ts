@@ -158,51 +158,53 @@ export interface SymbolSwarmState {
 export const DEFAULT_SMC_CONFIG: SMCStrategyConfig = {
   strategyType: StrategyType.SMC_SWARM,
   
-  // Ativos padrao
+  // Ativos padrao - Tiers de prioridade
+  // Tier 1: EURUSD, XAUUSD, USDJPY, GBPJPY (50% exposição)
+  // Tier 2: AUDUSD, USDCAD, EURJPY (30% exposição)
+  // Tier 3: NZDUSD, USDCHF, GBPUSD (20% exposição)
   activeSymbols: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"],
   
-  // Timeframe de Estrutura (Swing Points) - NOVO: Default H1 (Conservador)
-  structureTimeframe: 'H1',
+  // Timeframe de Estrutura (Swing Points) - OTIMIZADO: M15 para maior frequência
+  structureTimeframe: 'M15',
   
-  // Estrutura H1
+  // Estrutura - OTIMIZADO: Fractal 1 para maior sensibilidade
   swingH1Lookback: 50,
-  fractalLeftBars: 2,
-  fractalRightBars: 2,
+  fractalLeftBars: 1,  // CRÍTICO: Reduzido de 2 para 1 - aumenta pontos de liquidez
+  fractalRightBars: 1, // CRÍTICO: Reduzido de 2 para 1 - aumenta pontos de liquidez
   
-  // Sweep
+  // Sweep - OTIMIZADO: Validação expandida
   sweepBufferPips: 2.0,
-  sweepValidationMinutes: 60,
+  sweepValidationMinutes: 90,  // CRÍTICO: Aumentado de 60 para 90 min
   
   // CHoCH M15 - AJUSTADO: Valor mais agressivo conforme briefing
-  // Permite valores flutuantes pequenos (ex: 3.5)
   chochM15Lookback: 20,
-  chochMinPips: 5.0,  // Reduzido de 10.0 para 5.0 para maior sensibilidade
+  chochMinPips: 5.0,
   
-  // Order Block
+  // Order Block - OTIMIZADO: Zona mais precisa
   orderBlockLookback: 10,
-  orderBlockExtensionPips: 15.0,
+  orderBlockExtensionPips: 3.0,  // CRÍTICO: Reduzido de 15.0 para 3.0 pips
   
-  // Entrada M5
+  // Entrada M5 - OTIMIZADO: Confirmação mais flexível
   entryConfirmationType: "ANY",
-  rejectionWickPercent: 60.0,
+  rejectionWickPercent: 20.0,  // CRÍTICO: Reduzido de 60% para 20%
   
-  // Risco
-  riskPercentage: 0.75,
+  // Risco - OTIMIZADO: Risco aumentado para maior potencial
+  riskPercentage: 2.0,  // CRÍTICO: Aumentado de 0.75% para 2.0%
   maxOpenTrades: 3,
-  dailyLossLimitPercent: 3.0,
+  dailyLossLimitPercent: 10.0,  // Circuit breaker: 10% perda diária
   stopLossBufferPips: 2.0,
-  rewardRiskRatio: 4.0,
+  rewardRiskRatio: 3.0,  // CRÍTICO: Reduzido de 4.0 para 3.0 (TP mais atingível)
   
   // Filtro de Spread - AUDITORIA: Evita entradas com spread alto
   spreadFilterEnabled: true,
-  maxSpreadPips: 3.0,  // Maximo de 3 pips de spread para entrada
+  maxSpreadPips: 3.0,
   
-  // Sessoes - Horarios em UTC-3 (Brasilia)
+  // Sessoes - OTIMIZADO: Horários expandidos em UTC-3 (Brasilia)
   sessionFilterEnabled: true,
-  londonSessionStart: "04:00",
-  londonSessionEnd: "07:00",
-  nySessionStart: "09:30",
-  nySessionEnd: "12:30",
+  londonSessionStart: "05:00",  // CRÍTICO: Expandido de 04:00 para 05:00
+  londonSessionEnd: "12:00",    // CRÍTICO: Expandido de 07:00 para 12:00
+  nySessionStart: "09:00",      // CRÍTICO: Expandido de 09:30 para 09:00
+  nySessionEnd: "17:00",        // CRÍTICO: Expandido de 12:30 para 17:00
   
   // Trailing
   trailingEnabled: true,

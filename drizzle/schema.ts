@@ -345,3 +345,12 @@ export {
   type SMCEventLog,
   type InsertSMCEventLog
 } from "./smc-config";
+
+// ============= RSI + VWAP STRATEGY TABLES =============
+// Re-exported from rsi-vwap-config.ts for unified schema access
+
+export {
+  rsiVwapConfig,
+  type RsiVwapConfig,
+  type InsertRsiVwapConfig
+} from "./rsi-vwap-config";

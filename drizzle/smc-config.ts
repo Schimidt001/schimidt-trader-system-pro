@@ -118,6 +118,14 @@ export const smcStrategyConfig = mysqlTable("smcStrategyConfig", {
   /** Estado atual de cada símbolo (JSON com estados de sweep, choch, etc.) */
   swarmState: text("swarmState"),
   
+  // ============= MODO HÍBRIDO =============
+  /** Modo de operação: SMC_ONLY, RSI_VWAP_ONLY, HYBRID */
+  hybridMode: varchar("hybridMode", { length: 20 }).default("SMC_ONLY").notNull(),
+  /** Exposição máxima total em porcentagem do equity */
+  maxTotalExposurePercent: decimal("maxTotalExposurePercent", { precision: 5, scale: 2 }).default("7.00").notNull(),
+  /** Máximo de trades por símbolo */
+  maxTradesPerSymbol: int("maxTradesPerSymbol").default(1).notNull(),
+  
   // ============= LOGS E DEBUG =============
   /** Habilitar logs detalhados da estratégia */
   verboseLogging: boolean("verboseLogging").default(true).notNull(),

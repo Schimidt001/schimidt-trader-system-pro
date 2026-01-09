@@ -5,7 +5,7 @@
  * Implementa o padrão Factory para o Strategy Pattern.
  * 
  * @author Schimidt Trader Pro
- * @version 1.0.0
+ * @version 1.1.0 - Adicionado suporte para RSI+VWAP Reversal
  */
 
 import {
@@ -15,11 +15,12 @@ import {
 } from "./ITradingStrategy";
 import { SMCStrategy, SMCStrategyConfig, createSMCStrategy } from "./SMCStrategy";
 import { TrendSniperStrategyAdapter, TrendSniperAdapterConfig, createTrendSniperAdapter } from "./TrendSniperStrategyAdapter";
+import { RsiVwapStrategy, RsiVwapStrategyConfig, createRsiVwapStrategy } from "./RsiVwapStrategy";
 
 /**
  * Configuração unificada para qualquer estratégia
  */
-export type UnifiedStrategyConfig = Partial<SMCStrategyConfig> | Partial<TrendSniperAdapterConfig>;
+export type UnifiedStrategyConfig = Partial<SMCStrategyConfig> | Partial<TrendSniperAdapterConfig> | Partial<RsiVwapStrategyConfig>;
 
 /**
  * Factory para criar estratégias de trading
@@ -36,6 +37,9 @@ export class StrategyFactory implements IStrategyFactory {
       case StrategyType.TREND_SNIPER:
         return createTrendSniperAdapter(config as Partial<TrendSniperAdapterConfig>);
       
+      case StrategyType.RSI_VWAP_REVERSAL:
+        return createRsiVwapStrategy(config as Partial<RsiVwapStrategyConfig>);
+      
       default:
         console.warn(`[StrategyFactory] Tipo de estratégia desconhecido: ${type}, usando SMC_SWARM como padrão`);
         return createSMCStrategy(config as Partial<SMCStrategyConfig>);
@@ -51,6 +55,8 @@ export class StrategyFactory implements IStrategyFactory {
         return "SMC Swarm (Smart Money Concepts)";
       case StrategyType.TREND_SNIPER:
         return "Trend Sniper (EMA + RSI)";
+      case StrategyType.RSI_VWAP_REVERSAL:
+        return "RSI + VWAP Reversal";
       default:
         return "Desconhecido";
     }
@@ -68,6 +74,10 @@ export class StrategyFactory implements IStrategyFactory {
       case StrategyType.TREND_SNIPER:
         return "Estratégia clássica baseada em EMA 200 + RSI 14. " +
                "Identifica entradas em tendência com confirmação de momentum.";
+      case StrategyType.RSI_VWAP_REVERSAL:
+        return "Estratégia de reversão à média baseada em RSI + VWAP. " +
+               "Identifica pontos de sobrevenda/sobrecompra com confirmação de VWAP " +
+               "para operações de alta frequência com R:R 1:2.";
       default:
         return "Estratégia não documentada.";
     }
@@ -91,6 +101,11 @@ export class StrategyFactory implements IStrategyFactory {
         type: StrategyType.TREND_SNIPER,
         name: this.getStrategyName(StrategyType.TREND_SNIPER),
         description: this.getStrategyDescription(StrategyType.TREND_SNIPER),
+      },
+      {
+        type: StrategyType.RSI_VWAP_REVERSAL,
+        name: this.getStrategyName(StrategyType.RSI_VWAP_REVERSAL),
+        description: this.getStrategyDescription(StrategyType.RSI_VWAP_REVERSAL),
       },
     ];
   }
@@ -117,6 +132,9 @@ export class StrategyFactory implements IStrategyFactory {
     }
     if (upperType === "TREND_SNIPER" || upperType === "TRENDSNIPER") {
       return StrategyType.TREND_SNIPER;
+    }
+    if (upperType === "RSI_VWAP_REVERSAL" || upperType === "RSI_VWAP" || upperType === "RSIVWAP") {
+      return StrategyType.RSI_VWAP_REVERSAL;
     }
     
     // Default

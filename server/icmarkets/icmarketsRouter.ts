@@ -85,6 +85,29 @@ const icmarketsConfigSchema = z.object({
   smcTrailingStepPips: z.number().default(10),
   circuitBreakerEnabled: z.boolean().default(true),
   verboseLogging: z.boolean().default(false),
+  // Modo Híbrido
+  hybridMode: z.string().default("SMC_ONLY"),
+  maxTotalExposurePercent: z.number().default(7.0),
+  maxTradesPerSymbol: z.number().default(1),
+  // RSI + VWAP Config
+  rsiPeriod: z.number().default(14),
+  rsiOversold: z.number().default(30),
+  rsiOverbought: z.number().default(70),
+  vwapEnabled: z.boolean().default(true),
+  rsiRiskPercentage: z.number().default(1.0),
+  rsiStopLossPips: z.number().default(10),
+  rsiTakeProfitPips: z.number().default(20),
+  rsiRewardRiskRatio: z.number().default(2.0),
+  rsiMinCandleBodyPercent: z.number().default(30),
+  rsiSpreadFilterEnabled: z.boolean().default(true),
+  rsiMaxSpreadPips: z.number().default(2.0),
+  rsiSessionFilterEnabled: z.boolean().default(true),
+  rsiSessionStart: z.string().default("08:00"),
+  rsiSessionEnd: z.string().default("17:00"),
+  rsiTrailingEnabled: z.boolean().default(false),
+  rsiTrailingTriggerPips: z.number().default(15),
+  rsiTrailingStepPips: z.number().default(5),
+  rsiVerboseLogging: z.boolean().default(true),
 });
 
 // Schema para ordem
@@ -170,6 +193,31 @@ export const icmarketsRouter = router({
       // Circuit Breaker e Logging
       circuitBreakerEnabled: smcConfig?.circuitBreakerEnabled ?? true,
       verboseLogging: smcConfig?.verboseLogging ?? false,
+      
+      // Modo Híbrido
+      hybridMode: (smcConfig as any)?.hybridMode || "SMC_ONLY",
+      maxTotalExposurePercent: (smcConfig as any)?.maxTotalExposurePercent || 7.0,
+      maxTradesPerSymbol: (smcConfig as any)?.maxTradesPerSymbol || 1,
+      
+      // RSI + VWAP (valores padrão até implementar tabela separada)
+      rsiPeriod: 14,
+      rsiOversold: 30,
+      rsiOverbought: 70,
+      vwapEnabled: true,
+      rsiRiskPercentage: 1.0,
+      rsiStopLossPips: 10,
+      rsiTakeProfitPips: 20,
+      rsiRewardRiskRatio: 2.0,
+      rsiMinCandleBodyPercent: 30,
+      rsiSpreadFilterEnabled: true,
+      rsiMaxSpreadPips: 2.0,
+      rsiSessionFilterEnabled: true,
+      rsiSessionStart: "08:00",
+      rsiSessionEnd: "17:00",
+      rsiTrailingEnabled: false,
+      rsiTrailingTriggerPips: 15,
+      rsiTrailingStepPips: 5,
+      rsiVerboseLogging: true,
     };
   }),
   
@@ -326,6 +374,10 @@ export const icmarketsRouter = router({
         trailingStepPips: input.smcTrailingStepPips.toString(),
         circuitBreakerEnabled: input.circuitBreakerEnabled,
         verboseLogging: input.verboseLogging,
+        // Modo Híbrido
+        hybridMode: input.hybridMode,
+        maxTotalExposurePercent: input.maxTotalExposurePercent.toString(),
+        maxTradesPerSymbol: input.maxTradesPerSymbol,
       });
       
       // Atualizar configuracao da estrategia TrendSniper (legado)
