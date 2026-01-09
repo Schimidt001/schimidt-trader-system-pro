@@ -408,7 +408,7 @@ export default function ICMarketsDashboard() {
             )}
             
             {/* Botão de Teste de Trade (APENAS DEMO) - Sempre visível quando conectado em demo */}
-            {isConnected && connectionStatus.data?.accountInfo?.isDemo && (
+            {isConnected && connectionStatus.data?.accountInfo?.accountType === "demo" && (
               <Button
                 variant="outline"
                 onClick={handleForceTestTrade}
