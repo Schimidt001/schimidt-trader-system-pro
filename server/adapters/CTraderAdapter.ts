@@ -773,6 +773,22 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     console.log(`[CTraderAdapter] Modificando posição ${params.positionId}:`, params);
     
     try {
+      // CORREÇÃO: Obter digits do símbolo para arredondamento correto de preços
+      let symbolDigits = 5; // Default para pares Forex
+      try {
+        const symbolInfo = await this.client.getSymbolInfo(position.symbol);
+        symbolDigits = symbolInfo.digits;
+        console.log(`[CTraderAdapter] [PRICE_PRECISION] ${position.symbol}: digits = ${symbolDigits}`);
+      } catch (infoError) {
+        // Fallback para valores conhecidos
+        if (position.symbol.includes('XAU') || position.symbol.includes('XAG')) {
+          symbolDigits = 2;
+        } else if (position.symbol.includes('JPY')) {
+          symbolDigits = 3;
+        }
+        console.warn(`[CTraderAdapter] [PRICE_PRECISION] Usando fallback digits = ${symbolDigits} para ${position.symbol}`);
+      }
+      
       // Calcular SL/TP se especificado em pips
       let stopLoss = params.stopLoss;
       let takeProfit = params.takeProfit;
@@ -793,6 +809,16 @@ export class CTraderAdapter extends BaseBrokerAdapter {
             : currentPrice.ask - (params.takeProfitPips * pipValue);
         }
       }
+      
+      // CORREÇÃO: Arredondar preços para digits do símbolo antes de enviar
+      if (stopLoss !== undefined) {
+        stopLoss = roundToSymbolDigits(stopLoss, symbolDigits);
+      }
+      if (takeProfit !== undefined) {
+        takeProfit = roundToSymbolDigits(takeProfit, symbolDigits);
+      }
+      
+      console.log(`[CTraderAdapter] [PRICE_PRECISION] SL/TP arredondados: SL=${stopLoss}, TP=${takeProfit}`);
       
       await this.client.amendPositionSLTP(
         Number(params.positionId),
