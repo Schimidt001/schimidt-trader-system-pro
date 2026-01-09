@@ -133,6 +133,71 @@ async function startServer() {
     }
   });
   
+  // Endpoint de teste de trade forçado (APENAS DEMO)
+  app.get("/api/force-test-trade", async (req, res) => {
+    try {
+      console.log("[ForceTestTrade] Iniciando trade de teste forçado...");
+      
+      // Importar o adapter
+      const { ctraderAdapter } = await import("../adapters/CTraderAdapter");
+      
+      // Verificar se está conectado
+      if (!ctraderAdapter.isConnected()) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Não conectado ao IC Markets. Conecte primeiro na interface." 
+        });
+      }
+      
+      // Obter info da conta
+      const accountInfo = ctraderAdapter.getAccountInfo();
+      if (!accountInfo) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Informações da conta não disponíveis" 
+        });
+      }
+      
+      // Verificar se é conta demo
+      if (accountInfo.accountType !== "demo") {
+        return res.status(403).json({ 
+          success: false, 
+          error: "Este endpoint só funciona em conta DEMO por segurança" 
+        });
+      }
+      
+      const symbol = (req.query.symbol as string) || "USDJPY";
+      const direction = (req.query.direction as string) || "BUY";
+      const lots = parseFloat((req.query.lots as string) || "0.01");
+      
+      console.log(`[ForceTestTrade] Executando ${direction} ${lots} lotes de ${symbol}`);
+      
+      // Executar a ordem
+      const result = await ctraderAdapter.placeOrder({
+        symbol,
+        type: "MARKET",
+        side: direction.toUpperCase() as "BUY" | "SELL",
+        volume: lots,
+        stopLoss: 20, // 20 pips de SL
+        takeProfit: 40, // 40 pips de TP
+      });
+      
+      console.log("[ForceTestTrade] Resultado:", result);
+      
+      res.json({ 
+        success: true, 
+        message: `Trade de teste executado com sucesso!`,
+        result 
+      });
+    } catch (error: any) {
+      console.error("[ForceTestTrade] Erro:", error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message || "Erro ao executar trade de teste" 
+      });
+    }
+  });
+  
   // tRPC API
   app.use(
     "/api/trpc",
