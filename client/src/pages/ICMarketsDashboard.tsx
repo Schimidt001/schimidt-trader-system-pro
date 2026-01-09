@@ -404,24 +404,24 @@ export default function ICMarketsDashboard() {
                   )}
                   Iniciar Robô
                 </Button>
-                {/* Botão de Teste de Trade (APENAS DEMO) */}
-                {isConnected && connectionStatus.data?.accountInfo?.isDemo && (
-                  <Button
-                    variant="outline"
-                    onClick={handleForceTestTrade}
-                    disabled={forceTestTradeMutation.isPending}
-                    className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/20"
-                  >
-                    {forceTestTradeMutation.isPending ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Target className="w-4 h-4 mr-2" />
-                    )}
-                    🧪 Forçar Trade Teste
-                  </Button>
-                )}
-
               )
+            )}
+            
+            {/* Botão de Teste de Trade (APENAS DEMO) - Sempre visível quando conectado em demo */}
+            {isConnected && connectionStatus.data?.accountInfo?.isDemo && (
+              <Button
+                variant="outline"
+                onClick={handleForceTestTrade}
+                disabled={forceTestTradeMutation.isPending}
+                className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/20"
+              >
+                {forceTestTradeMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Target className="w-4 h-4 mr-2" />
+                )}
+                🧪 Forçar Trade Teste
+              </Button>
             )}
           </div>
         </div>
