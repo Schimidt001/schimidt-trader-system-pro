@@ -1,0 +1,70 @@
+
+  /**
+   * ENDPOINT DE TESTE: Forca um trade para validar o sistema de execucao
+   * APENAS PARA CONTA DEMO - Usado para diagnostico
+   */
+  forceTestTrade: protectedProcedure
+    .input(z.object({
+      symbol: z.string().default("USDJPY"),
+      direction: z.enum(["BUY", "SELL"]).default("BUY"),
+      lots: z.number().min(0.01).max(0.1).default(0.01),
+      stopLossPips: z.number().default(20),
+      takeProfitPips: z.number().default(40),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      if (!ctraderAdapter.isConnected()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Nao conectado ao IC Markets",
+        });
+      }
+      
+      const accountInfo = await ctraderAdapter.getAccountInfo();
+      if (!accountInfo.isDemo) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Este endpoint so funciona em conta DEMO",
+        });
+      }
+      
+      const params = {
+        symbol: input?.symbol || "USDJPY",
+        direction: (input?.direction || "BUY") as "BUY" | "SELL",
+        lots: input?.lots || 0.01,
+        stopLossPips: input?.stopLossPips || 20,
+        takeProfitPips: input?.takeProfitPips || 40,
+      };
+      
+      console.log("[FORCE_TEST_TRADE] Executando trade de teste:", params);
+      
+      const result = await ctraderAdapter.placeOrder({
+        symbol: params.symbol,
+        direction: params.direction,
+        orderType: "MARKET",
+        lots: params.lots,
+        stopLossPips: params.stopLossPips,
+        takeProfitPips: params.takeProfitPips,
+        comment: "FORCE_TEST_TRADE",
+      });
+      
+      if (result.success && result.orderId) {
+        await insertForexPosition({
+          userId: ctx.user.id,
+          positionId: result.orderId,
+          symbol: params.symbol,
+          direction: params.direction,
+          lots: String(params.lots),
+          entryPrice: String(result.executionPrice || 0),
+          status: "OPEN",
+        });
+        console.log("[FORCE_TEST_TRADE] Trade executado com sucesso:", result);
+      }
+      
+      return {
+        success: result.success,
+        orderId: result.orderId,
+        executionPrice: result.executionPrice,
+        errorMessage: result.errorMessage,
+        params,
+      };
+    }),

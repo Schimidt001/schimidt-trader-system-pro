@@ -62,6 +62,8 @@ export interface AccountInfo {
   currency: string;
   /** Tipo de conta (demo/real) */
   accountType: "demo" | "real";
+  /** Se é conta demo */
+  isDemo?: boolean;
   /** Alavancagem (apenas Forex) */
   leverage?: number;
   /** Nome do titular */

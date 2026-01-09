@@ -278,6 +278,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
         accountType: ctraderCreds.isDemo ? "demo" : "real",
         leverage: trader.leverageInCents / 100,
         accountName: `IC Markets ${ctraderCreds.isDemo ? "Demo" : "Live"}`,
+        isDemo: ctraderCreds.isDemo,
       };
       
       this.setConnectionState("AUTHENTICATED");
