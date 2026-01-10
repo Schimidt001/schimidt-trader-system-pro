@@ -278,6 +278,10 @@ export class RiskManager {
     // CORREÇÃO DEFINITIVA: Converter de volta para lotes (1 lote = 10,000,000 cents)
     lotSize = volumeInCents / 10000000;
     
+    // CORREÇÃO 2026-01-10: Arredondar para 2 casas decimais (precisão padrão de lotes)
+    // Isso evita valores como 0.0134 que causam erro "Lote deve estar entre 0.01 e 100"
+    lotSize = Math.round(lotSize * 100) / 100;
+    
     // Verificar se o volume foi ajustado
     const volumeAdjusted = Math.abs(lotSize - originalLotSize) > 0.0001;
     

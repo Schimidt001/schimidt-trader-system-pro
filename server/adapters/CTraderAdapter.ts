@@ -562,6 +562,26 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       };
     }
     
+    // CORREÇÃO 2026-01-10: Normalizar lote antes de validar
+    // Arredondar para 2 casas decimais (precisão padrão de lotes)
+    // e garantir que está dentro dos limites
+    let normalizedLots = Math.round(order.lots * 100) / 100; // Arredondar para 0.01
+    
+    // Aplicar limites mínimo e máximo
+    if (normalizedLots < 0.01) {
+      console.warn(`[CTraderAdapter] ⚠️ Lote ${order.lots} abaixo do mínimo, ajustando para 0.01`);
+      normalizedLots = 0.01;
+    }
+    if (normalizedLots > 100) {
+      console.warn(`[CTraderAdapter] ⚠️ Lote ${order.lots} acima do máximo, ajustando para 100`);
+      normalizedLots = 100;
+    }
+    
+    // Atualizar o valor do lote na ordem
+    order.lots = normalizedLots;
+    console.log(`[CTraderAdapter] Lote normalizado: ${normalizedLots}`);
+    
+    // Validação final (redundante, mas segura)
     if (order.lots < 0.01 || order.lots > 100) {
       return {
         success: false,
@@ -617,48 +637,61 @@ export class CTraderAdapter extends BaseBrokerAdapter {
         console.warn(`[CTraderAdapter] [PRICE_PRECISION] Usando fallback digits = ${symbolDigits} para ${order.symbol}`);
       }
       
-      // Calcular SL/TP se especificado em pips
-      let stopLoss = order.stopLoss;
-      let takeProfit = order.takeProfit;
+      // CORREÇÃO 2026-01-10: Calcular DISTÂNCIAS de SL/TP para ordens de mercado
+      // A cTrader API não aceita valores absolutos de SL/TP para ordens MARKET
+      // Deve-se usar relativeStopLoss e relativeTakeProfit (distâncias em preço)
+      // Documentação: https://help.ctrader.com/open-api/messages/#protooanewordereq
       
-      if (order.stopLossPips || order.takeProfitPips) {
-        const currentPrice = await this.getPrice(order.symbol);
-        const pipValue = getPipValue(order.symbol);
-        const entryPrice = order.direction === "BUY" ? currentPrice.ask : currentPrice.bid;
-        
-        if (order.stopLossPips) {
-          stopLoss = order.direction === "BUY" 
-            ? entryPrice - (order.stopLossPips * pipValue)
-            : entryPrice + (order.stopLossPips * pipValue);
-          // CORREÇÃO: Arredondar para digits do símbolo
-          stopLoss = roundToSymbolDigits(stopLoss, symbolDigits);
-        }
-        
-        if (order.takeProfitPips) {
-          takeProfit = order.direction === "BUY"
-            ? entryPrice + (order.takeProfitPips * pipValue)
-            : entryPrice - (order.takeProfitPips * pipValue);
-          // CORREÇÃO: Arredondar para digits do símbolo
-          takeProfit = roundToSymbolDigits(takeProfit, symbolDigits);
-        }
-        
-        console.log(`[CTraderAdapter] [PRICE_PRECISION] SL/TP arredondados: SL=${stopLoss}, TP=${takeProfit}`);
+      let stopLossDistance: number | undefined;
+      let takeProfitDistance: number | undefined;
+      
+      // Obter preço atual para calcular distâncias
+      const currentPrice = await this.getPrice(order.symbol);
+      const pipValue = getPipValue(order.symbol);
+      const entryPrice = order.direction === "BUY" ? currentPrice.ask : currentPrice.bid;
+      
+      console.log(`[CTraderAdapter] [SL/TP] Calculando distâncias para ordem de mercado:`);
+      console.log(`  - Entry Price: ${entryPrice}`);
+      console.log(`  - Pip Value: ${pipValue}`);
+      
+      // Calcular distância do SL
+      if (order.stopLossPips) {
+        // Se especificado em pips, converter para distância em preço
+        stopLossDistance = order.stopLossPips * pipValue;
+        console.log(`  - SL em pips: ${order.stopLossPips} -> distância: ${stopLossDistance}`);
+      } else if (order.stopLoss !== undefined) {
+        // Se especificado como preço absoluto, calcular a distância
+        stopLossDistance = Math.abs(entryPrice - order.stopLoss);
+        console.log(`  - SL absoluto: ${order.stopLoss} -> distância: ${stopLossDistance}`);
       }
       
-      // CORREÇÃO: Arredondar também se SL/TP foram passados diretamente (não em pips)
-      if (stopLoss !== undefined) {
-        stopLoss = roundToSymbolDigits(stopLoss, symbolDigits);
+      // Calcular distância do TP
+      if (order.takeProfitPips) {
+        // Se especificado em pips, converter para distância em preço
+        takeProfitDistance = order.takeProfitPips * pipValue;
+        console.log(`  - TP em pips: ${order.takeProfitPips} -> distância: ${takeProfitDistance}`);
+      } else if (order.takeProfit !== undefined) {
+        // Se especificado como preço absoluto, calcular a distância
+        takeProfitDistance = Math.abs(order.takeProfit - entryPrice);
+        console.log(`  - TP absoluto: ${order.takeProfit} -> distância: ${takeProfitDistance}`);
       }
-      if (takeProfit !== undefined) {
-        takeProfit = roundToSymbolDigits(takeProfit, symbolDigits);
+      
+      // Arredondar distâncias para precisão do símbolo
+      if (stopLossDistance !== undefined) {
+        stopLossDistance = roundToSymbolDigits(stopLossDistance, symbolDigits);
       }
+      if (takeProfitDistance !== undefined) {
+        takeProfitDistance = roundToSymbolDigits(takeProfitDistance, symbolDigits);
+      }
+      
+      console.log(`[CTraderAdapter] [SL/TP] Distâncias finais: SL=${stopLossDistance}, TP=${takeProfitDistance}`);
       
       const response = await this.client.createMarketOrder(
         symbolId,
         tradeSide,
         order.lots,
-        stopLoss,
-        takeProfit,
+        stopLossDistance,
+        takeProfitDistance,
         false, // trailingStopLoss - será gerido manualmente
         order.comment
       );

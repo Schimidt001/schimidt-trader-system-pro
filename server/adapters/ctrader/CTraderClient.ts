@@ -957,14 +957,30 @@ export class CTraderClient extends EventEmitter {
   /**
    * Cria uma nova ordem de mercado
    * 
-   * REFATORAÇÃO: Adicionado logging detalhado e tratamento de erros explícito
+   * CORREÇÃO 2026-01-10: Para ordens de mercado, a cTrader API NÃO aceita
+   * stopLoss/takeProfit como valores absolutos. Deve-se usar relativeStopLoss
+   * e relativeTakeProfit em vez disso.
+   * 
+   * Documentação: https://help.ctrader.com/open-api/messages/#protooanewordereq
+   * - stopLoss (absolute): "Not supported for MARKET orders"
+   * - takeProfit (absolute): "Unsupported for MARKET orders"
+   * - relativeStopLoss: Specified in 1/100000 of unit of a price
+   * - relativeTakeProfit: Specified in 1/100000 of unit of a price
+   * 
+   * @param symbolId ID do símbolo
+   * @param tradeSide BUY ou SELL
+   * @param volume Volume em lotes
+   * @param stopLossDistance Distância do SL em preço (será convertido para relativo)
+   * @param takeProfitDistance Distância do TP em preço (será convertido para relativo)
+   * @param trailingStopLoss Se true, ativa trailing stop
+   * @param comment Comentário da ordem
    */
   async createMarketOrder(
     symbolId: number,
     tradeSide: TradeSide,
     volume: number,
-    stopLoss?: number,
-    takeProfit?: number,
+    stopLossDistance?: number,
+    takeProfitDistance?: number,
     trailingStopLoss?: boolean,
     comment?: string
   ): Promise<any> {
@@ -990,8 +1006,8 @@ export class CTraderClient extends EventEmitter {
     console.log(`  - Symbol ID: ${symbolId}`);
     console.log(`  - Side: ${tradeSide === TradeSide.BUY ? 'BUY' : 'SELL'}`);
     console.log(`  - Volume: ${volume} lotes = ${volumeInCents} cents (${volumeInCents/100} unidades)`);
-    console.log(`  - Stop Loss: ${stopLoss !== undefined ? stopLoss : 'N/A'}`);
-    console.log(`  - Take Profit: ${takeProfit !== undefined ? takeProfit : 'N/A'}`);
+    console.log(`  - Stop Loss Distance: ${stopLossDistance !== undefined ? stopLossDistance : 'N/A'}`);
+    console.log(`  - Take Profit Distance: ${takeProfitDistance !== undefined ? takeProfitDistance : 'N/A'}`);
     
     const orderParams: any = {
       ctidTraderAccountId: this.accountId,
@@ -1001,12 +1017,24 @@ export class CTraderClient extends EventEmitter {
       volume: volumeInCents,
     };
     
-    if (stopLoss !== undefined) {
-      orderParams.stopLoss = stopLoss;
+    // CORREÇÃO 2026-01-10: Usar relativeStopLoss e relativeTakeProfit para ordens de mercado
+    // Documentação cTrader: "Specified in 1/100000 of unit of a price"
+    // Exemplo: 0.00150 de distância = 0.00150 * 100000 = 150
+    // 
+    // IMPORTANTE: Os valores passados aqui são DISTÂNCIAS em preço, não preços absolutos
+    // O CTraderAdapter calcula: distância = |entryPrice - stopLossPrice|
+    if (stopLossDistance !== undefined && stopLossDistance > 0) {
+      // Converter distância em preço para formato cTrader (1/100000)
+      const relativeStopLoss = Math.round(stopLossDistance * 100000);
+      orderParams.relativeStopLoss = relativeStopLoss;
+      console.log(`  - Relative Stop Loss: ${relativeStopLoss} (distância: ${stopLossDistance})`);
     }
     
-    if (takeProfit !== undefined) {
-      orderParams.takeProfit = takeProfit;
+    if (takeProfitDistance !== undefined && takeProfitDistance > 0) {
+      // Converter distância em preço para formato cTrader (1/100000)
+      const relativeTakeProfit = Math.round(takeProfitDistance * 100000);
+      orderParams.relativeTakeProfit = relativeTakeProfit;
+      console.log(`  - Relative Take Profit: ${relativeTakeProfit} (distância: ${takeProfitDistance})`);
     }
     
     if (trailingStopLoss !== undefined) {
@@ -1016,6 +1044,8 @@ export class CTraderClient extends EventEmitter {
     if (comment) {
       orderParams.comment = comment;
     }
+    
+    console.log(`[CTraderClient] [ORDER] Parâmetros finais:`, JSON.stringify(orderParams, null, 2));
     
     try {
       const response = await this.sendRequest("ProtoOANewOrderReq", orderParams, PayloadType.PROTO_OA_EXECUTION_EVENT);
