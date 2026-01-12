@@ -126,6 +126,8 @@ export class HybridTradingEngine extends EventEmitter {
   private lastTickTime: number | null = null;
   private currentSymbol: string | null = null;
   private tickCount: number = 0;
+  private lastSignal: string | null = null;
+  private lastSignalTime: number | null = null;
   
   constructor(userId: number, botId: number, config: Partial<HybridEngineConfig> = {}) {
     super();
@@ -138,6 +140,15 @@ export class HybridTradingEngine extends EventEmitter {
     
     console.log("[HybridEngine] Instância criada para usuário", userId, "bot", botId);
     console.log("[HybridEngine] Modo:", this.config.mode);
+  }
+  
+  // ============= GETTERS PÚBLICOS =============
+  
+  /**
+   * Retorna se o motor está em execução
+   */
+  get isRunning(): boolean {
+    return this._isRunning;
   }
   
   // ============= MÉTODOS PÚBLICOS =============
@@ -245,6 +256,8 @@ export class HybridTradingEngine extends EventEmitter {
       currentSymbol: this.currentSymbol,
       lastTickPrice: this.lastTickPrice,
       lastTickTime: this.lastTickTime,
+      lastSignal: this.lastSignal,
+      lastSignalTime: this.lastSignalTime,
       analysisCount: this.analysisCount,
       tradesExecuted: this.tradesExecuted,
       startTime: this.startTime,
@@ -875,4 +888,64 @@ export class HybridTradingEngine extends EventEmitter {
 
 export function createHybridEngine(userId: number, botId: number, config?: Partial<HybridEngineConfig>): HybridTradingEngine {
   return new HybridTradingEngine(userId, botId, config);
+}
+
+// ============= GERENCIADOR DE INSTÂNCIAS =============
+
+const activeHybridEngines = new Map<string, HybridTradingEngine>();
+
+function getHybridEngineKey(userId: number, botId: number): string {
+  return `hybrid-${userId}-${botId}`;
+}
+
+/**
+ * Obtém ou cria uma instância do HybridTradingEngine
+ */
+export function getHybridTradingEngine(userId: number, botId: number = 1, mode?: HybridMode): HybridTradingEngine {
+  const key = getHybridEngineKey(userId, botId);
+  if (!activeHybridEngines.has(key)) {
+    console.log(`[HybridEngineManager] Criando nova instância para usuário ${userId}, bot ${botId}`);
+    activeHybridEngines.set(key, new HybridTradingEngine(userId, botId, mode ? { mode } : undefined));
+  }
+  const engine = activeHybridEngines.get(key)!;
+  
+  // Atualizar modo se fornecido
+  if (mode && engine.getStatus().mode !== mode) {
+    engine.setMode(mode);
+  }
+  
+  return engine;
+}
+
+/**
+ * Remove uma instância do HybridTradingEngine
+ */
+export async function removeHybridTradingEngine(userId: number, botId: number = 1): Promise<void> {
+  const key = getHybridEngineKey(userId, botId);
+  const engine = activeHybridEngines.get(key);
+  if (engine) {
+    if (engine.isRunning) {
+      await engine.stop();
+    }
+    activeHybridEngines.delete(key);
+    console.log(`[HybridEngineManager] Instância removida para usuário ${userId}, bot ${botId}`);
+  }
+}
+
+/**
+ * Obtém status de todos os engines híbridos ativos
+ */
+export function getAllHybridEnginesStatus(): Array<{ userId: number; botId: number; status: ReturnType<HybridTradingEngine["getStatus"]> }> {
+  const statuses: Array<{ userId: number; botId: number; status: ReturnType<HybridTradingEngine["getStatus"]> }> = [];
+  
+  activeHybridEngines.forEach((engine, key) => {
+    const [, userIdStr, botIdStr] = key.split("-");
+    statuses.push({
+      userId: parseInt(userIdStr),
+      botId: parseInt(botIdStr),
+      status: engine.getStatus(),
+    });
+  });
+  
+  return statuses;
 }

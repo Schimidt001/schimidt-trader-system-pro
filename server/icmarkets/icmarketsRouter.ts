@@ -11,6 +11,7 @@ import { ctraderAdapter } from "../adapters/CTraderAdapter";
 import { CTraderCredentials } from "../adapters/IBrokerAdapter";
 import { getTradingEngine } from "../adapters/ctrader/TradingEngine";
 import { getSMCTradingEngine } from "../adapters/ctrader/SMCTradingEngine";
+import { getHybridTradingEngine, HybridMode } from "../adapters/ctrader/HybridTradingEngine";
 import {
   getICMarketsConfig,
   upsertICMarketsConfig,
@@ -898,7 +899,7 @@ export const icmarketsRouter = router({
    * Cada bot (botId) é uma instância independente
    * 
    * STRATEGY FACTORY: Consulta o banco de dados para decidir qual engine usar:
-   * - SMC_SWARM: Usa SMCTradingEngine (Multi-Ativo, Gestão de Risco Dinâmica)
+   * - SMC_SWARM + hybridMode: Verifica se deve usar HybridTradingEngine
    * - TREND_SNIPER: Usa TradingEngine legado (RSI, Ativo Único)
    */
   startBot: protectedProcedure
@@ -923,32 +924,71 @@ export const icmarketsRouter = router({
         const config = await getICMarketsConfig(ctx.user.id);
         const strategyType = config?.strategyType || "SMC_SWARM"; // Default para SMC_SWARM
         
-        console.log(`[ICMarketsRouter] 🎯 Estratégia Selecionada no DB: ${strategyType}`);
+        // Obter configuração SMC para verificar hybridMode
+        const smcConfig = await getSMCStrategyConfig(ctx.user.id, botId);
+        const hybridMode = (smcConfig as any)?.hybridMode || "SMC_ONLY";
         
-        // ============= SELECIONAR ENGINE BASEADO NA ESTRATÉGIA =============
+        console.log(`[ICMarketsRouter] 🎯 Estratégia Selecionada no DB: ${strategyType}`);
+        console.log(`[ICMarketsRouter] 🔄 Modo Híbrido: ${hybridMode}`);
+        
+        // ============= SELECIONAR ENGINE BASEADO NA ESTRATÉGIA E MODO HÍBRIDO =============
         if (strategyType === "SMC_SWARM") {
-          // ===== SMC SWARM ENGINE =====
-          const smcEngine = getSMCTradingEngine(ctx.user.id, botId);
           
-          // Verificar se já está rodando
-          if (smcEngine.isRunning) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: `O robô SMC SWARM ${botId} já está em execução`,
-            });
+          // ============= VERIFICAR SE DEVE USAR HYBRID ENGINE =============
+          if (hybridMode === "HYBRID" || hybridMode === "RSI_VWAP_ONLY") {
+            // ===== HYBRID TRADING ENGINE (SMC + RSI/VWAP) =====
+            const hybridEngine = getHybridTradingEngine(
+              ctx.user.id, 
+              botId, 
+              hybridMode as HybridMode
+            );
+            
+            // Verificar se já está rodando
+            if (hybridEngine.isRunning) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: `O robô Híbrido ${botId} já está em execução`,
+              });
+            }
+            
+            // Iniciar o robô Híbrido
+            await hybridEngine.start();
+            
+            console.log(`[ICMarketsRouter] 🔀 Robô HÍBRIDO ${botId} iniciado por usuário ${ctx.user.id} (Modo: ${hybridMode})`);
+            
+            return {
+              success: true,
+              message: `Robô Híbrido ${botId} iniciado com sucesso (Modo: ${hybridMode})`,
+              status: hybridEngine.getStatus(),
+              strategyType: "HYBRID",
+              hybridMode: hybridMode,
+            };
+            
+          } else {
+            // ===== SMC SWARM ENGINE (SMC_ONLY) =====
+            const smcEngine = getSMCTradingEngine(ctx.user.id, botId);
+            
+            // Verificar se já está rodando
+            if (smcEngine.isRunning) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: `O robô SMC SWARM ${botId} já está em execução`,
+              });
+            }
+            
+            // Iniciar o robô SMC (ele carrega configs do banco automaticamente)
+            await smcEngine.start();
+            
+            console.log(`[ICMarketsRouter] 🐝 Robô SMC SWARM ${botId} iniciado por usuário ${ctx.user.id}`);
+            
+            return {
+              success: true,
+              message: `Robô SMC SWARM ${botId} iniciado com sucesso`,
+              status: smcEngine.getStatus(),
+              strategyType: "SMC_SWARM",
+              hybridMode: "SMC_ONLY",
+            };
           }
-          
-          // Iniciar o robô SMC (ele carrega configs do banco automaticamente)
-          await smcEngine.start();
-          
-          console.log(`[ICMarketsRouter] 🐝 Robô SMC SWARM ${botId} iniciado por usuário ${ctx.user.id}`);
-          
-          return {
-            success: true,
-            message: `Robô SMC SWARM ${botId} iniciado com sucesso`,
-            status: smcEngine.getStatus(),
-            strategyType: "SMC_SWARM",
-          };
           
         } else {
           // ===== TREND SNIPER ENGINE (LEGADO) =====
@@ -1001,7 +1041,7 @@ export const icmarketsRouter = router({
    * Para o robô de trading automático
    * Cada bot (botId) é uma instância independente
    * 
-   * STRATEGY FACTORY: Para ambos os engines (SMC e Trend Sniper)
+   * STRATEGY FACTORY: Para todos os engines (Hybrid, SMC e Trend Sniper)
    */
   stopBot: protectedProcedure
     .input(z.object({
@@ -1011,6 +1051,17 @@ export const icmarketsRouter = router({
       const botId = input?.botId ?? 1;
       
       try {
+        // Tentar parar Hybrid Engine primeiro
+        const hybridEngine = getHybridTradingEngine(ctx.user.id, botId);
+        if (hybridEngine.isRunning) {
+          await hybridEngine.stop();
+          console.log(`[ICMarketsRouter] 🛑 Robô HÍBRIDO ${botId} parado por usuário ${ctx.user.id}`);
+          return {
+            success: true,
+            message: `Robô Híbrido ${botId} parado com sucesso`,
+          };
+        }
+        
         // Tentar parar SMC Engine
         const smcEngine = getSMCTradingEngine(ctx.user.id, botId);
         if (smcEngine.isRunning) {
@@ -1052,7 +1103,7 @@ export const icmarketsRouter = router({
    * IMPORTANTE: Separado do status de conexão
    * Cada bot (botId) é uma instância independente
    * 
-   * STRATEGY FACTORY: Retorna status do engine que estiver rodando
+   * STRATEGY FACTORY: Retorna status do engine que estiver rodando (Hybrid, SMC ou Trend Sniper)
    */
   getBotStatus: protectedProcedure
     .input(z.object({
@@ -1060,6 +1111,18 @@ export const icmarketsRouter = router({
     }).optional())
     .query(async ({ ctx, input }) => {
       const botId = input?.botId ?? 1;
+      
+      // Verificar se Hybrid Engine está rodando
+      const hybridEngine = getHybridTradingEngine(ctx.user.id, botId);
+      if (hybridEngine.isRunning) {
+        const status = hybridEngine.getStatus();
+        return {
+          ...status,
+          botId,
+          strategyType: "HYBRID",
+          hybridMode: status.mode,
+        };
+      }
       
       // Verificar se SMC Engine está rodando
       const smcEngine = getSMCTradingEngine(ctx.user.id, botId);
@@ -1069,6 +1132,7 @@ export const icmarketsRouter = router({
           ...status,
           botId,
           strategyType: "SMC_SWARM",
+          hybridMode: "SMC_ONLY",
         };
       }
       
@@ -1080,6 +1144,7 @@ export const icmarketsRouter = router({
         ...status,
         botId,
         strategyType: engine.isRunning ? "TREND_SNIPER" : null,
+        hybridMode: null,
       };
     }),
   
