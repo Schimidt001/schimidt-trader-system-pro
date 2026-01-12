@@ -1045,6 +1045,7 @@ export async function getForexMonthlyStats(userId: number, botId: number = 1): P
 // ============= SMC STRATEGY CONFIG QUERIES =============
 
 import { smcStrategyConfig, InsertSMCStrategyConfig, SMCStrategyConfig } from "../drizzle/schema";
+import { rsiVwapConfig, InsertRsiVwapConfig, RsiVwapConfig } from "../drizzle/schema";
 
 /**
  * Obtém configuração SMC Strategy de um usuário
@@ -1079,6 +1080,45 @@ export async function upsertSMCStrategyConfig(data: InsertSMCStrategyConfig): Pr
       .where(and(eq(smcStrategyConfig.userId, data.userId), eq(smcStrategyConfig.botId, botId)));
   } else {
     await db.insert(smcStrategyConfig).values({ ...data, botId });
+  }
+}
+
+
+// ============= RSI + VWAP CONFIG QUERIES =============
+
+/**
+ * Obtém configuração RSI+VWAP de um usuário
+ */
+export async function getRsiVwapConfig(userId: number, botId: number = 1): Promise<RsiVwapConfig | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db
+    .select()
+    .from(rsiVwapConfig)
+    .where(and(eq(rsiVwapConfig.userId, userId), eq(rsiVwapConfig.botId, botId)))
+    .limit(1);
+  
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Cria ou atualiza configuração RSI+VWAP
+ */
+export async function upsertRsiVwapConfig(data: InsertRsiVwapConfig): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const botId = data.botId ?? 1;
+  const existing = await getRsiVwapConfig(data.userId, botId);
+  
+  if (existing) {
+    await db
+      .update(rsiVwapConfig)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(rsiVwapConfig.userId, data.userId), eq(rsiVwapConfig.botId, botId)));
+  } else {
+    await db.insert(rsiVwapConfig).values({ ...data, botId });
   }
 }
 

@@ -23,7 +23,7 @@ import { SMCStrategy, SMCStrategyConfig } from "./SMCStrategy";
 import { RsiVwapStrategy, RsiVwapStrategyConfig } from "./RsiVwapStrategy";
 import { RiskManager, createRiskManager, RiskManagerConfig, DEFAULT_RISK_CONFIG } from "./RiskManager";
 import { getDb, insertSystemLog, type LogLevel, type LogCategory } from "../../db";
-import { smcStrategyConfig, icmarketsConfig } from "../../../drizzle/schema";
+import { smcStrategyConfig, icmarketsConfig, rsiVwapConfig } from "../../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { getPipValue as getCentralizedPipValue, calculateSpreadPips } from "../../../shared/normalizationUtils";
 
@@ -359,10 +359,31 @@ export class HybridTradingEngine extends EventEmitter {
     
     // Inicializar RSI+VWAP se necessário
     if (this.config.mode === HybridMode.RSI_VWAP_ONLY || this.config.mode === HybridMode.HYBRID) {
-      // Carregar configurações RSI+VWAP do banco (se existirem)
-      // Por enquanto, usar defaults
-      this.rsiVwapStrategy = strategyFactory.createStrategy(StrategyType.RSI_VWAP_REVERSAL);
-      console.log("[HybridEngine] Estratégia RSI+VWAP inicializada");
+      // CORREÇÃO CRÍTICA: Carregar configurações RSI+VWAP do banco de dados
+      let rsiConfig: any = null;
+      if (db) {
+        const result = await db
+          .select()
+          .from(rsiVwapConfig)
+          .where(
+            and(
+              eq(rsiVwapConfig.userId, this.config.userId),
+              eq(rsiVwapConfig.botId, this.config.botId)
+            )
+          )
+          .limit(1);
+        rsiConfig = result[0];
+        
+        if (rsiConfig) {
+          console.log("[HybridEngine] Configurações RSI+VWAP carregadas do banco de dados");
+        } else {
+          console.log("[HybridEngine] Nenhuma configuração RSI+VWAP encontrada, usando defaults");
+        }
+      }
+      
+      // Criar estratégia com configurações do banco ou defaults
+      this.rsiVwapStrategy = strategyFactory.createStrategy(StrategyType.RSI_VWAP_REVERSAL, rsiConfig);
+      console.log("[HybridEngine] Estratégia RSI+VWAP inicializada com configurações do DB");
     }
     
     console.log(`[HybridEngine] Estratégias ativas: SMC=${!!this.smcStrategy}, RSI+VWAP=${!!this.rsiVwapStrategy}`);

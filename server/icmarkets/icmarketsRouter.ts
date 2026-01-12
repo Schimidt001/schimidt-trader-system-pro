@@ -23,6 +23,9 @@ import {
   getForexMonthlyStats,
   upsertSMCStrategyConfig,
   getSMCStrategyConfig,
+  // RSI + VWAP Config
+  upsertRsiVwapConfig,
+  getRsiVwapConfig,
   // System Logs
   insertSystemLog,
   getRecentSystemLogs,
@@ -135,7 +138,10 @@ export const icmarketsRouter = router({
     // Buscar configuração SMC associada
     const smcConfig = await getSMCStrategyConfig(ctx.user.id);
     
-    // Mesclar configurações IC Markets + SMC Strategy
+    // Buscar configuração RSI+VWAP do banco de dados
+    const rsiConfig = await getRsiVwapConfig(ctx.user.id);
+    
+    // Mesclar configurações IC Markets + SMC Strategy + RSI+VWAP
     return {
       ...config,
       // Garantir que strategyType venha do banco
@@ -200,25 +206,25 @@ export const icmarketsRouter = router({
       maxTotalExposurePercent: (smcConfig as any)?.maxTotalExposurePercent || 7.0,
       maxTradesPerSymbol: (smcConfig as any)?.maxTradesPerSymbol || 1,
       
-      // RSI + VWAP (valores padrão até implementar tabela separada)
-      rsiPeriod: 14,
-      rsiOversold: 30,
-      rsiOverbought: 70,
-      vwapEnabled: true,
-      rsiRiskPercentage: 1.0,
-      rsiStopLossPips: 10,
-      rsiTakeProfitPips: 20,
-      rsiRewardRiskRatio: 2.0,
-      rsiMinCandleBodyPercent: 30,
-      rsiSpreadFilterEnabled: true,
-      rsiMaxSpreadPips: 2.0,
-      rsiSessionFilterEnabled: true,
-      rsiSessionStart: "08:00",
-      rsiSessionEnd: "17:00",
-      rsiTrailingEnabled: false,
-      rsiTrailingTriggerPips: 15,
-      rsiTrailingStepPips: 5,
-      rsiVerboseLogging: true,
+      // RSI + VWAP - CORREÇÃO: Carregar do banco de dados (rsiVwapConfig)
+      rsiPeriod: rsiConfig?.rsiPeriod ?? 14,
+      rsiOversold: rsiConfig?.rsiOversold ?? 30,
+      rsiOverbought: rsiConfig?.rsiOverbought ?? 70,
+      vwapEnabled: rsiConfig?.vwapEnabled ?? true,
+      rsiRiskPercentage: rsiConfig?.riskPercentage ? Number(rsiConfig.riskPercentage) : 1.0,
+      rsiStopLossPips: rsiConfig?.stopLossPips ? Number(rsiConfig.stopLossPips) : 10,
+      rsiTakeProfitPips: rsiConfig?.takeProfitPips ? Number(rsiConfig.takeProfitPips) : 20,
+      rsiRewardRiskRatio: rsiConfig?.rewardRiskRatio ? Number(rsiConfig.rewardRiskRatio) : 2.0,
+      rsiMinCandleBodyPercent: rsiConfig?.minCandleBodyPercent ? Number(rsiConfig.minCandleBodyPercent) : 30,
+      rsiSpreadFilterEnabled: rsiConfig?.spreadFilterEnabled ?? true,
+      rsiMaxSpreadPips: rsiConfig?.maxSpreadPips ? Number(rsiConfig.maxSpreadPips) : 2.0,
+      rsiSessionFilterEnabled: rsiConfig?.sessionFilterEnabled ?? true,
+      rsiSessionStart: rsiConfig?.sessionStart ?? "08:00",
+      rsiSessionEnd: rsiConfig?.sessionEnd ?? "17:00",
+      rsiTrailingEnabled: rsiConfig?.trailingEnabled ?? false,
+      rsiTrailingTriggerPips: rsiConfig?.trailingTriggerPips ? Number(rsiConfig.trailingTriggerPips) : 15,
+      rsiTrailingStepPips: rsiConfig?.trailingStepPips ? Number(rsiConfig.trailingStepPips) : 5,
+      rsiVerboseLogging: rsiConfig?.verboseLogging ?? true,
     };
   }),
   
@@ -380,6 +386,33 @@ export const icmarketsRouter = router({
         maxTotalExposurePercent: input.maxTotalExposurePercent.toString(),
         maxTradesPerSymbol: input.maxTradesPerSymbol,
       });
+      
+      // ============= SALVAR CONFIGURAÇÃO RSI+VWAP =============
+      // CORREÇÃO CRÍTICA: Salvar configurações RSI+VWAP no banco de dados
+      await upsertRsiVwapConfig({
+        userId: ctx.user.id,
+        botId: 1,
+        rsiPeriod: input.rsiPeriod,
+        rsiOversold: input.rsiOversold,
+        rsiOverbought: input.rsiOverbought,
+        vwapEnabled: input.vwapEnabled,
+        riskPercentage: input.rsiRiskPercentage.toString(),
+        stopLossPips: input.rsiStopLossPips.toString(),
+        takeProfitPips: input.rsiTakeProfitPips.toString(),
+        rewardRiskRatio: input.rsiRewardRiskRatio.toString(),
+        minCandleBodyPercent: input.rsiMinCandleBodyPercent.toString(),
+        spreadFilterEnabled: input.rsiSpreadFilterEnabled,
+        maxSpreadPips: input.rsiMaxSpreadPips.toString(),
+        sessionFilterEnabled: input.rsiSessionFilterEnabled,
+        sessionStart: input.rsiSessionStart,
+        sessionEnd: input.rsiSessionEnd,
+        trailingEnabled: input.rsiTrailingEnabled,
+        trailingTriggerPips: input.rsiTrailingTriggerPips.toString(),
+        trailingStepPips: input.rsiTrailingStepPips.toString(),
+        verboseLogging: input.rsiVerboseLogging,
+      });
+      
+      console.log(`[ICMARKETS_CONFIG] Configuração RSI+VWAP salva para usuário ${ctx.user.id}`);
       
       // Atualizar configuracao da estrategia TrendSniper (legado)
       ctraderAdapter.configureStrategy({
