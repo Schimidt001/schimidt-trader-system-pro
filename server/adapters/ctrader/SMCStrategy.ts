@@ -177,8 +177,10 @@ export const DEFAULT_SMC_CONFIG: SMCStrategyConfig = {
   sweepValidationMinutes: 90,  // CRÍTICO: Aumentado de 60 para 90 min
   
   // CHoCH M15 - AJUSTADO: Valor mais agressivo conforme briefing
-  chochM15Lookback: 20,
-  chochMinPips: 5.0,
+  // NOTA: O valor padrão é 2.0 pips para permitir mais sinais.
+  // O usuário pode ajustar via UI conforme preferência.
+  chochM15Lookback: 15,  // Reduzido para maior sensibilidade
+  chochMinPips: 2.0,     // CRÍTICO: Reduzido de 5.0 para 2.0 - permite mais CHoCH
   
   // Order Block - OTIMIZADO: Zona mais precisa
   orderBlockLookback: 10,
@@ -257,11 +259,54 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       this.config.activeSymbols = DEFAULT_SMC_CONFIG.activeSymbols;
     }
     
+    // ========== CORREÇÃO: Garantir conversão de tipos numéricos do banco ==========
+    // Valores do banco podem vir como strings (decimal), precisam ser convertidos
+    if (typeof this.config.chochMinPips === 'string') {
+      this.config.chochMinPips = parseFloat(this.config.chochMinPips);
+    }
+    if (typeof this.config.sweepBufferPips === 'string') {
+      this.config.sweepBufferPips = parseFloat(this.config.sweepBufferPips);
+    }
+    if (typeof this.config.riskPercentage === 'string') {
+      this.config.riskPercentage = parseFloat(this.config.riskPercentage);
+    }
+    if (typeof this.config.dailyLossLimitPercent === 'string') {
+      this.config.dailyLossLimitPercent = parseFloat(this.config.dailyLossLimitPercent);
+    }
+    if (typeof this.config.stopLossBufferPips === 'string') {
+      this.config.stopLossBufferPips = parseFloat(this.config.stopLossBufferPips);
+    }
+    if (typeof this.config.rewardRiskRatio === 'string') {
+      this.config.rewardRiskRatio = parseFloat(this.config.rewardRiskRatio);
+    }
+    if (typeof this.config.orderBlockExtensionPips === 'string') {
+      this.config.orderBlockExtensionPips = parseFloat(this.config.orderBlockExtensionPips);
+    }
+    if (typeof this.config.maxSpreadPips === 'string') {
+      this.config.maxSpreadPips = parseFloat(this.config.maxSpreadPips);
+    }
+    if (typeof this.config.trailingTriggerPips === 'string') {
+      this.config.trailingTriggerPips = parseFloat(this.config.trailingTriggerPips);
+    }
+    if (typeof this.config.trailingStepPips === 'string') {
+      this.config.trailingStepPips = parseFloat(this.config.trailingStepPips);
+    }
+    if (typeof this.config.rejectionWickPercent === 'string') {
+      this.config.rejectionWickPercent = parseFloat(this.config.rejectionWickPercent);
+    }
+    
     this.initializeSwarmStates();
     
-    // Log de inicialização com configurações carregadas
-    console.log(`[SMC] Config carregada | Structure Timeframe: ${this.config.structureTimeframe}`);
+    // Log de inicialização com configurações carregadas (detalhado)
+    console.log(`[SMC] ========== CONFIGURAÇÕES CARREGADAS ==========`);
+    console.log(`[SMC] Structure Timeframe: ${this.config.structureTimeframe}`);
+    console.log(`[SMC] CHoCH Min Pips: ${this.config.chochMinPips}`);
+    console.log(`[SMC] Sweep Buffer Pips: ${this.config.sweepBufferPips}`);
+    console.log(`[SMC] Risk %: ${this.config.riskPercentage}`);
+    console.log(`[SMC] Max Open Trades: ${this.config.maxOpenTrades}`);
+    console.log(`[SMC] Reward:Risk Ratio: ${this.config.rewardRiskRatio}`);
     console.log(`[SMC] Ativos monitorados: ${this.config.activeSymbols.join(', ')}`);
+    console.log(`[SMC] ================================================`);
   }
   
   // ============= INTERFACE ITradingStrategy =============
@@ -662,33 +707,50 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
    * - A mínima do candle central é MENOR que as mínimas dos N candles à direita
    */
   private identifySwingPoints(state: SymbolSwarmState): void {
-    // ========== FIX CRÍTICO: FORÇAR H1 PARA DETECÇÃO DE SWINGS ==========
-    // PROBLEMA: A config do banco pode estar como 'M15', mas a estrutura macro
-    // DEVE ser calculada em H1 para maior precisão institucional.
-    // SOLUÇÃO: Ignorar config.structureTimeframe e forçar H1.
+    // ========== CORREÇÃO: RESPEITAR CONFIGURAÇÃO DA UI ==========
+    // ATUALIZADO: Agora usa o timeframe configurado pelo usuário na UI
+    // em vez de forçar H1. Isso permite maior flexibilidade:
+    // - H1 (Conservador): Menos sinais, maior precisão institucional
+    // - M15 (Agressivo): Mais sinais, maior frequência de trades
+    // - M5 (Scalper): Máximo de sinais para operações rápidas
     
-    // FORÇAR H1 - Independente da configuração do banco de dados
-    const candles: TrendbarData[] = this.h1Data;
-    const tfLabel: string = 'H1';
+    // Selecionar dados do timeframe configurado na UI
+    let candles: TrendbarData[];
+    let tfLabel: string;
     
-    // Log de diagnóstico: avisar se a config estava diferente
-    if (this.config.structureTimeframe !== 'H1') {
-      console.warn(`[SMC-FIX] ${this.currentSymbol}: Config tinha structureTimeframe='${this.config.structureTimeframe}', mas FORÇANDO H1 para Swing Points`);
+    switch (this.config.structureTimeframe) {
+      case 'M5':
+        candles = this.m5Data;
+        tfLabel = 'M5';
+        break;
+      case 'M15':
+        candles = this.m15Data;
+        tfLabel = 'M15';
+        break;
+      case 'H1':
+      default:
+        candles = this.h1Data;
+        tfLabel = 'H1';
+        break;
     }
+    
+    // Log de diagnóstico: mostrar qual timeframe está sendo usado
+    console.log(`[SMC] ${this.currentSymbol}: Usando structureTimeframe='${this.config.structureTimeframe}' conforme configuração da UI`);
     
     const leftBars = this.config.fractalLeftBars;
     const rightBars = this.config.fractalRightBars;
     const lookback = this.config.swingH1Lookback;
     
-    // ========== VALIDAÇÃO CRÍTICA: Garantir dados H1 suficientes ==========
-    // FIX: Validação mínima de 50 candles H1 antes de processar
-    if (candles.length < 50) {
-      console.warn(`[SMC-FIX] ${this.currentSymbol}: H1 candles insuficientes (${candles.length} < 50). Aguardando mais dados...`);
+    // ========== VALIDAÇÃO CRÍTICA: Garantir dados suficientes ==========
+    // Validação mínima de candles antes de processar (ajustado para timeframe dinâmico)
+    const minCandles = Math.max(30, lookback);
+    if (candles.length < minCandles) {
+      console.warn(`[SMC] ${this.currentSymbol}: ${tfLabel} candles insuficientes (${candles.length} < ${minCandles}). Aguardando mais dados...`);
       return;
     }
     
     // ========== DEBUG: Verificar dados antes de processar Swing Points ==========
-    console.log(`[DEBUG-SWING] ${this.currentSymbol} | TF: ${tfLabel} (FORÇADO) | Candles: ${candles.length} | leftBars: ${leftBars} | rightBars: ${rightBars} | lookback: ${lookback}`);
+    console.log(`[DEBUG-SWING] ${this.currentSymbol} | TF: ${tfLabel} (UI Config) | Candles: ${candles.length} | leftBars: ${leftBars} | rightBars: ${rightBars} | lookback: ${lookback}`);
     
     // Precisamos de pelo menos leftBars + rightBars + 1 candles
     if (candles.length < leftBars + rightBars + 1) {

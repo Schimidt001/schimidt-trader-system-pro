@@ -54,38 +54,38 @@ const icmarketsConfigSchema = z.object({
   trailingStepPips: z.number().default(5),
   compoundingEnabled: z.boolean().default(true),
   baseRisk: z.number().default(10),
-  // SMC Strategy Config
+  // SMC Strategy Config - ATUALIZADO: Valores alinhados com DEFAULT_SMC_CONFIG e UI
   strategyType: z.string().default("SMC_SWARM"),
-  structureTimeframe: z.string().default("H1"),
+  structureTimeframe: z.string().default("M15"),  // CORREÇÃO: M15 como padrão (mais sinais)
   activeSymbols: z.string().default('["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]'),
-  swingH1Lookback: z.number().default(50),
-  fractalLeftBars: z.number().default(2),
-  fractalRightBars: z.number().default(2),
-  sweepBufferPips: z.number().default(2),
-  sweepValidationMinutes: z.number().default(60),
-  chochM15Lookback: z.number().default(20),
-  chochMinPips: z.number().default(10),
-  orderBlockLookback: z.number().default(10),
-  orderBlockExtensionPips: z.number().default(15),
+  swingH1Lookback: z.number().default(30),  // CORREÇÃO: 30 conforme UI
+  fractalLeftBars: z.number().default(1),   // CORREÇÃO: 1 conforme UI
+  fractalRightBars: z.number().default(1),  // CORREÇÃO: 1 conforme UI
+  sweepBufferPips: z.number().default(0.5), // CORREÇÃO: 0.5 conforme UI
+  sweepValidationMinutes: z.number().default(90),  // CORREÇÃO: 90 conforme UI
+  chochM15Lookback: z.number().default(15), // CORREÇÃO: 15 conforme UI
+  chochMinPips: z.number().default(2.0),    // CORREÇÃO: 2.0 conforme UI (mais agressivo)
+  orderBlockLookback: z.number().default(15), // CORREÇÃO: 15 conforme UI
+  orderBlockExtensionPips: z.number().default(3.0), // CORREÇÃO: 3.0 conforme UI
   entryConfirmationType: z.string().default("ANY"),
-  rejectionWickPercent: z.number().default(60),
+  rejectionWickPercent: z.number().default(20),  // CORREÇÃO: 20 conforme DEFAULT_SMC_CONFIG
   spreadFilterEnabled: z.boolean().default(true),
-  maxSpreadPips: z.number().default(2.0),
-  riskPercentage: z.number().default(0.75),
-  maxOpenTrades: z.number().default(3),
-  dailyLossLimitPercent: z.number().default(3),
-  stopLossBufferPips: z.number().default(2),
-  rewardRiskRatio: z.number().default(4),
+  maxSpreadPips: z.number().default(3.0),   // CORREÇÃO: 3.0 conforme UI
+  riskPercentage: z.number().default(2.0),  // CORREÇÃO: 2.0 conforme UI
+  maxOpenTrades: z.number().default(2),     // CORREÇÃO: 2 conforme UI
+  dailyLossLimitPercent: z.number().default(10.0), // CORREÇÃO: 10.0 conforme UI
+  stopLossBufferPips: z.number().default(2.0),
+  rewardRiskRatio: z.number().default(3.0), // CORREÇÃO: 3.0 conforme UI
   sessionFilterEnabled: z.boolean().default(true),
-  londonSessionStart: z.string().default("04:00"),
-  londonSessionEnd: z.string().default("07:00"),
-  nySessionStart: z.string().default("09:30"),
-  nySessionEnd: z.string().default("12:30"),
+  londonSessionStart: z.string().default("05:00"),  // CORREÇÃO: 05:00 conforme UI
+  londonSessionEnd: z.string().default("12:00"),    // CORREÇÃO: 12:00 conforme UI
+  nySessionStart: z.string().default("09:00"),      // CORREÇÃO: 09:00 conforme UI
+  nySessionEnd: z.string().default("17:00"),        // CORREÇÃO: 17:00 conforme UI
   smcTrailingEnabled: z.boolean().default(true),
-  smcTrailingTriggerPips: z.number().default(20),
-  smcTrailingStepPips: z.number().default(10),
+  smcTrailingTriggerPips: z.number().default(10.0), // CORREÇÃO: 10.0 conforme UI
+  smcTrailingStepPips: z.number().default(2.0),     // CORREÇÃO: 2.0 conforme UI
   circuitBreakerEnabled: z.boolean().default(true),
-  verboseLogging: z.boolean().default(false),
+  verboseLogging: z.boolean().default(true),  // CORREÇÃO: true conforme UI
   // Modo Híbrido
   hybridMode: z.string().default("SMC_ONLY"),
   maxTotalExposurePercent: z.number().default(7.0),
@@ -141,59 +141,59 @@ export const icmarketsRouter = router({
       // Garantir que strategyType venha do banco
       strategyType: config.strategyType || "SMC_SWARM",
       
-      // Timeframe de Estrutura (Swing Points) - NOVO
-      structureTimeframe: smcConfig?.structureTimeframe || "H1",
+      // Timeframe de Estrutura (Swing Points) - CORREÇÃO: M15 como fallback
+      structureTimeframe: smcConfig?.structureTimeframe || "M15",
       
-      // Campos SMC (do smcStrategyConfig ou defaults)
+      // Campos SMC (do smcStrategyConfig ou defaults) - CORREÇÃO: Valores alinhados com UI
       activeSymbols: smcConfig?.activeSymbols || JSON.stringify(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
-      riskPercentage: smcConfig?.riskPercentage || "0.75",
-      maxOpenTrades: smcConfig?.maxOpenTrades || 3,
-      dailyLossLimitPercent: smcConfig?.dailyLossLimitPercent || "3",
+      riskPercentage: smcConfig?.riskPercentage || "2.0",
+      maxOpenTrades: smcConfig?.maxOpenTrades || 2,
+      dailyLossLimitPercent: smcConfig?.dailyLossLimitPercent || "10.0",
       
-      // Parâmetros de Estrutura H1
-      swingH1Lookback: smcConfig?.swingH1Lookback || 50,
-      fractalLeftBars: smcConfig?.fractalLeftBars || 2,
-      fractalRightBars: smcConfig?.fractalRightBars || 2,
+      // Parâmetros de Estrutura - CORREÇÃO: Valores conforme UI
+      swingH1Lookback: smcConfig?.swingH1Lookback || 30,
+      fractalLeftBars: smcConfig?.fractalLeftBars || 1,
+      fractalRightBars: smcConfig?.fractalRightBars || 1,
       
-      // Parâmetros de Sweep
-      sweepBufferPips: smcConfig?.sweepBufferPips || "2",
-      sweepValidationMinutes: smcConfig?.sweepValidationMinutes || 60,
+      // Parâmetros de Sweep - CORREÇÃO: Valores conforme UI
+      sweepBufferPips: smcConfig?.sweepBufferPips || "0.5",
+      sweepValidationMinutes: smcConfig?.sweepValidationMinutes || 90,
       
-      // Parâmetros de CHoCH
-      chochM15Lookback: smcConfig?.chochM15Lookback || 20,
-      chochMinPips: smcConfig?.chochMinPips || "10",
+      // Parâmetros de CHoCH - CORREÇÃO: Valores conforme UI
+      chochM15Lookback: smcConfig?.chochM15Lookback || 15,
+      chochMinPips: smcConfig?.chochMinPips || "2.0",
       
-      // Parâmetros de Order Block
-      orderBlockLookback: smcConfig?.orderBlockLookback || 10,
-      orderBlockExtensionPips: smcConfig?.orderBlockExtensionPips || "15",
+      // Parâmetros de Order Block - CORREÇÃO: Valores conforme UI
+      orderBlockLookback: smcConfig?.orderBlockLookback || 15,
+      orderBlockExtensionPips: smcConfig?.orderBlockExtensionPips || "3.0",
       
       // Parâmetros de Entrada
       entryConfirmationType: smcConfig?.entryConfirmationType || "ANY",
-      rejectionWickPercent: smcConfig?.rejectionWickPercent || "60",
+      rejectionWickPercent: smcConfig?.rejectionWickPercent || "20",
       
-      // Filtro de Spread
+      // Filtro de Spread - CORREÇÃO: Valores conforme UI
       spreadFilterEnabled: smcConfig?.spreadFilterEnabled ?? true,
-      maxSpreadPips: smcConfig?.maxSpreadPips || "2.0",
+      maxSpreadPips: smcConfig?.maxSpreadPips || "3.0",
       
-      // Gestão de Risco Avançada
-      stopLossBufferPips: smcConfig?.stopLossBufferPips || "2",
-      rewardRiskRatio: smcConfig?.rewardRiskRatio || "4",
+      // Gestão de Risco Avançada - CORREÇÃO: Valores conforme UI
+      stopLossBufferPips: smcConfig?.stopLossBufferPips || "2.0",
+      rewardRiskRatio: smcConfig?.rewardRiskRatio || "3.0",
       
-      // Sessões de Trading
+      // Sessões de Trading - CORREÇÃO: Valores conforme UI
       sessionFilterEnabled: smcConfig?.sessionFilterEnabled ?? true,
-      londonSessionStart: smcConfig?.londonSessionStart || "04:00",
-      londonSessionEnd: smcConfig?.londonSessionEnd || "07:00",
-      nySessionStart: smcConfig?.nySessionStart || "09:30",
-      nySessionEnd: smcConfig?.nySessionEnd || "12:30",
+      londonSessionStart: smcConfig?.londonSessionStart || "05:00",
+      londonSessionEnd: smcConfig?.londonSessionEnd || "12:00",
+      nySessionStart: smcConfig?.nySessionStart || "09:00",
+      nySessionEnd: smcConfig?.nySessionEnd || "17:00",
       
-      // Trailing Stop SMC
+      // Trailing Stop SMC - CORREÇÃO: Valores conforme UI
       smcTrailingEnabled: smcConfig?.trailingEnabled ?? true,
-      smcTrailingTriggerPips: smcConfig?.trailingTriggerPips || "20",
-      smcTrailingStepPips: smcConfig?.trailingStepPips || "10",
+      smcTrailingTriggerPips: smcConfig?.trailingTriggerPips || "10.0",
+      smcTrailingStepPips: smcConfig?.trailingStepPips || "2.0",
       
-      // Circuit Breaker e Logging
+      // Circuit Breaker e Logging - CORREÇÃO: verboseLogging true por padrão
       circuitBreakerEnabled: smcConfig?.circuitBreakerEnabled ?? true,
-      verboseLogging: smcConfig?.verboseLogging ?? false,
+      verboseLogging: smcConfig?.verboseLogging ?? true,
       
       // Modo Híbrido
       hybridMode: (smcConfig as any)?.hybridMode || "SMC_ONLY",

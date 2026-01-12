@@ -519,10 +519,31 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Inicializa a estratégia baseada na configuração
+   * 
+   * CORREÇÃO: Agora loga todas as configurações carregadas do banco
+   * para facilitar debug e garantir que a UI está sendo respeitada.
    */
   private async initializeStrategy(): Promise<void> {
     // Carregar configuração SMC do banco
     const smcConfig = await this.getSMCConfigFromDB();
+    
+    // DEBUG: Log detalhado das configurações carregadas do banco
+    console.log(`[SMCTradingEngine] ========== CONFIGURAÇÕES DO BANCO ==========`);
+    if (smcConfig) {
+      console.log(`[SMCTradingEngine] structureTimeframe: ${smcConfig.structureTimeframe}`);
+      console.log(`[SMCTradingEngine] chochMinPips: ${smcConfig.chochMinPips}`);
+      console.log(`[SMCTradingEngine] sweepBufferPips: ${smcConfig.sweepBufferPips}`);
+      console.log(`[SMCTradingEngine] riskPercentage: ${smcConfig.riskPercentage}`);
+      console.log(`[SMCTradingEngine] maxOpenTrades: ${smcConfig.maxOpenTrades}`);
+      console.log(`[SMCTradingEngine] rewardRiskRatio: ${smcConfig.rewardRiskRatio}`);
+      console.log(`[SMCTradingEngine] fractalLeftBars: ${smcConfig.fractalLeftBars}`);
+      console.log(`[SMCTradingEngine] fractalRightBars: ${smcConfig.fractalRightBars}`);
+      console.log(`[SMCTradingEngine] swingH1Lookback: ${smcConfig.swingH1Lookback}`);
+      console.log(`[SMCTradingEngine] hybridMode: ${smcConfig.hybridMode}`);
+    } else {
+      console.log(`[SMCTradingEngine] AVISO: smcConfig é NULL! Usando valores padrão.`);
+    }
+    console.log(`[SMCTradingEngine] ================================================`);
     
     // Criar estratégia usando a factory
     this.strategy = strategyFactory.createStrategy(this.config.strategyType, smcConfig);

@@ -28,81 +28,103 @@ export const smcStrategyConfig = mysqlTable("smcStrategyConfig", {
   
   // ============= TIMEFRAME DE ESTRUTURA (SWING POINTS) =============
   /** Timeframe para identificação de Swing Points: H1 (Conservador), M15 (Agressivo), M5 (Scalper) */
-  structureTimeframe: varchar("structureTimeframe", { length: 5 }).default("H1").notNull(),
+  // CORREÇÃO: M15 como padrão para maior frequência de sinais
+  structureTimeframe: varchar("structureTimeframe", { length: 5 }).default("M15").notNull(),
   
   // ============= ATIVOS MONITORADOS (SWARM) =============
   /** Lista de símbolos ativos para monitoramento (JSON Array) */
   activeSymbols: text("activeSymbols").default('["EURUSD","GBPUSD","USDJPY","XAUUSD"]').notNull(),
   
-  // ============= PARÂMETROS DE ESTRUTURA (H1) =============
-  /** Quantidade de candles H1 para lookback na identificação de swings */
-  swingH1Lookback: int("swingH1Lookback").default(50).notNull(),
+  // ============= PARÂMETROS DE ESTRUTURA =============
+  /** Quantidade de candles para lookback na identificação de swings */
+  // CORREÇÃO: 30 conforme UI
+  swingH1Lookback: int("swingH1Lookback").default(30).notNull(),
   /** Quantidade de velas à esquerda para validar fractal */
-  fractalLeftBars: int("fractalLeftBars").default(2).notNull(),
+  // CORREÇÃO: 1 conforme UI (mais sensível)
+  fractalLeftBars: int("fractalLeftBars").default(1).notNull(),
   /** Quantidade de velas à direita para validar fractal */
-  fractalRightBars: int("fractalRightBars").default(2).notNull(),
+  // CORREÇÃO: 1 conforme UI (mais sensível)
+  fractalRightBars: int("fractalRightBars").default(1).notNull(),
   
   // ============= PARÂMETROS DE SWEEP =============
   /** Buffer em pips acima/abaixo do swing para considerar sweep */
-  sweepBufferPips: decimal("sweepBufferPips", { precision: 5, scale: 1 }).default("2.0").notNull(),
+  // CORREÇÃO: 0.5 conforme UI (mais sensível)
+  sweepBufferPips: decimal("sweepBufferPips", { precision: 5, scale: 1 }).default("0.5").notNull(),
   /** Tempo máximo em minutos para validar sweep após violação */
-  sweepValidationMinutes: int("sweepValidationMinutes").default(60).notNull(),
+  // CORREÇÃO: 90 conforme UI
+  sweepValidationMinutes: int("sweepValidationMinutes").default(90).notNull(),
   
   // ============= PARÂMETROS DE CHoCH (M15) =============
   /** Lookback de candles M15 para identificar estrutura */
-  chochM15Lookback: int("chochM15Lookback").default(20).notNull(),
+  // CORREÇÃO: 15 conforme UI
+  chochM15Lookback: int("chochM15Lookback").default(15).notNull(),
   /** Mínimo de pips de movimento para validar CHoCH */
-  chochMinPips: decimal("chochMinPips", { precision: 5, scale: 1 }).default("10.0").notNull(),
+  // CORREÇÃO: 2.0 conforme UI (mais agressivo)
+  chochMinPips: decimal("chochMinPips", { precision: 5, scale: 1 }).default("2.0").notNull(),
   
   // ============= PARÂMETROS DE ORDER BLOCK =============
   /** Máximo de candles para trás para identificar OB após CHoCH */
-  orderBlockLookback: int("orderBlockLookback").default(10).notNull(),
+  // CORREÇÃO: 15 conforme UI
+  orderBlockLookback: int("orderBlockLookback").default(15).notNull(),
   /** Extensão máxima da zona do OB em pips */
-  orderBlockExtensionPips: decimal("orderBlockExtensionPips", { precision: 5, scale: 1 }).default("15.0").notNull(),
+  // CORREÇÃO: 3.0 conforme UI
+  orderBlockExtensionPips: decimal("orderBlockExtensionPips", { precision: 5, scale: 1 }).default("3.0").notNull(),
   
   // ============= PARÂMETROS DE ENTRADA (M5) =============
   /** Tipo de confirmação de entrada: ENGULF, REJECTION, ANY */
   entryConfirmationType: varchar("entryConfirmationType", { length: 20 }).default("ANY").notNull(),
   /** Mínimo de pavio superior para rejeição (% do range do candle) */
-  rejectionWickPercent: decimal("rejectionWickPercent", { precision: 5, scale: 2 }).default("60.00").notNull(),
+  // CORREÇÃO: 20 conforme DEFAULT_SMC_CONFIG
+  rejectionWickPercent: decimal("rejectionWickPercent", { precision: 5, scale: 2 }).default("20.00").notNull(),
   
   // ============= FILTRO DE SPREAD =============
   /** Habilitar filtro de spread máximo */
   spreadFilterEnabled: boolean("spreadFilterEnabled").default(true).notNull(),
   /** Spread máximo permitido em pips para entrada */
-  maxSpreadPips: decimal("maxSpreadPips", { precision: 5, scale: 1 }).default("2.0").notNull(),
+  // CORREÇÃO: 3.0 conforme UI
+  maxSpreadPips: decimal("maxSpreadPips", { precision: 5, scale: 1 }).default("3.0").notNull(),
   
   // ============= GESTÃO DE RISCO =============
   /** Porcentagem do equity a arriscar por trade */
-  riskPercentage: decimal("riskPercentage", { precision: 5, scale: 2 }).default("0.75").notNull(),
+  // CORREÇÃO: 2.0 conforme UI
+  riskPercentage: decimal("riskPercentage", { precision: 5, scale: 2 }).default("2.00").notNull(),
   /** Máximo de trades simultâneos abertos */
-  maxOpenTrades: int("maxOpenTrades").default(3).notNull(),
+  // CORREÇÃO: 2 conforme UI
+  maxOpenTrades: int("maxOpenTrades").default(2).notNull(),
   /** Limite de perda diária em porcentagem do equity inicial */
-  dailyLossLimitPercent: decimal("dailyLossLimitPercent", { precision: 5, scale: 2 }).default("3.00").notNull(),
+  // CORREÇÃO: 10.0 conforme UI
+  dailyLossLimitPercent: decimal("dailyLossLimitPercent", { precision: 5, scale: 2 }).default("10.00").notNull(),
   /** Buffer em pips acima/abaixo do swing para posicionar SL */
   stopLossBufferPips: decimal("stopLossBufferPips", { precision: 5, scale: 1 }).default("2.0").notNull(),
-  /** Ratio Risk:Reward para Take Profit (ex: 4 = 1:4) */
-  rewardRiskRatio: decimal("rewardRiskRatio", { precision: 4, scale: 1 }).default("4.0").notNull(),
+  /** Ratio Risk:Reward para Take Profit (ex: 3 = 1:3) */
+  // CORREÇÃO: 3.0 conforme UI
+  rewardRiskRatio: decimal("rewardRiskRatio", { precision: 4, scale: 1 }).default("3.0").notNull(),
   
   // ============= HORÁRIOS DE OPERAÇÃO =============
   /** Habilitar filtro de horário */
   sessionFilterEnabled: boolean("sessionFilterEnabled").default(true).notNull(),
   /** Horário de início da sessão de Londres (formato HH:MM, horário de Brasília) */
-  londonSessionStart: varchar("londonSessionStart", { length: 5 }).default("04:00").notNull(),
+  // CORREÇÃO: 05:00 conforme UI
+  londonSessionStart: varchar("londonSessionStart", { length: 5 }).default("05:00").notNull(),
   /** Horário de fim da sessão de Londres */
-  londonSessionEnd: varchar("londonSessionEnd", { length: 5 }).default("07:00").notNull(),
+  // CORREÇÃO: 12:00 conforme UI
+  londonSessionEnd: varchar("londonSessionEnd", { length: 5 }).default("12:00").notNull(),
   /** Horário de início da sessão de NY */
-  nySessionStart: varchar("nySessionStart", { length: 5 }).default("09:30").notNull(),
+  // CORREÇÃO: 09:00 conforme UI
+  nySessionStart: varchar("nySessionStart", { length: 5 }).default("09:00").notNull(),
   /** Horário de fim da sessão de NY */
-  nySessionEnd: varchar("nySessionEnd", { length: 5 }).default("12:30").notNull(),
+  // CORREÇÃO: 17:00 conforme UI
+  nySessionEnd: varchar("nySessionEnd", { length: 5 }).default("17:00").notNull(),
   
   // ============= TRAILING STOP =============
   /** Habilitar trailing stop */
   trailingEnabled: boolean("trailingEnabled").default(true).notNull(),
   /** Pips de lucro para ativar trailing */
-  trailingTriggerPips: decimal("trailingTriggerPips", { precision: 5, scale: 1 }).default("20.0").notNull(),
+  // CORREÇÃO: 10.0 conforme UI
+  trailingTriggerPips: decimal("trailingTriggerPips", { precision: 5, scale: 1 }).default("10.0").notNull(),
   /** Passo do trailing em pips */
-  trailingStepPips: decimal("trailingStepPips", { precision: 5, scale: 1 }).default("10.0").notNull(),
+  // CORREÇÃO: 2.0 conforme UI
+  trailingStepPips: decimal("trailingStepPips", { precision: 5, scale: 1 }).default("2.0").notNull(),
   
   // ============= CIRCUIT BREAKERS =============
   /** Habilitar circuit breaker de perda diária */
