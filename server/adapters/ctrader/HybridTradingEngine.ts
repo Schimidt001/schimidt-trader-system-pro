@@ -205,6 +205,13 @@ export class HybridTradingEngine extends EventEmitter {
       
       console.log("[HybridEngine] ✅ Motor híbrido iniciado com sucesso!");
       
+      // Log para UI
+      await this.logInfo(
+        `🚀 ROBÔ HÍBRIDO INICIADO | Modo: ${this.config.mode} | Símbolos: ${this.config.symbols.join(", ")}`,
+        "SYSTEM",
+        { mode: this.config.mode, symbols: this.config.symbols, maxPositions: this.config.maxPositions }
+      );
+      
     } catch (error) {
       console.error("[HybridEngine] Erro ao iniciar:", error);
       throw error;
@@ -407,35 +414,66 @@ export class HybridTradingEngine extends EventEmitter {
   }
   
   /**
-   * Carrega dados históricos
+   * Carrega dados históricos de forma PARALELA para acelerar inicialização
+   * Usa batches de 3 símbolos para não sobrecarregar a API
    */
   private async loadHistoricalData(): Promise<void> {
-    console.log("[HybridEngine] Carregando dados históricos...");
+    const startTime = Date.now();
+    console.log("[HybridEngine] 🚀 Carregando dados históricos (modo PARALELO)...");
+    await this.logInfo("🚀 Iniciando carregamento de dados históricos (modo paralelo)", "SYSTEM");
     
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    const BATCH_SIZE = 3; // Processar 3 símbolos em paralelo
+    const DELAY_BETWEEN_BATCHES = 500; // 500ms entre batches
     
-    for (const symbol of this.config.symbols) {
-      try {
-        const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", 250);
-        this.timeframeData.h1.set(symbol, h1Candles);
-        await sleep(1000);
-        
-        const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 250);
-        this.timeframeData.m15.set(symbol, m15Candles);
-        await sleep(1000);
-        
-        const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 250);
-        this.timeframeData.m5.set(symbol, m5Candles);
-        
-        console.log(`[HybridEngine] ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length}`);
-        
-        await sleep(1000);
-      } catch (error) {
-        console.error(`[HybridEngine] Erro ao carregar ${symbol}:`, error);
+    // Dividir símbolos em batches
+    const batches: string[][] = [];
+    for (let i = 0; i < this.config.symbols.length; i += BATCH_SIZE) {
+      batches.push(this.config.symbols.slice(i, i + BATCH_SIZE));
+    }
+    
+    console.log(`[HybridEngine] Processando ${this.config.symbols.length} símbolos em ${batches.length} batches`);
+    
+    // Processar cada batch em paralelo
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      console.log(`[HybridEngine] Batch ${batchIndex + 1}/${batches.length}: ${batch.join(", ")}`);
+      
+      // Carregar todos os símbolos do batch em paralelo
+      const batchPromises = batch.map(async (symbol) => {
+        try {
+          // Carregar os 3 timeframes em paralelo para cada símbolo
+          const [h1Candles, m15Candles, m5Candles] = await Promise.all([
+            ctraderAdapter.getCandleHistory(symbol, "H1", 250),
+            ctraderAdapter.getCandleHistory(symbol, "M15", 250),
+            ctraderAdapter.getCandleHistory(symbol, "M5", 250),
+          ]);
+          
+          this.timeframeData.h1.set(symbol, h1Candles);
+          this.timeframeData.m15.set(symbol, m15Candles);
+          this.timeframeData.m5.set(symbol, m5Candles);
+          
+          console.log(`[HybridEngine] ✅ ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length}`);
+          return { symbol, success: true };
+        } catch (error) {
+          console.error(`[HybridEngine] ❌ Erro ao carregar ${symbol}:`, error);
+          return { symbol, success: false, error };
+        }
+      });
+      
+      // Aguardar todas as promessas do batch
+      await Promise.all(batchPromises);
+      
+      // Delay entre batches para não sobrecarregar a API
+      if (batchIndex < batches.length - 1) {
+        await sleep(DELAY_BETWEEN_BATCHES);
       }
     }
     
-    console.log("[HybridEngine] ✅ Dados históricos carregados");
+    const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    const successMsg = `✅ Dados históricos carregados em ${elapsedTime}s (${this.config.symbols.length} símbolos)`;
+    console.log(`[HybridEngine] ${successMsg}`);
+    await this.logInfo(successMsg, "SYSTEM");
   }
   
   /**
@@ -638,13 +676,32 @@ export class HybridTradingEngine extends EventEmitter {
     // Obter sinais de ambas as estratégias
     const combinedSignal = this.getCombinedSignal(symbol, mtfData);
     
-    // Log de análise
+    // Log de análise para UI
+    const smcSig = combinedSignal.smcSignal?.signal || "NONE";
+    const rsiSig = combinedSignal.rsiVwapSignal?.signal || "NONE";
+    const finalSig = combinedSignal.finalSignal?.signal || "NONE";
+    
+    // Sempre logar análise para a UI (mesmo quando NONE)
+    await this.logAnalysis(
+      symbol,
+      smcSig,
+      rsiSig,
+      finalSig,
+      combinedSignal.source
+    );
+    
+    // Log de conflito se detectado
+    if (combinedSignal.conflictDetected && combinedSignal.conflictReason) {
+      await this.logConflict(symbol, combinedSignal.conflictReason);
+    }
+    
+    // Log detalhado no console
     if (combinedSignal.finalSignal && combinedSignal.finalSignal.signal !== "NONE") {
       console.log("───────────────────────────────────────────────────────────────");
       console.log(`[HYBRID] 📊 Análise #${this.analysisCount} | ${symbol}`);
-      console.log(`[HYBRID] Sinal SMC: ${combinedSignal.smcSignal?.signal || "N/A"}`);
-      console.log(`[HYBRID] Sinal RSI+VWAP: ${combinedSignal.rsiVwapSignal?.signal || "N/A"}`);
-      console.log(`[HYBRID] Sinal Final: ${combinedSignal.finalSignal.signal} (Fonte: ${combinedSignal.source})`);
+      console.log(`[HYBRID] Sinal SMC: ${smcSig}`);
+      console.log(`[HYBRID] Sinal RSI+VWAP: ${rsiSig}`);
+      console.log(`[HYBRID] Sinal Final: ${finalSig} (Fonte: ${combinedSignal.source})`);
       if (combinedSignal.conflictDetected) {
         console.log(`[HYBRID] ⚠️ Conflito: ${combinedSignal.conflictReason}`);
       }
@@ -881,6 +938,127 @@ export class HybridTradingEngine extends EventEmitter {
     } catch (error) {
       console.error("[HybridEngine] Erro ao executar ordem:", error);
     }
+  }
+  
+  // ============= MÉTODOS DE LOGGING PARA UI =============
+  
+  /**
+   * Grava log no banco de dados para aparecer na interface
+   */
+  private async logToDatabase(
+    level: LogLevel,
+    category: LogCategory,
+    message: string,
+    options?: {
+      symbol?: string;
+      signal?: string;
+      latencyMs?: number;
+      data?: Record<string, unknown>;
+    }
+  ): Promise<void> {
+    try {
+      await insertSystemLog({
+        userId: this.config.userId,
+        botId: this.config.botId,
+        level,
+        category,
+        source: "HybridTradingEngine",
+        message,
+        symbol: options?.symbol,
+        signal: options?.signal,
+        latencyMs: options?.latencyMs,
+        data: options?.data,
+      });
+    } catch (error) {
+      // Não deixar erro de log quebrar o fluxo principal
+      console.error("[HybridEngine] Erro ao gravar log no banco:", error);
+    }
+  }
+  
+  /**
+   * Log de informação geral
+   */
+  public async logInfo(message: string, category: LogCategory = "SYSTEM", data?: Record<string, unknown>): Promise<void> {
+    console.log(`[HybridEngine] ${message}`);
+    await this.logToDatabase("INFO", category, message, { data });
+  }
+  
+  /**
+   * Log de análise de sinal
+   */
+  public async logAnalysis(
+    symbol: string,
+    smcSignal: string | null,
+    rsiVwapSignal: string | null,
+    finalSignal: string,
+    source: string,
+    latencyMs?: number
+  ): Promise<void> {
+    const message = `📊 ANÁLISE | ${symbol} | SMC: ${smcSignal || 'N/A'} | RSI+VWAP: ${rsiVwapSignal || 'N/A'} | Final: ${finalSignal} (${source})`;
+    console.log(`[HybridEngine] ${message}`);
+    await this.logToDatabase("INFO", "ANALYSIS", message, {
+      symbol,
+      signal: finalSignal,
+      latencyMs,
+      data: { smcSignal, rsiVwapSignal, source }
+    });
+  }
+  
+  /**
+   * Log de conflito entre estratégias
+   */
+  public async logConflict(symbol: string, reason: string): Promise<void> {
+    const message = `⚠️ CONFLITO | ${symbol} | ${reason}`;
+    console.log(`[HybridEngine] ${message}`);
+    await this.logToDatabase("WARNING", "SIGNAL", message, {
+      symbol,
+      data: { reason }
+    });
+  }
+  
+  /**
+   * Log de entrada em posição
+   */
+  public async logEntry(
+    symbol: string,
+    direction: string,
+    price: number,
+    lots: number,
+    stopLoss: number,
+    takeProfit: number,
+    source: string
+  ): Promise<void> {
+    const message = `✅ ENTRADA | ${symbol} | ${direction} @ ${price.toFixed(5)} | Lotes: ${lots} | SL: ${stopLoss.toFixed(5)} | TP: ${takeProfit.toFixed(5)} | Fonte: ${source}`;
+    console.log(`[HybridEngine] ${message}`);
+    await this.logToDatabase("INFO", "ENTRY", message, {
+      symbol,
+      signal: direction,
+      data: { price, lots, stopLoss, takeProfit, source }
+    });
+  }
+  
+  /**
+   * Log de rejeição de sinal
+   */
+  public async logRejection(symbol: string, reason: string, data?: Record<string, unknown>): Promise<void> {
+    const message = `❌ REJEITADO | ${symbol} | ${reason}`;
+    console.log(`[HybridEngine] ${message}`);
+    await this.logToDatabase("INFO", "SIGNAL", message, {
+      symbol,
+      data: { reason, ...data }
+    });
+  }
+  
+  /**
+   * Log de erro
+   */
+  public async logError(message: string, error?: unknown): Promise<void> {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const fullMessage = `❌ ERRO | ${message} | ${errorMsg}`;
+    console.error(`[HybridEngine] ${fullMessage}`);
+    await this.logToDatabase("ERROR", "SYSTEM", fullMessage, {
+      data: { error: errorMsg }
+    });
   }
 }
 
