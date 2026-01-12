@@ -956,6 +956,25 @@ export const icmarketsRouter = router({
             
             console.log(`[ICMarketsRouter] 🔀 Robô HÍBRIDO ${botId} iniciado por usuário ${ctx.user.id} (Modo: ${hybridMode})`);
             
+            // ========== LOG DE INÍCIO PARA UI ==========
+            const smcConfigForHybrid = await getSMCStrategyConfig(ctx.user.id, botId);
+            const activeSymbolsHybrid = smcConfigForHybrid?.activeSymbols ? JSON.parse(smcConfigForHybrid.activeSymbols) : [];
+            
+            await insertSystemLog({
+              userId: ctx.user.id,
+              botId: botId,
+              level: "INFO",
+              category: "SYSTEM",
+              source: "UI",
+              message: `🚀 ROBÔ HÍBRIDO INICIADO | Modo: ${hybridMode} | Símbolos: ${activeSymbolsHybrid.join(', ')}`,
+              data: {
+                strategyType: "HYBRID",
+                hybridMode: hybridMode,
+                activeSymbols: activeSymbolsHybrid,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            
             return {
               success: true,
               message: `Robô Híbrido ${botId} iniciado com sucesso (Modo: ${hybridMode})`,
@@ -980,6 +999,29 @@ export const icmarketsRouter = router({
             await smcEngine.start();
             
             console.log(`[ICMarketsRouter] 🐝 Robô SMC SWARM ${botId} iniciado por usuário ${ctx.user.id}`);
+            
+            // ========== LOG DE INÍCIO PARA UI ==========
+            // Obter configurações para exibir no log
+            const smcConfigForLog = await getSMCStrategyConfig(ctx.user.id, botId);
+            const activeSymbolsLog = smcConfigForLog?.activeSymbols ? JSON.parse(smcConfigForLog.activeSymbols) : [];
+            
+            await insertSystemLog({
+              userId: ctx.user.id,
+              botId: botId,
+              level: "INFO",
+              category: "SYSTEM",
+              source: "UI",
+              message: `🚀 ROBÔ SMC SWARM INICIADO | Modo: ${hybridMode} | Timeframe: ${smcConfigForLog?.structureTimeframe || 'M15'} | Símbolos: ${activeSymbolsLog.join(', ')} | Risco: ${smcConfigForLog?.riskPercentage || '2.0'}%`,
+              data: {
+                strategyType: "SMC_SWARM",
+                hybridMode: "SMC_ONLY",
+                structureTimeframe: smcConfigForLog?.structureTimeframe,
+                activeSymbols: activeSymbolsLog,
+                riskPercentage: smcConfigForLog?.riskPercentage,
+                maxOpenTrades: smcConfigForLog?.maxOpenTrades,
+                timestamp: new Date().toISOString(),
+              },
+            });
             
             return {
               success: true,
@@ -1054,8 +1096,27 @@ export const icmarketsRouter = router({
         // Tentar parar Hybrid Engine primeiro
         const hybridEngine = getHybridTradingEngine(ctx.user.id, botId);
         if (hybridEngine.isRunning) {
+          // Obter status antes de parar para logar
+          const hybridStatusBeforeStop = hybridEngine.getStatus();
+          
           await hybridEngine.stop();
           console.log(`[ICMarketsRouter] 🛑 Robô HÍBRIDO ${botId} parado por usuário ${ctx.user.id}`);
+          
+          // ========== LOG DE PARADA PARA UI ==========
+          await insertSystemLog({
+            userId: ctx.user.id,
+            botId: botId,
+            level: "INFO",
+            category: "SYSTEM",
+            source: "UI",
+            message: `🛑 ROBÔ HÍBRIDO PARADO | Modo: ${hybridStatusBeforeStop.mode}`,
+            data: {
+              strategyType: "HYBRID",
+              mode: hybridStatusBeforeStop.mode,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          
           return {
             success: true,
             message: `Robô Híbrido ${botId} parado com sucesso`,
@@ -1065,8 +1126,29 @@ export const icmarketsRouter = router({
         // Tentar parar SMC Engine
         const smcEngine = getSMCTradingEngine(ctx.user.id, botId);
         if (smcEngine.isRunning) {
+          // Obter status antes de parar para logar
+          const statusBeforeStop = smcEngine.getStatus();
+          
           await smcEngine.stop();
           console.log(`[ICMarketsRouter] 🛑 Robô SMC SWARM ${botId} parado por usuário ${ctx.user.id}`);
+          
+          // ========== LOG DE PARADA PARA UI ==========
+          await insertSystemLog({
+            userId: ctx.user.id,
+            botId: botId,
+            level: "INFO",
+            category: "SYSTEM",
+            source: "UI",
+            message: `🛑 ROBÔ SMC SWARM PARADO | Análises: ${statusBeforeStop.analysisCount} | Trades: ${statusBeforeStop.tradesExecuted} | Ticks: ${statusBeforeStop.tickCount}`,
+            data: {
+              strategyType: "SMC_SWARM",
+              analysisCount: statusBeforeStop.analysisCount,
+              tradesExecuted: statusBeforeStop.tradesExecuted,
+              tickCount: statusBeforeStop.tickCount,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          
           return {
             success: true,
             message: `Robô SMC SWARM ${botId} parado com sucesso`,
