@@ -53,6 +53,7 @@ export interface SMCStrategyConfig extends BaseStrategyConfig {
   // Parametros de CHoCH (M15)
   chochM15Lookback: number;
   chochMinPips: number;
+  chochAcceptWickBreak: boolean;  // NOVO: Se true, aceita CHoCH por pavio (high/low) além de fechamento
   
   // Parametros de Order Block
   orderBlockLookback: number;
@@ -181,6 +182,7 @@ export const DEFAULT_SMC_CONFIG: SMCStrategyConfig = {
   // O usuário pode ajustar via UI conforme preferência.
   chochM15Lookback: 15,  // Reduzido para maior sensibilidade
   chochMinPips: 2.0,     // CRÍTICO: Reduzido de 5.0 para 2.0 - permite mais CHoCH
+  chochAcceptWickBreak: false,  // NOVO: Se true, aceita CHoCH por pavio (mais agressivo)
   
   // Order Block - OTIMIZADO: Zona mais precisa
   orderBlockLookback: 10,
@@ -294,6 +296,14 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     if (typeof this.config.rejectionWickPercent === 'string') {
       this.config.rejectionWickPercent = parseFloat(this.config.rejectionWickPercent);
     }
+    // NOVO: Conversão de tipo para chochAcceptWickBreak (pode vir como string do banco)
+    if (typeof this.config.chochAcceptWickBreak === 'string') {
+      this.config.chochAcceptWickBreak = this.config.chochAcceptWickBreak === 'true' || this.config.chochAcceptWickBreak === '1';
+    }
+    // Garantir valor padrão se não definido
+    if (this.config.chochAcceptWickBreak === undefined) {
+      this.config.chochAcceptWickBreak = false;
+    }
     
     this.initializeSwarmStates();
     
@@ -301,6 +311,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     console.log(`[SMC] ========== CONFIGURAÇÕES CARREGADAS ==========`);
     console.log(`[SMC] Structure Timeframe: ${this.config.structureTimeframe}`);
     console.log(`[SMC] CHoCH Min Pips: ${this.config.chochMinPips}`);
+    console.log(`[SMC] CHoCH Accept Wick Break: ${this.config.chochAcceptWickBreak}`);
     console.log(`[SMC] Sweep Buffer Pips: ${this.config.sweepBufferPips}`);
     console.log(`[SMC] Risk %: ${this.config.riskPercentage}`);
     console.log(`[SMC] Max Open Trades: ${this.config.maxOpenTrades}`);
@@ -1157,8 +1168,17 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       console.log(`[SMC-CHoCH]   Movimento necessário: ${minPipsRequired} pips | Movimento atual: ${movementPips.toFixed(1)} pips`);
       
       // Verificar se movimento atinge minimo em pips
-      if (lastCandle.close < swingLow.price && movementPips >= minPipsRequired) {
-        // CHoCH confirmado - preco fechou abaixo do ultimo fundo com movimento suficiente
+      // MELHORIA: Suporte a CHoCH por pavio (wick break) quando configurado
+      const closeBreaksSwing = lastCandle.close < swingLow.price;
+      const wickBreaksSwing = this.config.chochAcceptWickBreak && lastCandle.low < swingLow.price;
+      const wickMovementPips = this.priceToPips(swingLow.price - lastCandle.low);
+      
+      if ((closeBreaksSwing && movementPips >= minPipsRequired) || 
+          (wickBreaksSwing && wickMovementPips >= minPipsRequired)) {
+        // CHoCH confirmado - preco fechou ou pavio rompeu abaixo do ultimo fundo
+        const breakType = closeBreaksSwing ? 'CLOSE' : 'WICK';
+        const actualMovement = closeBreaksSwing ? movementPips : wickMovementPips;
+        
         state.chochDetected = true;
         state.chochDirection = "BEARISH";
         state.chochPrice = swingLow.price;
@@ -1168,18 +1188,19 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         state.activeOrderBlock = this.identifyOrderBlock(recentCandles, "BEARISH");
         state.entryDirection = "SELL";
         
-        console.log(`[SMC-M15] ${this.currentSymbol}: ✅ CHoCH BEARISH CONFIRMADO!`);
-        console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${movementPips.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
+        console.log(`[SMC-M15] ${this.currentSymbol}: ✅ CHoCH BEARISH CONFIRMADO (${breakType})!`);
+        console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${actualMovement.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
         console.log(`[SMC-M15] ${this.currentSymbol}: Fundo quebrado em ${swingLow.price.toFixed(5)}`);
         if (state.activeOrderBlock) {
           console.log(`[SMC-M15] ${this.currentSymbol}: Order Block: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
         } else {
           console.log(`[SMC-M15] ${this.currentSymbol}: ⚠️ Order Block não identificado`);
         }
-      } else if (lastCandle.close >= swingLow.price) {
+      } else if (lastCandle.close >= swingLow.price && (!this.config.chochAcceptWickBreak || lastCandle.low >= swingLow.price)) {
         // Preço ainda acima do SwingLow - LOG DE REJEIÇÃO CLARO
-        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Preço (${lastCandle.close.toFixed(5)}) ainda ACIMA do SwingLow (${swingLow.price.toFixed(5)}) - falta ${distanceToSwing.toFixed(1)} pips para quebrar`);
-      } else if (movementPips < minPipsRequired) {
+        const wickInfo = this.config.chochAcceptWickBreak ? ` | Low: ${lastCandle.low.toFixed(5)}` : '';
+        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Preço (${lastCandle.close.toFixed(5)}${wickInfo}) ainda ACIMA do SwingLow (${swingLow.price.toFixed(5)}) - falta ${distanceToSwing.toFixed(1)} pips para quebrar`);
+      } else if (movementPips < minPipsRequired && (!wickBreaksSwing || wickMovementPips < minPipsRequired)) {
         // Movimento insuficiente - LOG DE REJEICAO CLARO
         console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Movimento de ${movementPips.toFixed(1)} pips menor que mínimo de ${minPipsRequired} pips`);
       }
@@ -1207,8 +1228,17 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       console.log(`[SMC-CHoCH]   Movimento necessário: ${minPipsRequired} pips | Movimento atual: ${movementPips.toFixed(1)} pips`);
       
       // Verificar se movimento atinge minimo em pips
-      if (lastCandle.close > swingHigh.price && movementPips >= minPipsRequired) {
-        // CHoCH confirmado - preco fechou acima do ultimo topo com movimento suficiente
+      // MELHORIA: Suporte a CHoCH por pavio (wick break) quando configurado
+      const closeBreaksSwing = lastCandle.close > swingHigh.price;
+      const wickBreaksSwing = this.config.chochAcceptWickBreak && lastCandle.high > swingHigh.price;
+      const wickMovementPips = this.priceToPips(lastCandle.high - swingHigh.price);
+      
+      if ((closeBreaksSwing && movementPips >= minPipsRequired) || 
+          (wickBreaksSwing && wickMovementPips >= minPipsRequired)) {
+        // CHoCH confirmado - preco fechou ou pavio rompeu acima do ultimo topo
+        const breakType = closeBreaksSwing ? 'CLOSE' : 'WICK';
+        const actualMovement = closeBreaksSwing ? movementPips : wickMovementPips;
+        
         state.chochDetected = true;
         state.chochDirection = "BULLISH";
         state.chochPrice = swingHigh.price;
@@ -1218,18 +1248,19 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         state.activeOrderBlock = this.identifyOrderBlock(recentCandles, "BULLISH");
         state.entryDirection = "BUY";
         
-        console.log(`[SMC-M15] ${this.currentSymbol}: ✅ CHoCH BULLISH CONFIRMADO!`);
-        console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${movementPips.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
+        console.log(`[SMC-M15] ${this.currentSymbol}: ✅ CHoCH BULLISH CONFIRMADO (${breakType})!`);
+        console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${actualMovement.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
         console.log(`[SMC-M15] ${this.currentSymbol}: Topo quebrado em ${swingHigh.price.toFixed(5)}`);
         if (state.activeOrderBlock) {
           console.log(`[SMC-M15] ${this.currentSymbol}: Order Block: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
         } else {
           console.log(`[SMC-M15] ${this.currentSymbol}: ⚠️ Order Block não identificado`);
         }
-      } else if (lastCandle.close <= swingHigh.price) {
+      } else if (lastCandle.close <= swingHigh.price && (!this.config.chochAcceptWickBreak || lastCandle.high <= swingHigh.price)) {
         // Preço ainda abaixo do SwingHigh - LOG DE REJEIÇÃO CLARO
-        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Preço (${lastCandle.close.toFixed(5)}) ainda ABAIXO do SwingHigh (${swingHigh.price.toFixed(5)}) - falta ${distanceToSwing.toFixed(1)} pips para quebrar`);
-      } else if (movementPips < minPipsRequired) {
+        const wickInfo = this.config.chochAcceptWickBreak ? ` | High: ${lastCandle.high.toFixed(5)}` : '';
+        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Preço (${lastCandle.close.toFixed(5)}${wickInfo}) ainda ABAIXO do SwingHigh (${swingHigh.price.toFixed(5)}) - falta ${distanceToSwing.toFixed(1)} pips para quebrar`);
+      } else if (movementPips < minPipsRequired && (!wickBreaksSwing || wickMovementPips < minPipsRequired)) {
         // Movimento insuficiente - LOG DE REJEICAO CLARO
         console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Movimento de ${movementPips.toFixed(1)} pips menor que mínimo de ${minPipsRequired} pips`);
       }
