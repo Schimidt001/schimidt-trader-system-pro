@@ -1061,7 +1061,10 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     if (!state.sweepConfirmed || state.chochDetected) return;
     
     const candles = this.m15Data;
-    if (candles.length < this.config.chochM15Lookback) return;
+    if (candles.length < this.config.chochM15Lookback) {
+      console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Candles M15 insuficientes (${candles.length} < ${this.config.chochM15Lookback})`);
+      return;
+    }
     
     const lookback = this.config.chochM15Lookback;
     const recentCandles = candles.slice(-lookback);
@@ -1074,80 +1077,99 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       // Encontrar o ultimo Higher Low (fundo que impulsionou para o topo)
       const swingLow = this.findLastSwingInArray(recentCandles, "LOW");
       
-      if (swingLow) {
-        // Calcular movimento em pips (CORRECAO CRITICA)
-        const priceDiff = swingLow.price - lastCandle.close;
-        const movementPips = this.priceToPips(priceDiff);
-        
-        // Log de DEBUG obrigatorio
-        this.logPriceDebug(
-          `CHoCH BEARISH Check | SwingLow: ${swingLow.price.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`,
-          priceDiff,
-          movementPips
-        );
-        
-        // Verificar se movimento atinge minimo em pips
-        if (lastCandle.close < swingLow.price && movementPips >= minPipsRequired) {
-          // CHoCH confirmado - preco fechou abaixo do ultimo fundo com movimento suficiente
-          state.chochDetected = true;
-          state.chochDirection = "BEARISH";
-          state.chochPrice = swingLow.price;
-          state.chochTime = Date.now();
-          
-          // Identificar Order Block
-          state.activeOrderBlock = this.identifyOrderBlock(recentCandles, "BEARISH");
-          state.entryDirection = "SELL";
-          
-          console.log(`[SMC-M15] ${this.currentSymbol}: CHoCH BEARISH CONFIRMADO!`);
-          console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${movementPips.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
-          console.log(`[SMC-M15] ${this.currentSymbol}: Fundo quebrado em ${swingLow.price.toFixed(5)}`);
-          if (state.activeOrderBlock) {
-            console.log(`[SMC-M15] ${this.currentSymbol}: Order Block: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
-          }
-        } else if (lastCandle.close < swingLow.price) {
-          // Movimento insuficiente - LOG DE REJEICAO CLARO
-          console.log(`[SMC-M15] ${this.currentSymbol}: CHoCH REJEITADO | Motivo: Movimento de ${movementPips.toFixed(1)} pips menor que minimo de ${minPipsRequired} pips`);
-        }
+      if (!swingLow) {
+        // LOG DE REJEIÇÃO: Nenhum swing low encontrado
+        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Nenhum Swing LOW encontrado nos últimos ${lookback} candles M15 para CHoCH BEARISH`);
+        return;
       }
+      
+      // Calcular movimento em pips (CORRECAO CRITICA)
+      const priceDiff = swingLow.price - lastCandle.close;
+      const movementPips = this.priceToPips(priceDiff);
+      const distanceToSwing = this.priceToPips(lastCandle.close - swingLow.price);
+      
+      // Log de DEBUG obrigatorio - MELHORADO
+      console.log(`[SMC-CHoCH] ${this.currentSymbol}: CHoCH BEARISH Check`);
+      console.log(`[SMC-CHoCH]   SwingLow: ${swingLow.price.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`);
+      console.log(`[SMC-CHoCH]   Distância ao SwingLow: ${distanceToSwing.toFixed(1)} pips (${lastCandle.close > swingLow.price ? 'ACIMA' : 'ABAIXO'})`);
+      console.log(`[SMC-CHoCH]   Movimento necessário: ${minPipsRequired} pips | Movimento atual: ${movementPips.toFixed(1)} pips`);
+      
+      // Verificar se movimento atinge minimo em pips
+      if (lastCandle.close < swingLow.price && movementPips >= minPipsRequired) {
+        // CHoCH confirmado - preco fechou abaixo do ultimo fundo com movimento suficiente
+        state.chochDetected = true;
+        state.chochDirection = "BEARISH";
+        state.chochPrice = swingLow.price;
+        state.chochTime = Date.now();
+        
+        // Identificar Order Block
+        state.activeOrderBlock = this.identifyOrderBlock(recentCandles, "BEARISH");
+        state.entryDirection = "SELL";
+        
+        console.log(`[SMC-M15] ${this.currentSymbol}: ✅ CHoCH BEARISH CONFIRMADO!`);
+        console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${movementPips.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
+        console.log(`[SMC-M15] ${this.currentSymbol}: Fundo quebrado em ${swingLow.price.toFixed(5)}`);
+        if (state.activeOrderBlock) {
+          console.log(`[SMC-M15] ${this.currentSymbol}: Order Block: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
+        } else {
+          console.log(`[SMC-M15] ${this.currentSymbol}: ⚠️ Order Block não identificado`);
+        }
+      } else if (lastCandle.close >= swingLow.price) {
+        // Preço ainda acima do SwingLow - LOG DE REJEIÇÃO CLARO
+        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Preço (${lastCandle.close.toFixed(5)}) ainda ACIMA do SwingLow (${swingLow.price.toFixed(5)}) - falta ${distanceToSwing.toFixed(1)} pips para quebrar`);
+      } else if (movementPips < minPipsRequired) {
+        // Movimento insuficiente - LOG DE REJEICAO CLARO
+        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Movimento de ${movementPips.toFixed(1)} pips menor que mínimo de ${minPipsRequired} pips`);
+      }
+      
     } else if (state.lastSweepType === "LOW") {
       // Apos sweep de fundo: procurar CHoCH bullish
       // Encontrar o ultimo Lower High (topo que impulsionou para o fundo)
       const swingHigh = this.findLastSwingInArray(recentCandles, "HIGH");
       
-      if (swingHigh) {
-        // Calcular movimento em pips (CORRECAO CRITICA)
-        const priceDiff = lastCandle.close - swingHigh.price;
-        const movementPips = this.priceToPips(priceDiff);
+      if (!swingHigh) {
+        // LOG DE REJEIÇÃO: Nenhum swing high encontrado
+        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Nenhum Swing HIGH encontrado nos últimos ${lookback} candles M15 para CHoCH BULLISH`);
+        return;
+      }
+      
+      // Calcular movimento em pips (CORRECAO CRITICA)
+      const priceDiff = lastCandle.close - swingHigh.price;
+      const movementPips = this.priceToPips(priceDiff);
+      const distanceToSwing = this.priceToPips(swingHigh.price - lastCandle.close);
+      
+      // Log de DEBUG obrigatorio - MELHORADO
+      console.log(`[SMC-CHoCH] ${this.currentSymbol}: CHoCH BULLISH Check`);
+      console.log(`[SMC-CHoCH]   SwingHigh: ${swingHigh.price.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`);
+      console.log(`[SMC-CHoCH]   Distância ao SwingHigh: ${distanceToSwing.toFixed(1)} pips (${lastCandle.close < swingHigh.price ? 'ABAIXO' : 'ACIMA'})`);
+      console.log(`[SMC-CHoCH]   Movimento necessário: ${minPipsRequired} pips | Movimento atual: ${movementPips.toFixed(1)} pips`);
+      
+      // Verificar se movimento atinge minimo em pips
+      if (lastCandle.close > swingHigh.price && movementPips >= minPipsRequired) {
+        // CHoCH confirmado - preco fechou acima do ultimo topo com movimento suficiente
+        state.chochDetected = true;
+        state.chochDirection = "BULLISH";
+        state.chochPrice = swingHigh.price;
+        state.chochTime = Date.now();
         
-        // Log de DEBUG obrigatorio
-        this.logPriceDebug(
-          `CHoCH BULLISH Check | SwingHigh: ${swingHigh.price.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`,
-          priceDiff,
-          movementPips
-        );
+        // Identificar Order Block
+        state.activeOrderBlock = this.identifyOrderBlock(recentCandles, "BULLISH");
+        state.entryDirection = "BUY";
         
-        // Verificar se movimento atinge minimo em pips
-        if (lastCandle.close > swingHigh.price && movementPips >= minPipsRequired) {
-          // CHoCH confirmado - preco fechou acima do ultimo topo com movimento suficiente
-          state.chochDetected = true;
-          state.chochDirection = "BULLISH";
-          state.chochPrice = swingHigh.price;
-          state.chochTime = Date.now();
-          
-          // Identificar Order Block
-          state.activeOrderBlock = this.identifyOrderBlock(recentCandles, "BULLISH");
-          state.entryDirection = "BUY";
-          
-          console.log(`[SMC-M15] ${this.currentSymbol}: CHoCH BULLISH CONFIRMADO!`);
-          console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${movementPips.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
-          console.log(`[SMC-M15] ${this.currentSymbol}: Topo quebrado em ${swingHigh.price.toFixed(5)}`);
-          if (state.activeOrderBlock) {
-            console.log(`[SMC-M15] ${this.currentSymbol}: Order Block: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
-          }
-        } else if (lastCandle.close > swingHigh.price) {
-          // Movimento insuficiente - LOG DE REJEICAO CLARO
-          console.log(`[SMC-M15] ${this.currentSymbol}: CHoCH REJEITADO | Motivo: Movimento de ${movementPips.toFixed(1)} pips menor que minimo de ${minPipsRequired} pips`);
+        console.log(`[SMC-M15] ${this.currentSymbol}: ✅ CHoCH BULLISH CONFIRMADO!`);
+        console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${movementPips.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
+        console.log(`[SMC-M15] ${this.currentSymbol}: Topo quebrado em ${swingHigh.price.toFixed(5)}`);
+        if (state.activeOrderBlock) {
+          console.log(`[SMC-M15] ${this.currentSymbol}: Order Block: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
+        } else {
+          console.log(`[SMC-M15] ${this.currentSymbol}: ⚠️ Order Block não identificado`);
         }
+      } else if (lastCandle.close <= swingHigh.price) {
+        // Preço ainda abaixo do SwingHigh - LOG DE REJEIÇÃO CLARO
+        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Preço (${lastCandle.close.toFixed(5)}) ainda ABAIXO do SwingHigh (${swingHigh.price.toFixed(5)}) - falta ${distanceToSwing.toFixed(1)} pips para quebrar`);
+      } else if (movementPips < minPipsRequired) {
+        // Movimento insuficiente - LOG DE REJEICAO CLARO
+        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Movimento de ${movementPips.toFixed(1)} pips menor que mínimo de ${minPipsRequired} pips`);
       }
     }
   }
@@ -1314,6 +1336,28 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       }
     }
     
+    // LOG DE REJEIÇÃO DETALHADO quando entrada não é confirmada
+    if (!entryConfirmed) {
+      const wickPercent = state.entryDirection === "SELL" 
+        ? (upperWick / candleRange) * 100 
+        : (lowerWick / candleRange) * 100;
+      const isBullishCandle = lastCandle.close > lastCandle.open;
+      const candleType = isBullishCandle ? "BULLISH" : "BEARISH";
+      
+      console.log(`[SMC-ENTRY] ${this.currentSymbol}: ❌ ENTRADA REJEITADA na zona do OB`);
+      console.log(`[SMC-ENTRY]   Direção esperada: ${state.entryDirection} | Candle atual: ${candleType}`);
+      console.log(`[SMC-ENTRY]   Wick%: ${wickPercent.toFixed(1)}% (mínimo: ${this.config.rejectionWickPercent}%)`);
+      console.log(`[SMC-ENTRY]   Tipo de confirmação configurado: ${this.config.entryConfirmationType}`);
+      
+      if (state.entryDirection === "SELL" && isBullishCandle) {
+        console.log(`[SMC-ENTRY]   Motivo: Candle BULLISH em zona de VENDA - aguardando candle BEARISH`);
+      } else if (state.entryDirection === "BUY" && !isBullishCandle) {
+        console.log(`[SMC-ENTRY]   Motivo: Candle BEARISH em zona de COMPRA - aguardando candle BULLISH`);
+      } else {
+        console.log(`[SMC-ENTRY]   Motivo: Sem padrão de rejeição/engolfo válido`);
+      }
+    }
+    
     if (entryConfirmed) {
       // Resetar estado após entrada
       const signal = state.entryDirection;
@@ -1427,10 +1471,22 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   
   /**
    * Encontra o último swing point em um array de candles
+   * 
+   * CORREÇÃO CRÍTICA: Agora usa os valores de configuração fractalLeftBars e fractalRightBars
+   * em vez de valores hardcoded, garantindo consistência com a detecção de Sweep.
    */
   private findLastSwingInArray(candles: TrendbarData[], type: "HIGH" | "LOW"): { price: number; index: number } | null {
-    const leftBars = 2;
-    const rightBars = 2;
+    // CORREÇÃO: Usar valores de configuração em vez de hardcoded
+    const leftBars = this.config.fractalLeftBars;
+    const rightBars = this.config.fractalRightBars;
+    
+    // Validar se temos candles suficientes
+    if (candles.length < leftBars + rightBars + 1) {
+      if (this.config.verboseLogging) {
+        console.log(`[SMC-CHoCH] ${this.currentSymbol}: ⚠️ Candles insuficientes para findLastSwingInArray (${candles.length} < ${leftBars + rightBars + 1})`);
+      }
+      return null;
+    }
     
     for (let i = candles.length - rightBars - 1; i >= leftBars; i--) {
       const current = candles[i];
@@ -1475,6 +1531,11 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
           return { price: current.low, index: i };
         }
       }
+    }
+    
+    // Log de rejeição quando nenhum swing é encontrado
+    if (this.config.verboseLogging) {
+      console.log(`[SMC-CHoCH] ${this.currentSymbol}: ⚠️ Nenhum Swing ${type} encontrado nos últimos ${candles.length} candles M15`);
     }
     
     return null;
