@@ -25,6 +25,14 @@ import { CTraderClient, TradeSide, TrendbarPeriod, SpotEvent, ctraderClient } fr
 import { TrendSniperStrategy, trendSniperStrategy, TrendSniperConfig } from "./ctrader/TrendSniperStrategy";
 // REFATORAÇÃO: Importar módulo centralizado de normalização de pips
 import { getPipValue, calculateSpreadPips } from "../../shared/normalizationUtils";
+// CORREÇÃO 2026-01-13: Importar funções de persistência de posições Forex
+import { 
+  insertForexPosition, 
+  updateForexPosition, 
+  getOpenForexPositions,
+  getForexPositionById,
+} from "../db";
+import type { InsertForexPosition } from "../../drizzle/icmarkets-config";
 
 /**
  * Mapeamento de timeframes para cTrader
@@ -96,6 +104,10 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   
   // Estratégia Trend Sniper
   private strategy: TrendSniperStrategy;
+  
+  // CORREÇÃO 2026-01-13: Contexto do usuário para persistência de posições
+  private _userId: number | null = null;
+  private _botId: number = 1;
   
   constructor() {
     super();
@@ -238,18 +250,231 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   
   /**
    * Processa eventos de execução
+   * 
+   * CORREÇÃO 2026-01-13: Implementa persistência em tempo real no banco de dados
+   * 
+   * Tipos de evento de execução (executionType):
+   * - ORDER_FILLED: Ordem executada (abrir posição)
+   * - ORDER_PARTIAL_FILL: Execução parcial
+   * - ORDER_CANCELLED: Ordem cancelada
+   * - POSITION_CLOSED: Posição fechada
+   * - POSITION_PARTIAL_CLOSE: Fechamento parcial
+   * - STOP_LOSS_TRIGGERED: SL atingido
+   * - TAKE_PROFIT_TRIGGERED: TP atingido
+   * - ORDER_EXPIRED: Ordem expirada
    */
-  private handleExecutionEvent(event: any): void {
-    console.log("[CTraderAdapter] Execution event:", event);
+  private async handleExecutionEvent(event: any): Promise<void> {
+    console.log("[CTraderAdapter] Execution event received:", JSON.stringify(event, null, 2));
     
-    // Atualizar posições se necessário
-    if (event.position) {
-      const position = this.convertPosition(event.position);
-      if (position) {
-        this.openPositions.set(position.positionId, position);
-        this.eventHandlers.onPositionUpdate?.(position);
+    // Extrair tipo de execução
+    const executionType = event.executionType;
+    const position = event.position;
+    const order = event.order;
+    const deal = event.deal;
+    
+    console.log(`[CTraderAdapter] Execution type: ${executionType}`);
+    
+    // Atualizar posições em memória
+    if (position) {
+      const openPosition = this.convertPosition(position);
+      if (openPosition) {
+        this.openPositions.set(openPosition.positionId, openPosition);
+        this.eventHandlers.onPositionUpdate?.(openPosition);
       }
     }
+    
+    // CORREÇÃO 2026-01-13: Persistir no banco de dados
+    if (!this._userId) {
+      console.warn("[CTraderAdapter] userId não configurado - posição não será persistida no banco");
+      return;
+    }
+    
+    try {
+      // ORDER_FILLED (2) ou ORDER_ACCEPTED (1): Nova posição aberta
+      if (executionType === 2 || executionType === "ORDER_FILLED") {
+        await this.handlePositionOpened(event);
+      }
+      
+      // POSITION_CLOSED (7), STOP_LOSS_TRIGGERED (8), TAKE_PROFIT_TRIGGERED (9): Posição fechada
+      else if (
+        executionType === 7 || executionType === "POSITION_CLOSED" ||
+        executionType === 8 || executionType === "STOP_LOSS_TRIGGERED" ||
+        executionType === 9 || executionType === "TAKE_PROFIT_TRIGGERED"
+      ) {
+        await this.handlePositionClosed(event);
+      }
+      
+      // POSITION_PARTIAL_CLOSE (10): Fechamento parcial
+      else if (executionType === 10 || executionType === "POSITION_PARTIAL_CLOSE") {
+        await this.handlePositionPartialClose(event);
+      }
+      
+    } catch (error) {
+      console.error("[CTraderAdapter] Erro ao persistir evento de execução:", error);
+    }
+  }
+  
+  /**
+   * Handler para posição aberta (ORDER_FILLED)
+   * CORREÇÃO 2026-01-13: Persiste nova posição no banco de dados
+   */
+  private async handlePositionOpened(event: any): Promise<void> {
+    const position = event.position;
+    const order = event.order;
+    const deal = event.deal;
+    
+    if (!position) {
+      console.warn("[CTraderAdapter] ORDER_FILLED sem position - ignorando");
+      return;
+    }
+    
+    const positionId = String(position.positionId);
+    const symbolId = position.tradeData?.symbolId;
+    const symbolName = this.getSymbolNameById(symbolId) || `ID:${symbolId}`;
+    const direction = position.tradeData?.tradeSide === 1 ? "BUY" : "SELL";
+    const volumeInCents = position.tradeData?.volume || 0;
+    const volumeInLots = volumeInCents / 10000000;
+    const entryPrice = position.price || deal?.executionPrice || 0;
+    const stopLoss = position.stopLoss;
+    const takeProfit = position.takeProfit;
+    
+    console.log(`[CTraderAdapter] 🟢 POSIÇÃO ABERTA: ${positionId} | ${symbolName} | ${direction} | ${volumeInLots} lotes @ ${entryPrice}`);
+    
+    // Verificar se já existe no banco (evitar duplicatas)
+    const existingPosition = await getForexPositionById(positionId);
+    if (existingPosition) {
+      console.log(`[CTraderAdapter] Posição ${positionId} já existe no banco - atualizando`);
+      await updateForexPosition(positionId, {
+        entryPrice: String(entryPrice),
+        initialStopLoss: stopLoss ? String(stopLoss) : undefined,
+        currentStopLoss: stopLoss ? String(stopLoss) : undefined,
+        takeProfit: takeProfit ? String(takeProfit) : undefined,
+        status: "OPEN",
+      });
+      return;
+    }
+    
+    // Inserir nova posição
+    const newPosition: InsertForexPosition = {
+      userId: this._userId!,
+      botId: this._botId,
+      positionId: positionId,
+      openOrderId: order?.orderId ? String(order.orderId) : undefined,
+      symbol: symbolName,
+      direction: direction,
+      lots: String(volumeInLots),
+      entryPrice: String(entryPrice),
+      initialStopLoss: stopLoss ? String(stopLoss) : undefined,
+      currentStopLoss: stopLoss ? String(stopLoss) : undefined,
+      takeProfit: takeProfit ? String(takeProfit) : undefined,
+      status: "OPEN",
+      openTime: new Date(),
+    };
+    
+    const insertedId = await insertForexPosition(newPosition);
+    console.log(`[CTraderAdapter] ✅ Posição ${positionId} persistida no banco (ID: ${insertedId})`);
+  }
+  
+  /**
+   * Handler para posição fechada (POSITION_CLOSED, SL, TP)
+   * CORREÇÃO 2026-01-13: Atualiza posição no banco com status CLOSED
+   */
+  private async handlePositionClosed(event: any): Promise<void> {
+    const position = event.position;
+    const deal = event.deal;
+    const executionType = event.executionType;
+    
+    if (!position) {
+      console.warn("[CTraderAdapter] POSITION_CLOSED sem position - ignorando");
+      return;
+    }
+    
+    const positionId = String(position.positionId);
+    const exitPrice = deal?.executionPrice || position.price || 0;
+    const swap = (position.swap || 0) / 100; // Converter de centavos
+    const commission = (position.commission || 0) / 100;
+    
+    // Calcular PnL
+    let pnlUsd = 0;
+    if (deal?.closePositionDetail) {
+      pnlUsd = (deal.closePositionDetail.grossProfit || 0) / 100; // Converter de centavos
+    } else if (position.swap !== undefined) {
+      // Fallback: usar swap como aproximação do PnL
+      pnlUsd = swap;
+    }
+    
+    // Determinar motivo do fechamento
+    let closeReason = "MANUAL";
+    if (executionType === 8 || executionType === "STOP_LOSS_TRIGGERED") {
+      closeReason = "STOP_LOSS";
+    } else if (executionType === 9 || executionType === "TAKE_PROFIT_TRIGGERED") {
+      closeReason = "TAKE_PROFIT";
+    }
+    
+    console.log(`[CTraderAdapter] 🔴 POSIÇÃO FECHADA: ${positionId} | Exit: ${exitPrice} | PnL: $${pnlUsd.toFixed(2)} | Motivo: ${closeReason}`);
+    
+    // Remover da memória local
+    this.openPositions.delete(positionId);
+    
+    // Atualizar no banco de dados
+    await updateForexPosition(positionId, {
+      exitPrice: String(exitPrice),
+      pnlUsd: String(pnlUsd),
+      swap: String(swap),
+      commission: String(commission),
+      status: "CLOSED",
+      closeReason: closeReason,
+      closeTime: new Date(),
+    });
+    
+    console.log(`[CTraderAdapter] ✅ Posição ${positionId} atualizada no banco como CLOSED`);
+    
+    // Emitir evento de fechamento
+    this.eventHandlers.onPositionClose?.(positionId, pnlUsd);
+  }
+  
+  /**
+   * Handler para fechamento parcial
+   * CORREÇÃO 2026-01-13: Atualiza posição com volume parcial
+   */
+  private async handlePositionPartialClose(event: any): Promise<void> {
+    const position = event.position;
+    const deal = event.deal;
+    
+    if (!position) {
+      console.warn("[CTraderAdapter] POSITION_PARTIAL_CLOSE sem position - ignorando");
+      return;
+    }
+    
+    const positionId = String(position.positionId);
+    const volumeInCents = position.tradeData?.volume || 0;
+    const volumeInLots = volumeInCents / 10000000;
+    
+    console.log(`[CTraderAdapter] 🟡 FECHAMENTO PARCIAL: ${positionId} | Volume restante: ${volumeInLots} lotes`);
+    
+    // Atualizar volume no banco
+    await updateForexPosition(positionId, {
+      lots: String(volumeInLots),
+    });
+    
+    console.log(`[CTraderAdapter] ✅ Posição ${positionId} atualizada com volume parcial`);
+  }
+  
+  /**
+   * Define o contexto do usuário para persistência de posições
+   * CORREÇÃO 2026-01-13: Método público para configurar userId e botId
+   */
+  setUserContext(userId: number, botId: number = 1): void {
+    this._userId = userId;
+    this._botId = botId;
+    console.log(`[CTraderAdapter] Contexto de usuário configurado: userId=${userId}, botId=${botId}`);
+  }
+  
+  /**
+   * Obtém o contexto atual do usuário
+   */
+  getUserContext(): { userId: number | null; botId: number } {
+    return { userId: this._userId, botId: this._botId };
   }
   
   /**
@@ -1291,6 +1516,138 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       "W1": 7 * 24 * 60 * 60 * 1000,
     };
     return map[timeframe] || 15 * 60 * 1000;
+  }
+  
+  /**
+   * Reconcilia posições abertas com a cTrader e sincroniza com o banco de dados
+   * 
+   * CORREÇÃO 2026-01-13: Implementa sincronização de posições na inicialização
+   * 
+   * Este método deve ser chamado após a conexão para garantir que o banco de dados
+   * está sincronizado com as posições reais da cTrader.
+   * 
+   * Lógica:
+   * 1. Obtém lista de posições abertas da cTrader via ProtoOAReconcileReq
+   * 2. Para cada posição, verifica se existe no banco de dados
+   * 3. Se não existir, cria (INSERT)
+   * 4. Se existir, atualiza (UPDATE)
+   * 5. Marca posições no banco que não existem mais na cTrader como CLOSED
+   * 
+   * @returns Número de posições sincronizadas
+   */
+  async reconcilePositions(): Promise<number> {
+    if (!this.isConnected()) {
+      console.warn("[CTraderAdapter] [RECONCILE] Não conectado - reconciliação adiada");
+      return 0;
+    }
+    
+    if (!this._userId) {
+      console.warn("[CTraderAdapter] [RECONCILE] userId não configurado - reconciliação adiada");
+      return 0;
+    }
+    
+    console.log("[CTraderAdapter] [RECONCILE] Iniciando reconciliação de posições...");
+    
+    try {
+      // 1. Obter posições da cTrader
+      const ctraderPositions = await this.client.reconcilePositions();
+      console.log(`[CTraderAdapter] [RECONCILE] ${ctraderPositions.length} posições encontradas na cTrader`);
+      
+      // 2. Obter posições abertas do banco de dados
+      const dbPositions = await getOpenForexPositions(this._userId);
+      console.log(`[CTraderAdapter] [RECONCILE] ${dbPositions.length} posições abertas no banco de dados`);
+      
+      // Criar mapa de posições do banco por positionId
+      const dbPositionMap = new Map(dbPositions.map(p => [p.positionId, p]));
+      
+      // Criar set de positionIds da cTrader
+      const ctraderPositionIds = new Set(ctraderPositions.map(p => p.positionId));
+      
+      let syncedCount = 0;
+      
+      // 3. Para cada posição da cTrader, verificar/criar no banco
+      for (const pos of ctraderPositions) {
+        const existingPosition = dbPositionMap.get(pos.positionId);
+        
+        if (!existingPosition) {
+          // Posição não existe no banco - criar
+          console.log(`[CTraderAdapter] [RECONCILE] Criando posição ${pos.positionId} no banco...`);
+          
+          const newPosition: InsertForexPosition = {
+            userId: this._userId!,
+            botId: this._botId,
+            positionId: pos.positionId,
+            symbol: pos.symbol,
+            direction: pos.direction,
+            lots: String(pos.lots),
+            entryPrice: String(pos.entryPrice),
+            initialStopLoss: pos.stopLoss ? String(pos.stopLoss) : undefined,
+            currentStopLoss: pos.stopLoss ? String(pos.stopLoss) : undefined,
+            takeProfit: pos.takeProfit ? String(pos.takeProfit) : undefined,
+            swap: String(pos.swap || 0),
+            commission: String(pos.commission || 0),
+            status: "OPEN",
+            openTime: pos.openTime,
+          };
+          
+          await insertForexPosition(newPosition);
+          syncedCount++;
+          console.log(`[CTraderAdapter] [RECONCILE] ✅ Posição ${pos.positionId} criada`);
+          
+        } else {
+          // Posição existe - atualizar se necessário
+          console.log(`[CTraderAdapter] [RECONCILE] Atualizando posição ${pos.positionId}...`);
+          
+          await updateForexPosition(pos.positionId, {
+            currentStopLoss: pos.stopLoss ? String(pos.stopLoss) : undefined,
+            takeProfit: pos.takeProfit ? String(pos.takeProfit) : undefined,
+            swap: String(pos.swap || 0),
+            commission: String(pos.commission || 0),
+          });
+          syncedCount++;
+        }
+        
+        // Atualizar memória local
+        const openPosition: OpenPosition = {
+          positionId: pos.positionId,
+          symbol: pos.symbol,
+          direction: pos.direction as "BUY" | "SELL",
+          entryPrice: pos.entryPrice,
+          currentPrice: pos.entryPrice,
+          unrealizedPnL: 0,
+          size: pos.lots,
+          stopLoss: pos.stopLoss,
+          takeProfit: pos.takeProfit,
+          openTime: pos.openTime.getTime(),
+          swap: pos.swap,
+          commission: pos.commission,
+        };
+        this.openPositions.set(pos.positionId, openPosition);
+      }
+      
+      // 4. Marcar posições no banco que não existem mais na cTrader como CLOSED
+      for (const dbPos of dbPositions) {
+        if (dbPos.positionId && !ctraderPositionIds.has(dbPos.positionId)) {
+          console.log(`[CTraderAdapter] [RECONCILE] Posição ${dbPos.positionId} não existe mais na cTrader - marcando como CLOSED`);
+          
+          await updateForexPosition(dbPos.positionId, {
+            status: "CLOSED",
+            closeReason: "RECONCILE_SYNC",
+            closeTime: new Date(),
+          });
+          
+          // Remover da memória local
+          this.openPositions.delete(dbPos.positionId);
+        }
+      }
+      
+      console.log(`[CTraderAdapter] [RECONCILE] ✅ Reconciliação concluída: ${syncedCount} posições sincronizadas`);
+      return syncedCount;
+      
+    } catch (error) {
+      console.error("[CTraderAdapter] [RECONCILE] Erro na reconciliação:", error);
+      throw error;
+    }
   }
 }
 

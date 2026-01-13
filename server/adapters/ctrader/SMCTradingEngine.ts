@@ -203,6 +203,17 @@ export class SMCTradingEngine extends EventEmitter {
     console.log("═══════════════════════════════════════════════════════════════");
     
     try {
+      // CORREÇÃO 2026-01-13: Configurar contexto do usuário no CTraderAdapter
+      // Isso permite que o handleExecutionEvent persista posições no banco de dados
+      ctraderAdapter.setUserContext(this.config.userId, this.config.botId);
+      console.log("[SMCTradingEngine] ✅ Contexto de usuário configurado no CTraderAdapter");
+      
+      // CORREÇÃO 2026-01-13: Reconciliar posições abertas com a cTrader
+      // Sincroniza o banco de dados com as posições reais da corretora
+      console.log("[SMCTradingEngine] 🔄 Iniciando reconciliação de posições...");
+      const syncedPositions = await ctraderAdapter.reconcilePositions();
+      console.log(`[SMCTradingEngine] ✅ Reconciliação concluída: ${syncedPositions} posições sincronizadas`);
+      
       // Carregar configurações do banco de dados
       await this.loadConfigFromDB();
       

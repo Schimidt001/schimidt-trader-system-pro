@@ -1292,6 +1292,67 @@ export class CTraderClient extends EventEmitter {
     return response.trader;
   }
   
+  /**
+   * Reconcilia posições abertas com a cTrader
+   * 
+   * CORREÇÃO 2026-01-13: Implementa sincronização de posições na inicialização
+   * 
+   * Usa ProtoOAReconcileReq para obter lista de posições abertas da conta.
+   * Retorna array de posições com dados completos para persistência.
+   * 
+   * @returns Array de posições abertas da cTrader
+   */
+  async reconcilePositions(): Promise<any[]> {
+    if (!this.accountId) throw new Error("Not authenticated");
+    
+    console.log("[CTraderClient] [RECONCILE] Iniciando reconciliação de posições...");
+    
+    try {
+      const response = await this.sendRequest("ProtoOAReconcileReq", {
+        ctidTraderAccountId: this.accountId,
+      }, PayloadType.PROTO_OA_RECONCILE_RES);
+      
+      const positions = response.position || [];
+      const orders = response.order || [];
+      
+      console.log(`[CTraderClient] [RECONCILE] Recebidas ${positions.length} posições e ${orders.length} ordens`);
+      
+      // Processar posições
+      const processedPositions = positions.map((pos: any) => {
+        const symbolId = pos.tradeData?.symbolId;
+        const symbolName = this.symbolIdToName.get(symbolId) || `ID:${symbolId}`;
+        const volumeInCents = pos.tradeData?.volume || 0;
+        const volumeInLots = volumeInCents / 10000000;
+        
+        return {
+          positionId: String(pos.positionId),
+          symbol: symbolName,
+          symbolId: symbolId,
+          direction: pos.tradeData?.tradeSide === 1 ? "BUY" : "SELL",
+          lots: volumeInLots,
+          entryPrice: pos.price || 0,
+          stopLoss: pos.stopLoss,
+          takeProfit: pos.takeProfit,
+          swap: (pos.swap || 0) / 100,
+          commission: (pos.commission || 0) / 100,
+          openTime: pos.tradeData?.openTimestamp ? new Date(Number(pos.tradeData.openTimestamp)) : new Date(),
+          raw: pos,
+        };
+      });
+      
+      console.log(`[CTraderClient] [RECONCILE] Posições processadas:`);
+      for (const pos of processedPositions) {
+        console.log(`  - ${pos.positionId}: ${pos.symbol} ${pos.direction} ${pos.lots} lotes @ ${pos.entryPrice}`);
+      }
+      
+      return processedPositions;
+      
+    } catch (error) {
+      console.error("[CTraderClient] [RECONCILE] Erro na reconciliação:", error);
+      throw error;
+    }
+  }
+  
   // ============= Helpers =============
   
   /**
@@ -1326,6 +1387,7 @@ export class CTraderClient extends EventEmitter {
       "ProtoOANewOrderReq": PayloadType.PROTO_OA_NEW_ORDER_REQ,
       "ProtoOAAmendPositionSLTPReq": PayloadType.PROTO_OA_AMEND_POSITION_SLTP_REQ,
       "ProtoOAClosePositionReq": PayloadType.PROTO_OA_CLOSE_POSITION_REQ,
+      "ProtoOAReconcileReq": PayloadType.PROTO_OA_RECONCILE_REQ,
     };
     
     return typeMap[messageType] || 0;
