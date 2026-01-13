@@ -613,6 +613,67 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     console.log(`[CTraderAdapter] [SECURITY_OK] ✅ Volume validado: ${normalizedLots} lotes (dentro dos limites ${MIN_ALLOWED_LOTS}-${MAX_ALLOWED_LOTS})`);
     // 🛡️ ============= FIM DA TRAVA DE SEGURANÇA =============
     
+    // 📊 ============= NORMALIZAÇÃO DE VOLUME (CORREÇÃO TRADING_BAD_VOLUME) =============
+    // CORREÇÃO 2026-01-13: Normalizar volume para respeitar minVolume e stepVolume do ativo
+    // O erro TRADING_BAD_VOLUME ocorre quando o volume não é múltiplo do stepVolume
+    try {
+      const symbolInfo = await this.client.getSymbolInfo(order.symbol);
+      
+      if (symbolInfo) {
+        // Os valores da API estão em CENTS (1 lote = 10,000,000 cents)
+        const minVolumeLots = symbolInfo.minVolume / 10000000;
+        const stepVolumeLots = symbolInfo.stepVolume / 10000000;
+        const maxVolumeLots = symbolInfo.maxVolume / 10000000;
+        
+        const volumeAnterior = normalizedLots;
+        
+        console.log(`[CTraderAdapter] [VOLUME_NORM] ========== NORMALIZAÇÃO DE VOLUME ==========`);
+        console.log(`[CTraderAdapter] [VOLUME_NORM] Símbolo: ${order.symbol}`);
+        console.log(`[CTraderAdapter] [VOLUME_NORM] Volume calculado: ${volumeAnterior} lotes`);
+        console.log(`[CTraderAdapter] [VOLUME_NORM] Specs do ativo:`);
+        console.log(`  - minVolume: ${minVolumeLots} lotes (${symbolInfo.minVolume} cents)`);
+        console.log(`  - stepVolume: ${stepVolumeLots} lotes (${symbolInfo.stepVolume} cents)`);
+        console.log(`  - maxVolume: ${maxVolumeLots} lotes (${symbolInfo.maxVolume} cents)`);
+        
+        // 1️⃣ Arredondar para o stepVolume mais próximo (PARA BAIXO por segurança)
+        // Fórmula: floor(volume / step) * step
+        if (stepVolumeLots > 0) {
+          normalizedLots = Math.floor(normalizedLots / stepVolumeLots) * stepVolumeLots;
+          // Arredondar para evitar erros de ponto flutuante (ex: 0.019999999 -> 0.02)
+          normalizedLots = Math.round(normalizedLots * 100000) / 100000;
+        }
+        
+        // 2️⃣ Garantir que está acima do mínimo
+        if (normalizedLots < minVolumeLots) {
+          console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ Volume ${normalizedLots} < mínimo ${minVolumeLots}`);
+          normalizedLots = minVolumeLots;
+        }
+        
+        // 3️⃣ Garantir que está abaixo do máximo
+        if (normalizedLots > maxVolumeLots) {
+          console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ Volume ${normalizedLots} > máximo ${maxVolumeLots}`);
+          normalizedLots = maxVolumeLots;
+        }
+        
+        // Log do resultado da normalização
+        if (volumeAnterior !== normalizedLots) {
+          console.log(`[CTraderAdapter] [VOLUME_NORM] 🔄 Normalização: ${volumeAnterior} -> ${normalizedLots} lotes`);
+        } else {
+          console.log(`[CTraderAdapter] [VOLUME_NORM] ✅ Volume já normalizado: ${normalizedLots} lotes`);
+        }
+        console.log(`[CTraderAdapter] [VOLUME_NORM] =============================================`);
+        
+        // Atualizar o valor do lote na ordem
+        order.lots = normalizedLots;
+      } else {
+        console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ Não foi possível obter specs do símbolo, usando volume sem normalização`);
+      }
+    } catch (normError) {
+      console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ Erro na normalização:`, normError);
+      // Continuar com o volume atual (fail-open)
+    }
+    // 📊 ============= FIM DA NORMALIZAÇÃO DE VOLUME =============
+    
     // ============= FILTRO DE SPREAD (TAREFA B) =============
     // Verificar spread atual antes de executar a ordem
     if (maxSpread !== undefined && maxSpread > 0) {
