@@ -1048,6 +1048,41 @@ export class CTraderClient extends EventEmitter {
   ): Promise<any> {
     if (!this.accountId) throw new Error("Not authenticated");
     
+    // 🛡️ ============= TRAVA DE SEGURANÇA DE VOLUME - SEGUNDA LINHA (KILL SWITCH) =============
+    // CORREÇÃO 2026-01-13: Segunda camada de defesa (redundância de segurança)
+    // Esta validação é a última barreira antes da conversão para cents
+    
+    const MAX_ALLOWED_LOTS_CLIENT = 5.0;   // 🚨 Trava Máxima (deve ser igual ao Adapter)
+    const MIN_ALLOWED_LOTS_CLIENT = 0.01; // Volume mínimo
+    
+    // 1️⃣ VERIFICAÇÃO DE INTEGRIDADE
+    if (volume === undefined || volume === null || isNaN(volume)) {
+      console.error(`[CTraderClient] [SECURITY_BLOCK] 🚨 CRITICAL: Volume inválido na camada Client!`);
+      console.error(`[CTraderClient] [SECURITY_BLOCK] Valor: ${volume} (tipo: ${typeof volume})`);
+      console.error(`[CTraderClient] [SECURITY_BLOCK] ISSO NÃO DEVERIA ACONTECER - O Adapter deveria ter bloqueado!`);
+      throw new Error(`SECURITY BLOCK (Client): Volume inválido: ${volume}`);
+    }
+    
+    // 2️⃣ VERIFICAÇÃO DE VOLUME POSITIVO
+    if (volume <= 0) {
+      console.error(`[CTraderClient] [SECURITY_BLOCK] 🚨 Volume não-positivo: ${volume}`);
+      throw new Error(`SECURITY BLOCK (Client): Volume deve ser positivo: ${volume}`);
+    }
+    
+    // 3️⃣ VERIFICAÇÃO "ANTI-BALEIA" (Segunda Camada)
+    if (volume > MAX_ALLOWED_LOTS_CLIENT) {
+      console.error(`[CTraderClient] [SECURITY_BLOCK] 🚨 VOLUME EXPLOSIVO NA CAMADA CLIENT!`);
+      console.error(`[CTraderClient] [SECURITY_BLOCK] Volume: ${volume} lotes > Limite: ${MAX_ALLOWED_LOTS_CLIENT} lotes`);
+      console.error(`[CTraderClient] [SECURITY_BLOCK] ALERTA: O Adapter deveria ter bloqueado isso!`);
+      console.error(`[CTraderClient] [SECURITY_BLOCK] Possível bypass de segurança detectado!`);
+      throw new Error(`SECURITY BLOCK (Client): Volume ${volume} excede limite de ${MAX_ALLOWED_LOTS_CLIENT} lotes`);
+    }
+    
+    // Log de rastreio para debug
+    console.log(`[CTraderClient] [TRACE] createMarketOrder recebeu: volume=${volume} lotes`);
+    console.log(`[CTraderClient] [SECURITY_OK] ✅ Volume validado na camada Client: ${volume} lotes`);
+    // 🛡️ ============= FIM DA TRAVA DE SEGURANÇA (CLIENT) =============
+    
     // CORREÇÃO DEFINITIVA DE VOLUME (cTrader Protocol)
     // Documentação: "Volume in cents (e.g. 1000 in protocol means 10.00 units)"
     // 
@@ -1210,6 +1245,19 @@ export class CTraderClient extends EventEmitter {
    */
   async closePosition(positionId: number, volume?: number): Promise<any> {
     if (!this.accountId) throw new Error("Not authenticated");
+    
+    // 🛡️ TRAVA DE SEGURANÇA PARA FECHAMENTO DE POSIÇÃO
+    if (volume !== undefined) {
+      const MAX_CLOSE_LOTS = 5.0;
+      if (isNaN(volume) || volume <= 0) {
+        console.error(`[CTraderClient] [SECURITY_BLOCK] Volume de fechamento inválido: ${volume}`);
+        throw new Error(`SECURITY BLOCK: Volume de fechamento inválido: ${volume}`);
+      }
+      if (volume > MAX_CLOSE_LOTS) {
+        console.error(`[CTraderClient] [SECURITY_BLOCK] Volume de fechamento muito alto: ${volume} > ${MAX_CLOSE_LOTS}`);
+        throw new Error(`SECURITY BLOCK: Volume de fechamento ${volume} excede limite de ${MAX_CLOSE_LOTS} lotes`);
+      }
+    }
     
     // CORREÇÃO DEFINITIVA DE VOLUME (cTrader Protocol)
     // Matemática: 1 Lote = 100,000 Unidades = 10,000,000 Cents

@@ -552,42 +552,66 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       };
     }
     
-    console.log("[CTraderAdapter] Executando ordem:", order);
+    // ============= LOG DE RASTREIO (DEBUG) =============
+    // CORREÇÃO 2026-01-13: Logs detalhados para rastreio do objeto order
+    console.log("[CTraderAdapter] [TRACE] ========== RECEBENDO ORDEM ==========");
+    console.log(`[CTraderAdapter] [TRACE] symbol: ${order.symbol}`);
+    console.log(`[CTraderAdapter] [TRACE] direction: ${order.direction}`);
+    console.log(`[CTraderAdapter] [TRACE] orderType: ${order.orderType}`);
+    console.log(`[CTraderAdapter] [TRACE] lots: ${order.lots} (tipo: ${typeof order.lots})`);
+    console.log(`[CTraderAdapter] [TRACE] stopLossPips: ${order.stopLossPips}`);
+    console.log(`[CTraderAdapter] [TRACE] takeProfitPips: ${order.takeProfitPips}`);
+    console.log("[CTraderAdapter] [TRACE] ======================================");
     
-    // Validações básicas
-    if (!order.symbol || !order.direction || !order.lots) {
+    // 🛡️ ============= TRAVA DE SEGURANÇA DE VOLUME (KILL SWITCH) =============
+    // CORREÇÃO 2026-01-13: Implementação das 3 Travas de Segurança
+    // Esta é a primeira linha de defesa contra volumes absurdos
+    
+    const MAX_ALLOWED_LOTS = 5.0;   // 🚨 Trava Máxima "Anti-Baleia" (5 lotes)
+    const MIN_ALLOWED_LOTS = 0.01; // Volume mínimo permitido
+    
+    // 1️⃣ VERIFICAÇÃO DE INTEGRIDADE (undefined/null/NaN)
+    if (order.lots === undefined || order.lots === null || isNaN(order.lots)) {
+      console.error(`[CTraderAdapter] [SECURITY_BLOCK] 🚨 CRITICAL: Volume inválido detectado!`);
+      console.error(`[CTraderAdapter] [SECURITY_BLOCK] Valor recebido: ${order.lots} (tipo: ${typeof order.lots})`);
+      console.error(`[CTraderAdapter] [SECURITY_BLOCK] Possível causa: parâmetro 'lots' não foi passado corretamente`);
       return {
         success: false,
-        errorMessage: "Parâmetros obrigatórios: symbol, direction, lots",
+        errorMessage: "SECURITY BLOCK: Volume is undefined, null or NaN. Verifique se está usando 'lots' (não 'volume').",
+        errorCode: "SECURITY_INVALID_VOLUME",
       };
     }
     
-    // CORREÇÃO 2026-01-10: Normalizar lote antes de validar
-    // Arredondar para 2 casas decimais (precisão padrão de lotes)
-    // e garantir que está dentro dos limites
-    let normalizedLots = Math.round(order.lots * 100) / 100; // Arredondar para 0.01
+    // 2️⃣ VERIFICAÇÃO DE LIMITES - "ANTI-BALEIA" (Volume Explosivo)
+    if (order.lots > MAX_ALLOWED_LOTS) {
+      console.error(`[CTraderAdapter] [SECURITY_BLOCK] 🚨 VOLUME EXPLOSIVO DETECTADO!`);
+      console.error(`[CTraderAdapter] [SECURITY_BLOCK] Volume solicitado: ${order.lots} lotes`);
+      console.error(`[CTraderAdapter] [SECURITY_BLOCK] Limite máximo: ${MAX_ALLOWED_LOTS} lotes`);
+      console.error(`[CTraderAdapter] [SECURITY_BLOCK] Ação: ORDEM BLOQUEADA para proteger a conta`);
+      console.error(`[CTraderAdapter] [SECURITY_BLOCK] Diagnóstico: Verifique se houve erro de conversão (lotes vs unidades vs cents)`);
+      return {
+        success: false,
+        errorMessage: `SECURITY BLOCK: Volume ${order.lots} lotes excede o limite de segurança de ${MAX_ALLOWED_LOTS} lotes. Ordem bloqueada.`,
+        errorCode: "SECURITY_MAX_VOLUME_EXCEEDED",
+      };
+    }
     
-    // Aplicar limites mínimo e máximo
-    if (normalizedLots < 0.01) {
-      console.warn(`[CTraderAdapter] ⚠️ Lote ${order.lots} abaixo do mínimo, ajustando para 0.01`);
-      normalizedLots = 0.01;
+    // 3️⃣ VERIFICAÇÃO MÍNIMA (Ajuste automático)
+    let normalizedLots = order.lots;
+    if (normalizedLots < MIN_ALLOWED_LOTS) {
+      console.warn(`[CTraderAdapter] [SECURITY_WARN] ⚠️ Volume muito baixo: ${order.lots} lotes`);
+      console.warn(`[CTraderAdapter] [SECURITY_WARN] Ajustando para mínimo: ${MIN_ALLOWED_LOTS} lotes`);
+      normalizedLots = MIN_ALLOWED_LOTS;
     }
-    if (normalizedLots > 100) {
-      console.warn(`[CTraderAdapter] ⚠️ Lote ${order.lots} acima do máximo, ajustando para 100`);
-      normalizedLots = 100;
-    }
+    
+    // Arredondar para 2 casas decimais (precisão padrão de lotes)
+    normalizedLots = Math.round(normalizedLots * 100) / 100;
     
     // Atualizar o valor do lote na ordem
     order.lots = normalizedLots;
-    console.log(`[CTraderAdapter] Lote normalizado: ${normalizedLots}`);
     
-    // Validação final (redundante, mas segura)
-    if (order.lots < 0.01 || order.lots > 100) {
-      return {
-        success: false,
-        errorMessage: "Lote deve estar entre 0.01 e 100",
-      };
-    }
+    console.log(`[CTraderAdapter] [SECURITY_OK] ✅ Volume validado: ${normalizedLots} lotes (dentro dos limites ${MIN_ALLOWED_LOTS}-${MAX_ALLOWED_LOTS})`);
+    // 🛡️ ============= FIM DA TRAVA DE SEGURANÇA =============
     
     // ============= FILTRO DE SPREAD (TAREFA B) =============
     // Verificar spread atual antes de executar a ordem

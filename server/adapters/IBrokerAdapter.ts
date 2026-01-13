@@ -183,6 +183,8 @@ export interface OrderResult {
   errorCode?: string;
   /** Dados adicionais específicos da corretora */
   rawResponse?: any;
+  /** Volume mínimo detectado (quando erro de volume) - CORREÇÃO 2026-01-13 */
+  detectedMinVolume?: number;
 }
 
 /**
