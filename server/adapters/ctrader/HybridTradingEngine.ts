@@ -114,6 +114,13 @@ export class HybridTradingEngine extends EventEmitter {
    */
   private isExecutingOrder: Map<string, boolean> = new Map();
   
+  /**
+   * CORREÇÃO v3.0: Watchdog de Deadlock
+   * Map que armazena o timestamp de quando cada símbolo foi travado.
+   * Usado para detectar e liberar locks que ficaram presos por mais de 15 segundos.
+   */
+  private lockTimestamps: Map<string, number> = new Map();
+  
   // Dados multi-timeframe
   private timeframeData: {
     h1: Map<string, any[]>;
@@ -975,27 +982,41 @@ export class HybridTradingEngine extends EventEmitter {
    * IMPORTANTE: Usa o pipeline existente de execução (CTraderAdapter),
    * preservando a lógica de volume do CTraderClient.ts.
    * 
-   * CORREÇÃO CRÍTICA v2.0: Implementado controle de concorrência PER-SYMBOL
-   * para evitar Race Condition que causava múltiplas ordens duplicadas.
+   * CORREÇÃO CRÍTICA v3.0 (2026-01-13):
+   * - Implementado controle de concorrência PER-SYMBOL
+   * - Adicionado WATCHDOG de 15 segundos para liberar locks travados (Deadlock Prevention)
+   * - Registra timestamp do lock para monitoramento
    * 
    * LÓGICA DO MUTEX:
    * 1. Verifica se o símbolo está travado (isExecutingOrder)
-   * 2. Se travado -> ignora (outro ciclo já está processando)
+   * 2. Se travado há mais de 15s -> WATCHDOG força destravamento
    * 3. Se livre -> trava o símbolo ANTES de qualquer verificação assíncrona
    * 4. Executa toda a lógica de ordem
-   * 5. Destrava o símbolo no finally (garante destravamento mesmo com erro)
+   * 5. Destrava o símbolo no finally (garante destravamento mesmo com erro/return)
    */
   private async executeSignal(symbol: string, combinedSignal: CombinedSignal): Promise<void> {
     const now = Date.now();
     
     // ═══════════════════════════════════════════════════════════════
-    // CONTROLE DE CONCORRÊNCIA PER-SYMBOL (MUTEX)
+    // CONTROLE DE CONCORRÊNCIA PER-SYMBOL (MUTEX) + WATCHDOG
     // ═══════════════════════════════════════════════════════════════
     
     // VERIFICAÇÃO 1: Símbolo já está em processo de execução?
     if (this.isExecutingOrder.get(symbol)) {
-      console.log(`[HybridEngine] 🔒 ${symbol}: IGNORADO - Ordem em processamento (mutex ativo)`);
-      return;
+      // WATCHDOG: Verificar se o lock está travado há mais de 15 segundos
+      const lockTime = this.lockTimestamps.get(symbol) || 0;
+      const lockDuration = now - lockTime;
+      
+      if (lockDuration > 15000) {
+        // ⚠️ DEADLOCK DETECTADO - Forçar destravamento
+        console.warn(`[HybridEngine] ⚠️ WATCHDOG: ${symbol} travado há ${Math.floor(lockDuration/1000)}s - FORÇANDO DESTRAVAMENTO`);
+        this.isExecutingOrder.set(symbol, false);
+        this.lockTimestamps.delete(symbol);
+        // Continuar para tentar executar novamente
+      } else {
+        console.log(`[HybridEngine] 🔒 ${symbol}: IGNORADO - Ordem em processamento (mutex ativo há ${Math.floor(lockDuration/1000)}s)`);
+        return;
+      }
     }
     
     // VERIFICAÇÃO 2: Cooldown por símbolo
@@ -1008,6 +1029,7 @@ export class HybridTradingEngine extends EventEmitter {
     // TRAVAR O SÍMBOLO ANTES DE QUALQUER OPERAÇÃO ASSÍNCRONA
     // ═══════════════════════════════════════════════════════════════
     this.isExecutingOrder.set(symbol, true);
+    this.lockTimestamps.set(symbol, now); // Registrar timestamp do lock para Watchdog
     console.log(`[HybridEngine] 🔐 ${symbol}: TRAVADO para execução`);
     
     try {
@@ -1016,7 +1038,7 @@ export class HybridTradingEngine extends EventEmitter {
         const canOpen = await this.riskManager.canOpenPosition();
         if (!canOpen.allowed) {
           console.log(`[HybridEngine] ⚠️ ${canOpen.reason}`);
-          return;
+          return; // NOTA: return dentro de try AGORA passa pelo finally corretamente
         }
       }
       
@@ -1126,9 +1148,11 @@ export class HybridTradingEngine extends EventEmitter {
       }
     } finally {
       // ═══════════════════════════════════════════════════════════════
-      // DESTRAVAR O SÍMBOLO (SEMPRE, mesmo com erro)
+      // DESTRAVAR O SÍMBOLO (SEMPRE, mesmo com erro ou return antecipado)
+      // CORREÇÃO v3.0: Limpar também o timestamp do lock
       // ═══════════════════════════════════════════════════════════════
       this.isExecutingOrder.set(symbol, false);
+      this.lockTimestamps.delete(symbol);
       console.log(`[HybridEngine] 🔓 ${symbol}: DESTRAVADO`);
     }
   }
