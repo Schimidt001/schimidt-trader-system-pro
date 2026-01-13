@@ -205,6 +205,11 @@ export class CTraderClient extends EventEmitter {
   // Este cache armazena o volume mínimo real detectado via erro TRADING_BAD_VOLUME
   private detectedMinVolumes: Map<string, number> = new Map();
   
+  // CORREÇÃO 2026-01-13: Set de símbolos já subscritos para evitar erro ALREADY_SUBSCRIBED
+  // Quando tentamos subscrever um símbolo que já está subscrito, a API retorna erro.
+  // Este Set rastreia os symbolIds atualmente subscritos para evitar chamadas duplicadas.
+  private subscribedSymbolIds: Set<number> = new Set();
+  
   constructor() {
     super();
     this.loadProtoFiles();
@@ -335,6 +340,14 @@ export class CTraderClient extends EventEmitter {
         this.isAuthenticated = false;
         this.stopHeartbeat();
         
+        // CORREÇÃO 2026-01-13: Limpar Set de símbolos subscritos ao fechar conexão
+        // Isso é necessário porque após reconexão, as subscrições precisam ser refeitas
+        const previousCount = this.subscribedSymbolIds.size;
+        this.subscribedSymbolIds.clear();
+        if (previousCount > 0) {
+          console.log(`[CTraderClient] [CLOSE] Limpeza de estado: ${previousCount} subscrições removidas`);
+        }
+        
         this.emit("disconnected", { code, reason: reason.toString() });
         
         // Tentar reconectar
@@ -347,6 +360,8 @@ export class CTraderClient extends EventEmitter {
   
   /**
    * Desconecta do servidor
+   * 
+   * CORREÇÃO 2026-01-13: Limpa Set de símbolos subscritos na desconexão
    */
   async disconnect(): Promise<void> {
     this.stopHeartbeat();
@@ -360,6 +375,12 @@ export class CTraderClient extends EventEmitter {
     this.isAuthenticated = false;
     this.credentials = null;
     this.accountId = null;
+    
+    // CORREÇÃO 2026-01-13: Limpar Set de símbolos subscritos
+    // Após desconexão, todas as subscrições são perdidas no servidor
+    const previousCount = this.subscribedSymbolIds.size;
+    this.subscribedSymbolIds.clear();
+    console.log(`[CTraderClient] [DISCONNECT] Limpeza de estado: ${previousCount} subscrições removidas`);
   }
   
   /**
@@ -844,26 +865,48 @@ export class CTraderClient extends EventEmitter {
    * Subscreve a preços em tempo real
    * 
    * AUDITORIA: Adicionados logs detalhados para debug de subscrição
+   * CORREÇÃO 2026-01-13: Verificação de símbolos já subscritos para evitar erro ALREADY_SUBSCRIBED
    */
   async subscribeSpots(symbolIds: number[]): Promise<void> {
     if (!this.accountId) throw new Error("Not authenticated");
     
+    // CORREÇÃO 2026-01-13: Filtrar símbolos que já estão subscritos
+    const newSymbolIds = symbolIds.filter(id => !this.subscribedSymbolIds.has(id));
+    const alreadySubscribed = symbolIds.filter(id => this.subscribedSymbolIds.has(id));
+    
+    if (alreadySubscribed.length > 0) {
+      const alreadyNames = alreadySubscribed.map(id => this.symbolIdToName.get(id) || `ID:${id}`);
+      console.log(`[CTraderClient] [SUBSCRIBE] ⚠️ Símbolos já subscritos (ignorando): ${alreadyNames.join(", ")}`);
+    }
+    
+    // Se todos já estão subscritos, retornar sem fazer nada
+    if (newSymbolIds.length === 0) {
+      console.log(`[CTraderClient] [SUBSCRIBE] ✅ Todos os símbolos já estão subscritos. Nenhuma ação necessária.`);
+      return;
+    }
+    
     // [DEBUG] Log detalhado da subscrição
-    const symbolNames = symbolIds.map(id => this.symbolIdToName.get(id) || `ID:${id}`);
+    const symbolNames = newSymbolIds.map(id => this.symbolIdToName.get(id) || `ID:${id}`);
     console.log(`[CTraderClient] [SUBSCRIBE] Iniciando subscrição de spots...`);
     console.log(`[CTraderClient] [SUBSCRIBE] Account ID: ${this.accountId}`);
-    console.log(`[CTraderClient] [SUBSCRIBE] Symbol IDs: ${symbolIds.join(", ")}`);
+    console.log(`[CTraderClient] [SUBSCRIBE] Symbol IDs (novos): ${newSymbolIds.join(", ")}`);
     console.log(`[CTraderClient] [SUBSCRIBE] Symbol Names: ${symbolNames.join(", ")}`);
     console.log(`[CTraderClient] [SUBSCRIBE] PayloadType usado: ${PayloadType.PROTO_OA_SUBSCRIBE_SPOTS_REQ} (esperado: 2127)`);
     
     try {
       await this.sendRequest("ProtoOASubscribeSpotsReq", {
         ctidTraderAccountId: this.accountId,
-        symbolId: symbolIds,
+        symbolId: newSymbolIds,
         subscribeToSpotTimestamp: true,
       }, PayloadType.PROTO_OA_SUBSCRIBE_SPOTS_RES);
       
+      // CORREÇÃO 2026-01-13: Adicionar ao Set de símbolos subscritos
+      for (const id of newSymbolIds) {
+        this.subscribedSymbolIds.add(id);
+      }
+      
       console.log(`[CTraderClient] [SUBSCRIBE] ✅ Subscrição confirmada para: ${symbolNames.join(", ")}`);
+      console.log(`[CTraderClient] [SUBSCRIBE] Total de símbolos subscritos: ${this.subscribedSymbolIds.size}`);
     } catch (error) {
       console.error(`[CTraderClient] [SUBSCRIBE] ❌ Erro na subscrição:`, error);
       throw error;
@@ -872,16 +915,35 @@ export class CTraderClient extends EventEmitter {
   
   /**
    * Cancela subscrição de preços
+   * 
+   * CORREÇÃO 2026-01-13: Remove símbolos do Set de subscritos após unsubscribe
    */
   async unsubscribeSpots(symbolIds: number[]): Promise<void> {
     if (!this.accountId) throw new Error("Not authenticated");
     
+    // Filtrar apenas símbolos que estão realmente subscritos
+    const subscribedIds = symbolIds.filter(id => this.subscribedSymbolIds.has(id));
+    
+    if (subscribedIds.length === 0) {
+      console.log(`[CTraderClient] [UNSUBSCRIBE] Nenhum símbolo subscrito para cancelar.`);
+      return;
+    }
+    
+    const symbolNames = subscribedIds.map(id => this.symbolIdToName.get(id) || `ID:${id}`);
+    console.log(`[CTraderClient] [UNSUBSCRIBE] Cancelando subscrição: ${symbolNames.join(", ")}`);
+    
     await this.sendRequest("ProtoOAUnsubscribeSpotsReq", {
       ctidTraderAccountId: this.accountId,
-      symbolId: symbolIds,
+      symbolId: subscribedIds,
     }, PayloadType.PROTO_OA_UNSUBSCRIBE_SPOTS_RES);
     
-    console.log(`[CTraderClient] Unsubscribed from spots for symbols: ${symbolIds.join(", ")}`);
+    // CORREÇÃO 2026-01-13: Remover do Set de símbolos subscritos
+    for (const id of subscribedIds) {
+      this.subscribedSymbolIds.delete(id);
+    }
+    
+    console.log(`[CTraderClient] [UNSUBSCRIBE] ✅ Subscrição cancelada para: ${symbolNames.join(", ")}`);
+    console.log(`[CTraderClient] [UNSUBSCRIBE] Total de símbolos subscritos restantes: ${this.subscribedSymbolIds.size}`);
   }
   
   /**

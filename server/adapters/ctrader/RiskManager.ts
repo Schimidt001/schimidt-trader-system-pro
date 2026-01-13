@@ -239,6 +239,41 @@ export class RiskManager {
       };
     }
     
+    // ============= PROTEÇÃO CONTRA VOLUME EXPLOSIVO (2026-01-13) =============
+    // CORREÇÃO CRÍTICA: Stop Loss mínimo de segurança
+    // 
+    // PROBLEMA: Quando o SL calculado é muito próximo de zero (ex: 0.1 pips em M5),
+    // a fórmula lotSize = riskAmount / (stopLossPips * pipValue) resulta em
+    // volumes absurdos (ex: 100 lotes em conta de $500).
+    // 
+    // SOLUÇÃO: Nunca aceitar SL menor que 3 pips para evitar alavancagem infinita.
+    // Isso protege contra candles minúsculos em timeframes baixos (M1, M5).
+    // =========================================================================
+    const MIN_SL_PIPS = 3.0; // Stop Loss mínimo de segurança em pips
+    const originalStopLossPips = stopLossPips;
+    const effectiveSL = Math.max(stopLossPips, MIN_SL_PIPS);
+    
+    if (stopLossPips < MIN_SL_PIPS) {
+      console.warn(`[RiskManager] ⚠️ PROTEÇÃO ATIVADA: SL original (${stopLossPips.toFixed(2)} pips) < mínimo (${MIN_SL_PIPS} pips)`);
+      console.warn(`[RiskManager] ⚠️ Usando SL efetivo de ${effectiveSL} pips para cálculo de volume`);
+    }
+    
+    // Validar que SL efetivo é positivo (proteção contra divisão por zero)
+    if (effectiveSL <= 0) {
+      console.error(`[RiskManager] ❌ ERRO CRÍTICO: SL efetivo é ${effectiveSL}. Bloqueando trade.`);
+      return {
+        lotSize: 0,
+        volumeInCents: 0,
+        riskAmount: 0,
+        riskPercent: 0,
+        stopLossPips: originalStopLossPips,
+        pipValue,
+        canTrade: false,
+        reason: `Stop Loss inválido (${originalStopLossPips} pips). Mínimo: ${MIN_SL_PIPS} pips.`,
+        volumeAdjusted: false,
+      };
+    }
+    
     // CORREÇÃO DEFINITIVA: Defaults em CENTS (protocolo cTrader)
     // Matemática:
     // - 1 Lote = 100,000 Unidades = 10,000,000 Cents
@@ -252,8 +287,8 @@ export class RiskManager {
     // Calcular risco em USD
     const riskAmount = accountBalance * (this.config.riskPercentage / 100);
     
-    // Calcular tamanho do lote bruto
-    let lotSize = riskAmount / (stopLossPips * pipValue);
+    // Calcular tamanho do lote bruto USANDO SL EFETIVO (protegido)
+    let lotSize = riskAmount / (effectiveSL * pipValue);
     const originalLotSize = lotSize;
     
     // CORREÇÃO DEFINITIVA: Converter para CENTS (1 lote = 10,000,000 cents)
@@ -311,12 +346,16 @@ export class RiskManager {
     console.log(`[RiskManager] Cálculo de posição:`);
     console.log(`  - Balance: $${accountBalance.toFixed(2)}`);
     console.log(`  - Risco configurado: ${this.config.riskPercentage}% = $${riskAmount.toFixed(2)}`);
-    console.log(`  - SL: ${stopLossPips} pips`);
+    // CORREÇÃO 2026-01-13: Mostrar SL original e efetivo
+    console.log(`  - SL original: ${originalStopLossPips.toFixed(2)} pips | SL efetivo: ${effectiveSL.toFixed(2)} pips (mín: ${MIN_SL_PIPS} pips)`);
     console.log(`  - Pip Value: $${pipValue}`);
     console.log(`  - Volume Specs: min=${specs.minVolume} cents (${minLotSize} lotes), max=${specs.maxVolume} cents, step=${specs.stepVolume} cents`);
     console.log(`  - Lote bruto: ${originalLotSize.toFixed(4)}`);
     console.log(`  - Lote normalizado: ${lotSize} lotes (${volumeInCents} cents)`);
     console.log(`  - Risco real: ${actualRiskPercent.toFixed(2)}% = $${actualRiskAmount.toFixed(2)}`);
+    if (originalStopLossPips < MIN_SL_PIPS) {
+      console.log(`  - 🛡️ PROTEÇÃO SL MÍNIMO: SL ajustado de ${originalStopLossPips.toFixed(2)} para ${effectiveSL.toFixed(2)} pips`);
+    }
     if (volumeAdjusted) {
       console.log(`  - ⚠️ VOLUME AJUSTADO para respeitar limites da corretora`);
     }
