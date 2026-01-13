@@ -454,92 +454,129 @@ export class HybridTradingEngine extends EventEmitter {
   }
   
   /**
-   * Carrega dados históricos de forma PARALELA para acelerar inicialização
-   * Usa batches de 3 símbolos para não sobrecarregar a API
+   * Carrega dados históricos de forma SEQUENCIAL para evitar Rate Limit
    * 
-   * CORREÇÃO CRÍTICA: Adicionado tracking de sucesso/falha por símbolo
+   * CORREÇÃO 2026-01-13: Mudança de paralelo para sequencial
+   * - Delay de 1.5s entre cada requisição de timeframe
+   * - Delay de 2s entre cada símbolo
+   * - Retry específico para Rate Limit (erro 429) com espera de 5s
+   * - Até 3 tentativas por símbolo antes de descartar
    */
   private async loadHistoricalData(): Promise<void> {
     const startTime = Date.now();
-    console.log("[HybridEngine] 🚀 Carregando dados históricos (modo PARALELO)...");
+    console.log("[HybridEngine] 🚀 Carregando dados históricos (modo SEQUENCIAL - Anti Rate Limit)...");
     console.log(`[HybridEngine] Símbolos a carregar: ${this.config.symbols.join(', ')}`);
-    await this.logInfo(`🚀 Iniciando carregamento de dados históricos para ${this.config.symbols.length} ativos: ${this.config.symbols.join(', ')}`, "SYSTEM");
+    await this.logInfo(`🚀 Iniciando carregamento SEQUENCIAL para ${this.config.symbols.length} ativos`, "SYSTEM");
     
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-    const BATCH_SIZE = 3; // Processar 3 símbolos em paralelo
-    const DELAY_BETWEEN_BATCHES = 500; // 500ms entre batches
+    const DELAY_BETWEEN_REQUESTS = 1500; // 1.5s entre cada requisição de timeframe
+    const DELAY_BETWEEN_SYMBOLS = 2000;  // 2s entre cada símbolo
+    const RATE_LIMIT_RETRY_DELAY = 5000; // 5s de espera se receber Rate Limit
+    const MAX_RETRIES = 3;
     
-    // Contadores de sucesso/falha
     const successSymbols: string[] = [];
     const failedSymbols: string[] = [];
     
-    // Dividir símbolos em batches
-    const batches: string[][] = [];
-    for (let i = 0; i < this.config.symbols.length; i += BATCH_SIZE) {
-      batches.push(this.config.symbols.slice(i, i + BATCH_SIZE));
-    }
+    // Helper para detectar erro de Rate Limit
+    const isRateLimitError = (error: any): boolean => {
+      const errorStr = String(error).toLowerCase();
+      return errorStr.includes('429') || 
+             errorStr.includes('rate') || 
+             errorStr.includes('limit') ||
+             errorStr.includes('frequency') ||
+             errorStr.includes('too many');
+    };
     
-    console.log(`[HybridEngine] Processando ${this.config.symbols.length} símbolos em ${batches.length} batches`);
-    
-    // Processar cada batch em paralelo
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      console.log(`[HybridEngine] Batch ${batchIndex + 1}/${batches.length}: ${batch.join(", ")}`);
+    // Processar cada símbolo SEQUENCIALMENTE
+    for (let i = 0; i < this.config.symbols.length; i++) {
+      const symbol = this.config.symbols[i];
+      let symbolSuccess = false;
       
-      // Carregar todos os símbolos do batch em paralelo
-      const batchPromises = batch.map(async (symbol) => {
+      console.log(`[HybridEngine] [${i + 1}/${this.config.symbols.length}] Baixando ${symbol}...`);
+      
+      // Retry loop para cada símbolo
+      for (let attempt = 1; attempt <= MAX_RETRIES && !symbolSuccess; attempt++) {
         try {
-          // Carregar os 3 timeframes em paralelo para cada símbolo
-          const [h1Candles, m15Candles, m5Candles] = await Promise.all([
-            ctraderAdapter.getCandleHistory(symbol, "H1", 250),
-            ctraderAdapter.getCandleHistory(symbol, "M15", 250),
-            ctraderAdapter.getCandleHistory(symbol, "M5", 250),
-          ]);
+          if (attempt > 1) {
+            console.log(`[HybridEngine] 🔄 ${symbol}: Tentativa ${attempt}/${MAX_RETRIES}...`);
+          }
           
+          // Carregar H1
+          const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", 250);
           this.timeframeData.h1.set(symbol, h1Candles);
+          console.log(`[HybridEngine] ${symbol} H1: ${h1Candles.length} candles`);
+          await sleep(DELAY_BETWEEN_REQUESTS);
+          
+          // Carregar M15
+          const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 250);
           this.timeframeData.m15.set(symbol, m15Candles);
+          console.log(`[HybridEngine] ${symbol} M15: ${m15Candles.length} candles`);
+          await sleep(DELAY_BETWEEN_REQUESTS);
+          
+          // Carregar M5
+          const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 250);
           this.timeframeData.m5.set(symbol, m5Candles);
+          console.log(`[HybridEngine] ${symbol} M5: ${m5Candles.length} candles`);
           
           // Verificar se os dados são suficientes
           const isValid = h1Candles.length >= 50 && m15Candles.length >= 30 && m5Candles.length >= 20;
           
           if (isValid) {
-            console.log(`[HybridEngine] ✅ ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length}`);
+            console.log(`[HybridEngine] ✅ ${symbol}: Carregado com sucesso!`);
             successSymbols.push(symbol);
+            symbolSuccess = true;
           } else {
             console.warn(`[HybridEngine] ⚠️ ${symbol}: Dados insuficientes - H1=${h1Candles.length}/50, M15=${m15Candles.length}/30, M5=${m5Candles.length}/20`);
-            failedSymbols.push(symbol);
+            if (attempt === MAX_RETRIES) {
+              // Na última tentativa, aceitar dados parciais
+              successSymbols.push(symbol);
+              symbolSuccess = true;
+              console.warn(`[HybridEngine] ⚠️ ${symbol}: Aceitando dados parciais`);
+            }
           }
           
-          return { symbol, success: isValid };
         } catch (error) {
-          console.error(`[HybridEngine] ❌ Erro ao carregar ${symbol}:`, error);
-          failedSymbols.push(symbol);
-          return { symbol, success: false, error };
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[HybridEngine] ❌ ${symbol}: Erro na tentativa ${attempt}: ${errorMsg}`);
+          
+          // Se for Rate Limit, esperar mais tempo antes de tentar novamente
+          if (isRateLimitError(error)) {
+            console.warn(`[HybridEngine] ⏳ ${symbol}: Rate Limit detectado! Aguardando ${RATE_LIMIT_RETRY_DELAY/1000}s...`);
+            await sleep(RATE_LIMIT_RETRY_DELAY);
+          } else if (attempt < MAX_RETRIES) {
+            // Para outros erros, esperar um pouco antes de tentar novamente
+            await sleep(DELAY_BETWEEN_REQUESTS * 2);
+          }
+          
+          if (attempt === MAX_RETRIES) {
+            console.error(`[HybridEngine] ❌ ${symbol}: FALHA DEFINITIVA após ${MAX_RETRIES} tentativas`);
+            failedSymbols.push(symbol);
+          }
         }
-      });
+      }
       
-      // Aguardar todas as promessas do batch
-      await Promise.all(batchPromises);
-      
-      // Delay entre batches para não sobrecarregar a API
-      if (batchIndex < batches.length - 1) {
-        await sleep(DELAY_BETWEEN_BATCHES);
+      // Delay entre símbolos (exceto no último)
+      if (i < this.config.symbols.length - 1) {
+        await sleep(DELAY_BETWEEN_SYMBOLS);
       }
     }
     
     const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
-    const successMsg = `✅ Dados históricos carregados em ${elapsedTime}s | Sucesso: ${successSymbols.length}/${this.config.symbols.length} | Falhas: ${failedSymbols.length}`;
-    console.log(`[HybridEngine] ${successMsg}`);
-    
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log(`[HybridEngine] 📊 RESUMO DO CARREGAMENTO`);
+    console.log(`[HybridEngine] ⏱️ Tempo total: ${elapsedTime}s`);
+    console.log(`[HybridEngine] ✅ Sucesso: ${successSymbols.length}/${this.config.symbols.length}`);
+    console.log(`[HybridEngine] ✅ Símbolos OK: ${successSymbols.join(', ') || 'Nenhum'}`);
     if (failedSymbols.length > 0) {
-      console.warn(`[HybridEngine] ⚠️ Símbolos com problemas: ${failedSymbols.join(', ')}`);
-      await this.logInfo(`⚠️ Atenção: ${failedSymbols.length} símbolos com dados insuficientes: ${failedSymbols.join(', ')}`, "SYSTEM");
+      console.log(`[HybridEngine] ❌ Falhas: ${failedSymbols.length}`);
+      console.log(`[HybridEngine] ❌ Símbolos com falha: ${failedSymbols.join(', ')}`);
     }
+    console.log("═══════════════════════════════════════════════════════════════");
     
-    if (successSymbols.length > 0) {
-      await this.logInfo(`✅ ${successSymbols.length} ativos prontos para análise: ${successSymbols.join(', ')}`, "SYSTEM");
-    }
+    await this.logInfo(
+      `📊 Carregamento concluído em ${elapsedTime}s | Sucesso: ${successSymbols.length}/${this.config.symbols.length} | Falhas: ${failedSymbols.length}`,
+      "SYSTEM"
+    );
   }
   
   /**

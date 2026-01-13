@@ -652,7 +652,19 @@ export class SMCTradingEngine extends EventEmitter {
     console.log(`[SMCTradingEngine] Símbolos: ${JSON.stringify(this.config.symbols)}`);
     
     const MAX_RETRIES = 3;
-    const RETRY_DELAY_MS = 2000; // 2 segundos entre retries
+    const DELAY_BETWEEN_REQUESTS = 1500; // 1.5s entre cada requisição de timeframe
+    const DELAY_BETWEEN_SYMBOLS = 2000;  // 2s entre cada símbolo
+    const RATE_LIMIT_RETRY_DELAY = 5000; // 5s de espera se receber Rate Limit
+    
+    // Helper para detectar erro de Rate Limit
+    const isRateLimitError = (error: any): boolean => {
+      const errorStr = String(error).toLowerCase();
+      return errorStr.includes('429') || 
+             errorStr.includes('rate') || 
+             errorStr.includes('limit') ||
+             errorStr.includes('frequency') ||
+             errorStr.includes('too many');
+    };
     const successfulSymbols: string[] = [];
     const failedSymbols: string[] = [];
     
@@ -667,8 +679,6 @@ export class SMCTradingEngine extends EventEmitter {
         try {
           if (attempt > 1) {
             console.log(`[SMCTradingEngine] 🔄 ${symbol}: Tentativa ${attempt}/${MAX_RETRIES}...`);
-            // Backoff progressivo: 2s, 4s, 6s
-            await sleep(RETRY_DELAY_MS * attempt);
           }
           
           // Carregar H1 (mínimo 200 candles)
@@ -682,7 +692,7 @@ export class SMCTradingEngine extends EventEmitter {
             console.warn(`[DEBUG-LOAD] ${symbol} H1: NENHUM CANDLE RETORNADO!`);
           }
           
-          await sleep(API_REQUEST_DELAY_MS);
+          await sleep(DELAY_BETWEEN_REQUESTS);
           
           // Carregar M15 (mínimo 200 candles)
           const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 250);
@@ -695,7 +705,7 @@ export class SMCTradingEngine extends EventEmitter {
             console.warn(`[DEBUG-LOAD] ${symbol} M15: NENHUM CANDLE RETORNADO!`);
           }
           
-          await sleep(API_REQUEST_DELAY_MS);
+          await sleep(DELAY_BETWEEN_REQUESTS);
           
           // Carregar M5 (mínimo 200 candles)
           const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 250);
@@ -730,6 +740,15 @@ export class SMCTradingEngine extends EventEmitter {
           const errorMsg = error instanceof Error ? error.message : String(error);
           console.error(`[SMCTradingEngine] ❌ ${symbol}: Erro na tentativa ${attempt}/${MAX_RETRIES}: ${errorMsg}`);
           
+          // Se for Rate Limit, esperar mais tempo antes de tentar novamente
+          if (isRateLimitError(error)) {
+            console.warn(`[SMCTradingEngine] ⏳ ${symbol}: Rate Limit detectado! Aguardando ${RATE_LIMIT_RETRY_DELAY/1000}s...`);
+            await sleep(RATE_LIMIT_RETRY_DELAY);
+          } else if (attempt < MAX_RETRIES) {
+            // Para outros erros, esperar um pouco antes de tentar novamente
+            await sleep(DELAY_BETWEEN_REQUESTS * 2);
+          }
+          
           // Se for a última tentativa, marcar como falha
           if (attempt === MAX_RETRIES) {
             console.error(`[SMCTradingEngine] ❌ ${symbol}: FALHA DEFINITIVA após ${MAX_RETRIES} tentativas`);
@@ -740,7 +759,7 @@ export class SMCTradingEngine extends EventEmitter {
       
       // Delay antes do próximo símbolo (exceto no último)
       if (i < this.config.symbols.length - 1) {
-        await sleep(API_REQUEST_DELAY_MS);
+        await sleep(DELAY_BETWEEN_SYMBOLS);
       }
     }
     
