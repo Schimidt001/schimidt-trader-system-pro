@@ -640,74 +640,127 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Carrega dados históricos para todos os timeframes e símbolos
-   * NOTA: Usa loop sequencial com delay para evitar REQUEST_FREQUENCY_EXCEEDED
    * 
-   * CORREÇÃO: Agora suporta qualquer número de símbolos (10+)
+   * CORREÇÃO 2026-01-13: Implementado Retry Logic e Fail-Safe
+   * - Cada símbolo tem até 3 tentativas de download
+   * - Falha em um símbolo NÃO interrompe o download dos demais
+   * - Delay progressivo entre tentativas (backoff)
+   * - Log detalhado de sucesso/falha por símbolo
    */
   private async loadHistoricalData(): Promise<void> {
     console.log(`[SMCTradingEngine] 📊 Carregando dados históricos para ${this.config.symbols.length} símbolos...`);
     console.log(`[SMCTradingEngine] Símbolos: ${JSON.stringify(this.config.symbols)}`);
     
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 2000; // 2 segundos entre retries
+    const successfulSymbols: string[] = [];
+    const failedSymbols: string[] = [];
+    
     for (let i = 0; i < this.config.symbols.length; i++) {
       const symbol = this.config.symbols[i];
-      try {
-        console.log(`[SMCTradingEngine] Buscando dados de ${symbol}...`);
-        
-        // Carregar H1 (mínimo 200 candles)
-        const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", 250);
-        this.timeframeData.h1.set(symbol, h1Candles);
-        
-        // DEBUG: Verificar dados H1
-        if (h1Candles.length > 0) {
-          const lastH1 = h1Candles[h1Candles.length - 1];
-          console.log(`[DEBUG-LOAD] ${symbol} H1 último candle: O=${lastH1.open} H=${lastH1.high} L=${lastH1.low} C=${lastH1.close} ts=${lastH1.timestamp}`);
-        } else {
-          console.error(`[DEBUG-LOAD] ${symbol} H1: NENHUM CANDLE RETORNADO!`);
-        }
-        
-        await sleep(API_REQUEST_DELAY_MS); // Delay para evitar rate limit
-        
-        // Carregar M15 (mínimo 200 candles)
-        const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 250);
-        this.timeframeData.m15.set(symbol, m15Candles);
-        
-        // DEBUG: Verificar dados M15
-        if (m15Candles.length > 0) {
-          const lastM15 = m15Candles[m15Candles.length - 1];
-          console.log(`[DEBUG-LOAD] ${symbol} M15 último candle: O=${lastM15.open} H=${lastM15.high} L=${lastM15.low} C=${lastM15.close} ts=${lastM15.timestamp}`);
-        } else {
-          console.error(`[DEBUG-LOAD] ${symbol} M15: NENHUM CANDLE RETORNADO!`);
-        }
-        
-        await sleep(API_REQUEST_DELAY_MS); // Delay para evitar rate limit
-        
-        // Carregar M5 (mínimo 200 candles)
-        const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 250);
-        this.timeframeData.m5.set(symbol, m5Candles);
-        
-        // DEBUG: Verificar dados M5
-        if (m5Candles.length > 0) {
-          const lastM5 = m5Candles[m5Candles.length - 1];
-          console.log(`[DEBUG-LOAD] ${symbol} M5 último candle: O=${lastM5.open} H=${lastM5.high} L=${lastM5.low} C=${lastM5.close} ts=${lastM5.timestamp}`);
-        } else {
-          console.error(`[DEBUG-LOAD] ${symbol} M5: NENHUM CANDLE RETORNADO!`);
-        }
-        
-        console.log(`[SMCTradingEngine] ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length} candles`);
-        
-        // Delay antes do próximo símbolo (exceto no último)
-        if (i < this.config.symbols.length - 1) {
+      let symbolSuccess = false;
+      
+      console.log(`[SMCTradingEngine] [${i + 1}/${this.config.symbols.length}] Baixando dados de ${symbol}...`);
+      
+      // RETRY LOOP: Tentar até MAX_RETRIES vezes
+      for (let attempt = 1; attempt <= MAX_RETRIES && !symbolSuccess; attempt++) {
+        try {
+          if (attempt > 1) {
+            console.log(`[SMCTradingEngine] 🔄 ${symbol}: Tentativa ${attempt}/${MAX_RETRIES}...`);
+            // Backoff progressivo: 2s, 4s, 6s
+            await sleep(RETRY_DELAY_MS * attempt);
+          }
+          
+          // Carregar H1 (mínimo 200 candles)
+          const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", 250);
+          this.timeframeData.h1.set(symbol, h1Candles);
+          
+          if (h1Candles.length > 0) {
+            const lastH1 = h1Candles[h1Candles.length - 1];
+            console.log(`[DEBUG-LOAD] ${symbol} H1 último candle: O=${lastH1.open} H=${lastH1.high} L=${lastH1.low} C=${lastH1.close}`);
+          } else {
+            console.warn(`[DEBUG-LOAD] ${symbol} H1: NENHUM CANDLE RETORNADO!`);
+          }
+          
           await sleep(API_REQUEST_DELAY_MS);
+          
+          // Carregar M15 (mínimo 200 candles)
+          const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 250);
+          this.timeframeData.m15.set(symbol, m15Candles);
+          
+          if (m15Candles.length > 0) {
+            const lastM15 = m15Candles[m15Candles.length - 1];
+            console.log(`[DEBUG-LOAD] ${symbol} M15 último candle: O=${lastM15.open} H=${lastM15.high} L=${lastM15.low} C=${lastM15.close}`);
+          } else {
+            console.warn(`[DEBUG-LOAD] ${symbol} M15: NENHUM CANDLE RETORNADO!`);
+          }
+          
+          await sleep(API_REQUEST_DELAY_MS);
+          
+          // Carregar M5 (mínimo 200 candles)
+          const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 250);
+          this.timeframeData.m5.set(symbol, m5Candles);
+          
+          if (m5Candles.length > 0) {
+            const lastM5 = m5Candles[m5Candles.length - 1];
+            console.log(`[DEBUG-LOAD] ${symbol} M5 último candle: O=${lastM5.open} H=${lastM5.high} L=${lastM5.low} C=${lastM5.close}`);
+          } else {
+            console.warn(`[DEBUG-LOAD] ${symbol} M5: NENHUM CANDLE RETORNADO!`);
+          }
+          
+          // Verificar se temos dados suficientes
+          const hasEnoughData = h1Candles.length >= 50 && m15Candles.length >= 30 && m5Candles.length >= 20;
+          
+          if (hasEnoughData) {
+            console.log(`[SMCTradingEngine] ✅ ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length} candles`);
+            symbolSuccess = true;
+            successfulSymbols.push(symbol);
+          } else {
+            console.warn(`[SMCTradingEngine] ⚠️ ${symbol}: Dados insuficientes (H1=${h1Candles.length}/50, M15=${m15Candles.length}/30, M5=${m5Candles.length}/20)`);
+            // Continuar para próxima tentativa se dados insuficientes
+            if (attempt === MAX_RETRIES) {
+              // Na última tentativa, aceitar o que temos
+              symbolSuccess = true;
+              successfulSymbols.push(symbol);
+              console.warn(`[SMCTradingEngine] ⚠️ ${symbol}: Aceitando dados parciais após ${MAX_RETRIES} tentativas`);
+            }
+          }
+          
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[SMCTradingEngine] ❌ ${symbol}: Erro na tentativa ${attempt}/${MAX_RETRIES}: ${errorMsg}`);
+          
+          // Se for a última tentativa, marcar como falha
+          if (attempt === MAX_RETRIES) {
+            console.error(`[SMCTradingEngine] ❌ ${symbol}: FALHA DEFINITIVA após ${MAX_RETRIES} tentativas`);
+            failedSymbols.push(symbol);
+          }
         }
-        
-      } catch (error) {
-        console.error(`[SMCTradingEngine] Erro ao carregar dados de ${symbol}:`, error);
-        // Aguardar antes de tentar o próximo símbolo mesmo em caso de erro
+      }
+      
+      // Delay antes do próximo símbolo (exceto no último)
+      if (i < this.config.symbols.length - 1) {
         await sleep(API_REQUEST_DELAY_MS);
       }
     }
     
-    console.log("[SMCTradingEngine] ✅ Dados históricos carregados");
+    // RESUMO FINAL
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log(`[SMCTradingEngine] 📊 RESUMO DO CARREGAMENTO DE DADOS`);
+    console.log(`[SMCTradingEngine] ✅ Sucesso: ${successfulSymbols.length}/${this.config.symbols.length} símbolos`);
+    console.log(`[SMCTradingEngine] ✅ Símbolos OK: ${successfulSymbols.join(", ") || "Nenhum"}`);
+    if (failedSymbols.length > 0) {
+      console.log(`[SMCTradingEngine] ❌ Falhas: ${failedSymbols.length} símbolos`);
+      console.log(`[SMCTradingEngine] ❌ Símbolos com falha: ${failedSymbols.join(", ")}`);
+    }
+    console.log("═══════════════════════════════════════════════════════════════");
+    
+    // Gravar log no banco de dados
+    await this.logInfo(
+      `📊 Dados históricos carregados | Sucesso: ${successfulSymbols.length}/${this.config.symbols.length} | Falhas: ${failedSymbols.length}`,
+      "SYSTEM",
+      { successfulSymbols, failedSymbols }
+    );
   }
   
   /**

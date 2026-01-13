@@ -245,6 +245,7 @@ export function SMCStrategySettingsClean({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="M5">M5 (5 minutos) - Scalping</SelectItem>
                 <SelectItem value="M15">M15 (15 minutos) - Mais Sinais</SelectItem>
                 <SelectItem value="M30">M30 (30 minutos) - Equilibrado</SelectItem>
                 <SelectItem value="H1">H1 (1 hora) - Padrão Recomendado</SelectItem>
@@ -605,22 +606,20 @@ export function SMCStrategySettingsClean({
             </Select>
           </div>
           
-          {entryConfirmationType === "REJECTION" && (
-            <div className="space-y-2">
-              <Label className="text-slate-300">Rejection Wick (%)</Label>
-              <Input
-                type="number"
-                min="30"
-                max="90"
-                value={rejectionWickPercent}
-                onChange={(e) => setRejectionWickPercent(e.target.value)}
-                className="bg-slate-800 border-slate-700 text-white"
-              />
-              <p className="text-xs text-slate-500">
-                Percentual mínimo do pavio em relação ao corpo para considerar rejeição
-              </p>
-            </div>
-          )}
+          <div className="space-y-2">
+            <Label className="text-slate-300">Rejection Wick (%)</Label>
+            <Input
+              type="number"
+              min="30"
+              max="90"
+              value={rejectionWickPercent}
+              onChange={(e) => setRejectionWickPercent(e.target.value)}
+              className="bg-slate-800 border-slate-700 text-white"
+            />
+            <p className="text-xs text-slate-500">
+              Percentual mínimo do pavio em relação ao corpo para considerar rejeição (usado quando Tipo de Confirmação = Rejeição)
+            </p>
+          </div>
         </CardContent>
       </Card>
 
