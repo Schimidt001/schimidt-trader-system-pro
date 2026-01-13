@@ -288,11 +288,18 @@ export class HybridTradingEngine extends EventEmitter {
   
   /**
    * Carrega configurações do banco de dados
+   * 
+   * CORREÇÃO CRÍTICA: Adicionado logs detalhados para debug
    */
   private async loadConfigFromDB(): Promise<void> {
     try {
       const db = await getDb();
-      if (!db) return;
+      if (!db) {
+        console.warn("[HybridEngine] ⚠️ Banco de dados não disponível, usando configurações padrão");
+        return;
+      }
+      
+      console.log(`[HybridEngine] [Config] Carregando config para userId=${this.config.userId}, botId=${this.config.botId}`);
       
       // Carregar configuração SMC
       const smcConfig = await db
@@ -307,26 +314,38 @@ export class HybridTradingEngine extends EventEmitter {
         .limit(1);
       
       if (smcConfig[0]) {
+        console.log(`[HybridEngine] [Config] DEBUG - activeSymbols bruto: "${smcConfig[0].activeSymbols}"`);
+        
         // Atualizar símbolos
         try {
           const symbols = JSON.parse(smcConfig[0].activeSymbols || "[]");
+          console.log(`[HybridEngine] [Config] DEBUG - symbols parseados: ${JSON.stringify(symbols)}`);
+          console.log(`[HybridEngine] [Config] DEBUG - é Array: ${Array.isArray(symbols)}, length: ${symbols.length}`);
+          
           if (Array.isArray(symbols) && symbols.length > 0) {
+            const oldSymbols = [...this.config.symbols];
             this.config.symbols = symbols;
+            console.log(`[HybridEngine] [Config] ✅ Símbolos atualizados: ${oldSymbols.join(',')} → ${symbols.join(',')}`);
+          } else {
+            console.warn(`[HybridEngine] [Config] ⚠️ Símbolos inválidos ou vazios, mantendo: ${this.config.symbols.join(',')}`);
           }
         } catch (e) {
-          console.warn("[HybridEngine] Erro ao parsear activeSymbols:", e);
+          console.error("[HybridEngine] ❌ Erro ao parsear activeSymbols:", e);
+          console.error(`[HybridEngine] ❌ Valor que causou erro: "${smcConfig[0].activeSymbols}"`);
         }
         
         // Atualizar max positions
         if (smcConfig[0].maxOpenTrades) {
           this.config.maxPositions = smcConfig[0].maxOpenTrades;
         }
+      } else {
+        console.warn(`[HybridEngine] [Config] ⚠️ Nenhuma configuração SMC encontrada para userId=${this.config.userId}, botId=${this.config.botId}`);
       }
       
-      console.log("[HybridEngine] Configurações carregadas do banco");
+      console.log(`[HybridEngine] ✅ Configurações carregadas: ${this.config.symbols.length} símbolos | maxPositions=${this.config.maxPositions}`);
       
     } catch (error) {
-      console.error("[HybridEngine] Erro ao carregar config:", error);
+      console.error("[HybridEngine] ❌ Erro ao carregar config:", error);
     }
   }
   
@@ -437,15 +456,22 @@ export class HybridTradingEngine extends EventEmitter {
   /**
    * Carrega dados históricos de forma PARALELA para acelerar inicialização
    * Usa batches de 3 símbolos para não sobrecarregar a API
+   * 
+   * CORREÇÃO CRÍTICA: Adicionado tracking de sucesso/falha por símbolo
    */
   private async loadHistoricalData(): Promise<void> {
     const startTime = Date.now();
     console.log("[HybridEngine] 🚀 Carregando dados históricos (modo PARALELO)...");
-    await this.logInfo("🚀 Iniciando carregamento de dados históricos (modo paralelo)", "SYSTEM");
+    console.log(`[HybridEngine] Símbolos a carregar: ${this.config.symbols.join(', ')}`);
+    await this.logInfo(`🚀 Iniciando carregamento de dados históricos para ${this.config.symbols.length} ativos: ${this.config.symbols.join(', ')}`, "SYSTEM");
     
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
     const BATCH_SIZE = 3; // Processar 3 símbolos em paralelo
     const DELAY_BETWEEN_BATCHES = 500; // 500ms entre batches
+    
+    // Contadores de sucesso/falha
+    const successSymbols: string[] = [];
+    const failedSymbols: string[] = [];
     
     // Dividir símbolos em batches
     const batches: string[][] = [];
@@ -474,10 +500,21 @@ export class HybridTradingEngine extends EventEmitter {
           this.timeframeData.m15.set(symbol, m15Candles);
           this.timeframeData.m5.set(symbol, m5Candles);
           
-          console.log(`[HybridEngine] ✅ ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length}`);
-          return { symbol, success: true };
+          // Verificar se os dados são suficientes
+          const isValid = h1Candles.length >= 50 && m15Candles.length >= 30 && m5Candles.length >= 20;
+          
+          if (isValid) {
+            console.log(`[HybridEngine] ✅ ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length}`);
+            successSymbols.push(symbol);
+          } else {
+            console.warn(`[HybridEngine] ⚠️ ${symbol}: Dados insuficientes - H1=${h1Candles.length}/50, M15=${m15Candles.length}/30, M5=${m5Candles.length}/20`);
+            failedSymbols.push(symbol);
+          }
+          
+          return { symbol, success: isValid };
         } catch (error) {
           console.error(`[HybridEngine] ❌ Erro ao carregar ${symbol}:`, error);
+          failedSymbols.push(symbol);
           return { symbol, success: false, error };
         }
       });
@@ -492,9 +529,17 @@ export class HybridTradingEngine extends EventEmitter {
     }
     
     const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
-    const successMsg = `✅ Dados históricos carregados em ${elapsedTime}s (${this.config.symbols.length} símbolos)`;
+    const successMsg = `✅ Dados históricos carregados em ${elapsedTime}s | Sucesso: ${successSymbols.length}/${this.config.symbols.length} | Falhas: ${failedSymbols.length}`;
     console.log(`[HybridEngine] ${successMsg}`);
-    await this.logInfo(successMsg, "SYSTEM");
+    
+    if (failedSymbols.length > 0) {
+      console.warn(`[HybridEngine] ⚠️ Símbolos com problemas: ${failedSymbols.join(', ')}`);
+      await this.logInfo(`⚠️ Atenção: ${failedSymbols.length} símbolos com dados insuficientes: ${failedSymbols.join(', ')}`, "SYSTEM");
+    }
+    
+    if (successSymbols.length > 0) {
+      await this.logInfo(`✅ ${successSymbols.length} ativos prontos para análise: ${successSymbols.join(', ')}`, "SYSTEM");
+    }
   }
   
   /**
@@ -623,11 +668,26 @@ export class HybridTradingEngine extends EventEmitter {
   
   /**
    * Executa análise de mercado
+   * 
+   * CORREÇÃO CRÍTICA: Agora loga claramente quantos símbolos estão sendo analisados
+   * e emite evento para a UI com status da análise
    */
   private async performAnalysis(): Promise<void> {
     if (!this._isRunning) return;
     
     this.analysisCount++;
+    
+    // Log de início de análise a cada 10 ciclos para confirmar que todos os símbolos estão sendo processados
+    if (this.analysisCount % 10 === 0 || this.analysisCount === 1) {
+      console.log(`[HybridEngine] 🔍 Análise #${this.analysisCount} | Símbolos configurados: ${this.config.symbols.length} | Lista: ${this.config.symbols.join(', ')}`);
+      
+      // Emitir evento para UI com status da análise
+      this.emit("analysisStatus", {
+        count: this.analysisCount,
+        symbolsCount: this.config.symbols.length,
+        symbols: this.config.symbols
+      });
+    }
     
     // Verificar se pode operar
     if (this.riskManager) {
@@ -640,13 +700,31 @@ export class HybridTradingEngine extends EventEmitter {
       }
     }
     
+    // Contadores para feedback
+    let analyzedCount = 0;
+    let skippedCount = 0;
+    const skippedSymbols: string[] = [];
+    
     // Analisar cada símbolo
     for (const symbol of this.config.symbols) {
       try {
-        await this.analyzeSymbol(symbol);
+        const wasAnalyzed = await this.analyzeSymbol(symbol);
+        if (wasAnalyzed) {
+          analyzedCount++;
+        } else {
+          skippedCount++;
+          skippedSymbols.push(symbol);
+        }
       } catch (error) {
         console.error(`[HybridEngine] Erro ao analisar ${symbol}:`, error);
+        skippedCount++;
+        skippedSymbols.push(symbol);
       }
+    }
+    
+    // Log de resumo a cada 10 ciclos
+    if (this.analysisCount % 10 === 0 || this.analysisCount === 1) {
+      console.log(`[HybridEngine] 📊 Resumo: ${analyzedCount}/${this.config.symbols.length} analisados | ${skippedCount} ignorados${skippedSymbols.length > 0 ? ` (${skippedSymbols.join(', ')})` : ''}`);
     }
   }
   
@@ -657,14 +735,24 @@ export class HybridTradingEngine extends EventEmitter {
    * 1. Se SMC gera sinal válido → usar SMC (ignorar RSI+VWAP)
    * 2. Se sinais conflitantes → não operar
    * 3. Se apenas RSI+VWAP gera sinal → usar RSI+VWAP
+   * 
+   * CORREÇÃO CRÍTICA: Agora retorna boolean indicando se a análise foi executada
+   * e loga quando símbolos são ignorados por falta de dados
+   * 
+   * @returns true se a análise foi executada, false se foi ignorada
    */
-  private async analyzeSymbol(symbol: string): Promise<void> {
+  private async analyzeSymbol(symbol: string): Promise<boolean> {
     const h1Data = this.timeframeData.h1.get(symbol) || [];
     const m15Data = this.timeframeData.m15.get(symbol) || [];
     const m5Data = this.timeframeData.m5.get(symbol) || [];
     
+    // CORREÇÃO CRÍTICA: Logar quando símbolo é ignorado por falta de dados
     if (h1Data.length < 50 || m15Data.length < 30 || m5Data.length < 20) {
-      return;
+      // Log apenas a cada 100 análises para não poluir
+      if (this.analysisCount % 100 === 1) {
+        console.log(`[HybridEngine] ⚠️ ${symbol}: Dados insuficientes - H1=${h1Data.length}/50 M15=${m15Data.length}/30 M5=${m5Data.length}/20`);
+      }
+      return false;
     }
     
     // Obter preço atual
@@ -738,6 +826,8 @@ export class HybridTradingEngine extends EventEmitter {
     }
     
     this.emit("analysis", { symbol, combinedSignal });
+    
+    return true; // Análise foi executada com sucesso
   }
   
   /**
@@ -1031,7 +1121,7 @@ export class HybridTradingEngine extends EventEmitter {
   public async logConflict(symbol: string, reason: string): Promise<void> {
     const message = `⚠️ CONFLITO | ${symbol} | ${reason}`;
     console.log(`[HybridEngine] ${message}`);
-    await this.logToDatabase("WARNING", "SIGNAL", message, {
+    await this.logToDatabase("WARN", "SIGNAL", message, {
       symbol,
       data: { reason }
     });
