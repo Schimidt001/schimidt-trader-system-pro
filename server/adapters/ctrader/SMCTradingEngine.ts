@@ -747,18 +747,29 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Cancela todas as subscrições de preços
+   * 
+   * CORREÇÃO: Agora loga claramente o processo de unsubscribe
    */
   private async unsubscribeFromAllPrices(): Promise<void> {
     const symbols = Array.from(this.priceSubscriptions);
+    console.log(`[SMCTradingEngine] 🚫 Cancelando subscrições de ${symbols.length} símbolos...`);
+    console.log(`[SMCTradingEngine] Símbolos a cancelar: ${JSON.stringify(symbols)}`);
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
     for (const symbol of symbols) {
       try {
         await ctraderAdapter.unsubscribePrice(symbol);
+        successCount++;
       } catch (error) {
-        console.error(`[SMCTradingEngine] Erro ao cancelar subscrição de ${symbol}:`, error);
+        errorCount++;
+        console.error(`[SMCTradingEngine] ❌ Erro ao cancelar subscrição de ${symbol}:`, error);
       }
     }
     
     this.priceSubscriptions.clear();
+    console.log(`[SMCTradingEngine] 📊 Unsubscribe concluído: ${successCount} sucesso, ${errorCount} erros`);
   }
   
   /**
