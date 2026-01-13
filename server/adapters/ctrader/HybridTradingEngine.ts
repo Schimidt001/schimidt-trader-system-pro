@@ -191,6 +191,17 @@ export class HybridTradingEngine extends EventEmitter {
     console.log("═══════════════════════════════════════════════════════════════");
     
     try {
+      // CORREÇÃO 2026-01-13: Configurar contexto do usuário no CTraderAdapter
+      // Isso permite que o handleExecutionEvent persista posições no banco de dados
+      ctraderAdapter.setUserContext(this.config.userId, this.config.botId);
+      console.log("[HybridEngine] ✅ Contexto de usuário configurado no CTraderAdapter");
+      
+      // CORREÇÃO 2026-01-13: Reconciliar posições abertas com a cTrader
+      // Sincroniza o banco de dados com as posições reais da corretora
+      console.log("[HybridEngine] 🔄 Iniciando reconciliação de posições...");
+      const syncedPositions = await ctraderAdapter.reconcilePositions();
+      console.log(`[HybridEngine] ✅ Reconciliação concluída: ${syncedPositions} posições sincronizadas`);
+      
       // Carregar configurações
       await this.loadConfigFromDB();
       
