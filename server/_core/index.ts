@@ -176,13 +176,19 @@ async function startServer() {
       console.log(`[ForceTestTrade] Executando ${direction} ${lots} lotes de ${symbol}`);
       
       // Executar a ordem
+      // CORREÇÃO 2026-01-13: Campos corrigidos para corresponder à interface OrderRequest
+      // - type -> orderType
+      // - side -> direction
+      // - volume -> lots
+      // - stopLoss/takeProfit -> stopLossPips/takeProfitPips (valores em pips)
       const result = await ctraderAdapter.placeOrder({
         symbol,
-        type: "MARKET",
-        side: direction.toUpperCase() as "BUY" | "SELL",
-        volume: lots,
-        stopLoss: 20, // 20 pips de SL
-        takeProfit: 40, // 40 pips de TP
+        orderType: "MARKET",
+        direction: direction.toUpperCase() as "BUY" | "SELL",
+        lots: lots,
+        stopLossPips: 20, // 20 pips de SL
+        takeProfitPips: 40, // 40 pips de TP
+        comment: "FORCE_TEST_TRADE_CORE",
       });
       
       console.log("[ForceTestTrade] Resultado:", result);

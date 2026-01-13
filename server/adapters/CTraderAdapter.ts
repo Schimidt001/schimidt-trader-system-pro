@@ -1136,6 +1136,13 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   
   /**
    * Converte posição do formato cTrader para formato interno
+   * 
+   * CORREÇÃO 2026-01-13: Divisor de volume corrigido de / 100 para / 10000000
+   * O protocolo cTrader retorna volume em cents (1 lote = 10,000,000 cents)
+   * 
+   * Matemática:
+   * - 1 Lote = 100,000 Unidades = 10,000,000 Cents
+   * - Se API retorna 1,000,000 cents -> 1,000,000 / 10,000,000 = 0.1 lotes
    */
   private convertPosition(ctraderPosition: any): OpenPosition | null {
     if (!ctraderPosition) return null;
@@ -1143,19 +1150,23 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     const symbolName = this.getSymbolNameById(ctraderPosition.tradeData?.symbolId);
     if (!symbolName) return null;
     
+    // CORREÇÃO DEFINITIVA: Converter volume de cents para lotes (1 lote = 10,000,000 cents)
+    const volumeInCents = ctraderPosition.tradeData?.volume || 0;
+    const volumeInLots = volumeInCents / 10000000;
+    
     return {
       positionId: String(ctraderPosition.positionId),
       symbol: symbolName,
       direction: ctraderPosition.tradeData?.tradeSide === 1 ? "BUY" : "SELL",
       entryPrice: ctraderPosition.price || 0,
       currentPrice: ctraderPosition.price || 0,
-      unrealizedPnL: (ctraderPosition.swap || 0) / 100,
-      size: (ctraderPosition.tradeData?.volume || 0) / 100,
+      unrealizedPnL: (ctraderPosition.swap || 0) / 100, // swap em centavos USD
+      size: volumeInLots, // CORREÇÃO: Agora converte corretamente de cents para lotes
       stopLoss: ctraderPosition.stopLoss,
       takeProfit: ctraderPosition.takeProfit,
       openTime: ctraderPosition.tradeData?.openTimestamp || Date.now(),
-      swap: (ctraderPosition.swap || 0) / 100,
-      commission: (ctraderPosition.commission || 0) / 100,
+      swap: (ctraderPosition.swap || 0) / 100, // swap em centavos USD
+      commission: (ctraderPosition.commission || 0) / 100, // commission em centavos USD
     };
   }
   

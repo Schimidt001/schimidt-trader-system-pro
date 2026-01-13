@@ -1005,6 +1005,8 @@ export class CTraderClient extends EventEmitter {
     console.log(`[CTraderClient] [ORDER] Preparando ordem de mercado:`);
     console.log(`  - Symbol ID: ${symbolId}`);
     console.log(`  - Side: ${tradeSide === TradeSide.BUY ? 'BUY' : 'SELL'}`);
+    // CORREÇÃO 2026-01-13: Log corrigido - 1 lote = 100,000 unidades, então cents/100 = unidades
+    // Matemática: volumeInCents / 100 = unidades (correto para log)
     console.log(`  - Volume: ${volume} lotes = ${volumeInCents} cents (${volumeInCents/100} unidades)`);
     console.log(`  - Stop Loss Distance: ${stopLossDistance !== undefined ? stopLossDistance : 'N/A'}`);
     console.log(`  - Take Profit Distance: ${takeProfitDistance !== undefined ? takeProfitDistance : 'N/A'}`);
@@ -1137,14 +1139,29 @@ export class CTraderClient extends EventEmitter {
   
   /**
    * Fecha uma posição
+   * 
+   * CORREÇÃO 2026-01-13: Multiplicador de volume corrigido de * 100 para * 10000000
+   * O protocolo cTrader espera volume em cents (1 lote = 10,000,000 cents)
+   * 
+   * @param positionId ID da posição a fechar
+   * @param volume Volume em lotes a fechar (opcional - se não informado, fecha toda a posição)
    */
   async closePosition(positionId: number, volume?: number): Promise<any> {
     if (!this.accountId) throw new Error("Not authenticated");
     
+    // CORREÇÃO DEFINITIVA DE VOLUME (cTrader Protocol)
+    // Matemática: 1 Lote = 100,000 Unidades = 10,000,000 Cents
+    // Multiplicador: 10,000,000 (Dez Milhões) - igual ao createMarketOrder
+    const volumeInCents = volume ? Math.round(volume * 10000000) : undefined;
+    
+    if (volume) {
+      console.log(`[CTraderClient] [CLOSE] Fechando posição ${positionId}: ${volume} lotes = ${volumeInCents} cents`);
+    }
+    
     const params: any = {
       ctidTraderAccountId: this.accountId,
       positionId,
-      volume: volume ? Math.round(volume * 100) : undefined,
+      volume: volumeInCents,
     };
     
     const response = await this.sendRequest("ProtoOAClosePositionReq", params, PayloadType.PROTO_OA_EXECUTION_EVENT);
