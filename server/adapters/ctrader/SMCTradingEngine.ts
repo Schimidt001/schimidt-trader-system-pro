@@ -374,6 +374,9 @@ export class SMCTradingEngine extends EventEmitter {
    * sejam aplicadas corretamente.
    */
   async reloadConfig(): Promise<void> {
+    // Guardar símbolos antigos para comparação
+    const oldSymbols = [...this.config.symbols];
+    
     await this.loadConfigFromDB();
     
     const smcConfig = await this.getSMCConfigFromDB();
@@ -381,6 +384,11 @@ export class SMCTradingEngine extends EventEmitter {
     // DEBUG: Log completo das configuracoes carregadas do banco
     console.log(`[SMCTradingEngine] [Config] DEBUG - Configuracoes brutas do banco:`);
     console.log(`[SMCTradingEngine] [Config] DEBUG - smcConfig existe: ${!!smcConfig}`);
+    
+    // CORREÇÃO CRÍTICA: Log dos símbolos ativos após reload
+    console.log(`[SMCTradingEngine] [Config] DEBUG - Símbolos ANTES: ${JSON.stringify(oldSymbols)}`);
+    console.log(`[SMCTradingEngine] [Config] DEBUG - Símbolos DEPOIS: ${JSON.stringify(this.config.symbols)}`);
+    console.log(`[SMCTradingEngine] [Config] DEBUG - activeSymbols do banco: ${smcConfig?.activeSymbols}`);
     if (smcConfig) {
       console.log(`[SMCTradingEngine] [Config] DEBUG - sessionFilterEnabled: ${smcConfig.sessionFilterEnabled} (tipo: ${typeof smcConfig.sessionFilterEnabled})`);
       console.log(`[SMCTradingEngine] [Config] DEBUG - londonSessionStart: "${smcConfig.londonSessionStart}" (tipo: ${typeof smcConfig.londonSessionStart})`);
@@ -418,14 +426,35 @@ export class SMCTradingEngine extends EventEmitter {
     
     console.log("[SMCTradingEngine] [Config] Parametros atualizados via UI");
     
+    // CORREÇÃO CRÍTICA: Re-subscrever preços se os símbolos mudaram
+    const symbolsChanged = JSON.stringify(oldSymbols.sort()) !== JSON.stringify(this.config.symbols.sort());
+    if (symbolsChanged && this._isRunning) {
+      console.log(`[SMCTradingEngine] [Config] 🔄 Símbolos alterados! Re-subscrevendo preços...`);
+      console.log(`[SMCTradingEngine] [Config] Símbolos antigos: ${JSON.stringify(oldSymbols)}`);
+      console.log(`[SMCTradingEngine] [Config] Símbolos novos: ${JSON.stringify(this.config.symbols)}`);
+      
+      // Cancelar subscrições antigas
+      await this.unsubscribeFromAllPrices();
+      
+      // Carregar dados históricos dos novos símbolos
+      await this.loadHistoricalData();
+      
+      // Subscrever aos novos símbolos
+      await this.subscribeToAllPrices();
+      
+      console.log(`[SMCTradingEngine] [Config] ✅ Re-subscrição concluída para ${this.config.symbols.length} símbolos`);
+    }
+    
     // Log para o banco de dados
     await this.logInfo(
-      `⚙️ Parâmetros atualizados via UI | Sessão: ${smcConfig?.sessionFilterEnabled ? 'ATIVA' : 'DESATIVADA'} | Londres: ${smcConfig?.londonSessionStart}-${smcConfig?.londonSessionEnd} | NY: ${smcConfig?.nySessionStart}-${smcConfig?.nySessionEnd}`,
+      `⚙️ Parâmetros atualizados via UI | Sessão: ${smcConfig?.sessionFilterEnabled ? 'ATIVA' : 'DESATIVADA'} | Londres: ${smcConfig?.londonSessionStart}-${smcConfig?.londonSessionEnd} | NY: ${smcConfig?.nySessionStart}-${smcConfig?.nySessionEnd} | Símbolos: ${this.config.symbols.join(', ')}`,
       "CONFIG" as LogCategory,
       { 
         sessionFilterEnabled: smcConfig?.sessionFilterEnabled,
         londonSession: `${smcConfig?.londonSessionStart}-${smcConfig?.londonSessionEnd}`,
-        nySession: `${smcConfig?.nySessionStart}-${smcConfig?.nySessionEnd}`
+        nySession: `${smcConfig?.nySessionStart}-${smcConfig?.nySessionEnd}`,
+        symbols: this.config.symbols,
+        symbolsChanged: symbolsChanged
       }
     );
   }
@@ -468,23 +497,36 @@ export class SMCTradingEngine extends EventEmitter {
       // Carregar configuração SMC
       const smcConfig = await this.getSMCConfigFromDB();
       if (smcConfig) {
+        // CORREÇÃO CRÍTICA: Log detalhado do activeSymbols
+        console.log(`[SMCTradingEngine] [Config] DEBUG - activeSymbols bruto do banco: "${smcConfig.activeSymbols}"`);
+        console.log(`[SMCTradingEngine] [Config] DEBUG - tipo de activeSymbols: ${typeof smcConfig.activeSymbols}`);
+        
         // Atualizar símbolos ativos
         try {
           const symbols = JSON.parse(smcConfig.activeSymbols || "[]");
+          console.log(`[SMCTradingEngine] [Config] DEBUG - symbols parseados: ${JSON.stringify(symbols)}`);
+          console.log(`[SMCTradingEngine] [Config] DEBUG - é Array: ${Array.isArray(symbols)}, length: ${symbols.length}`);
+          
           if (Array.isArray(symbols) && symbols.length > 0) {
             this.config.symbols = symbols;
+            console.log(`[SMCTradingEngine] [Config] ✅ Símbolos atualizados: ${JSON.stringify(this.config.symbols)}`);
+          } else {
+            console.warn(`[SMCTradingEngine] [Config] ⚠️ Símbolos inválidos ou vazios, mantendo: ${JSON.stringify(this.config.symbols)}`);
           }
         } catch (e) {
-          console.warn("[SMCTradingEngine] Erro ao parsear activeSymbols:", e);
+          console.error("[SMCTradingEngine] ❌ Erro ao parsear activeSymbols:", e);
+          console.error(`[SMCTradingEngine] ❌ Valor que causou erro: "${smcConfig.activeSymbols}"`);
         }
         
         // Atualizar max positions
         if (smcConfig.maxOpenTrades) {
           this.config.maxPositions = smcConfig.maxOpenTrades;
         }
+      } else {
+        console.warn(`[SMCTradingEngine] [Config] ⚠️ smcConfig é NULL! Usando símbolos padrão: ${JSON.stringify(this.config.symbols)}`);
       }
       
-      console.log("[SMCTradingEngine] Configurações carregadas do banco de dados");
+      console.log(`[SMCTradingEngine] [Config] ✅ Configurações carregadas. Símbolos finais: ${JSON.stringify(this.config.symbols)}`);
       
     } catch (error) {
       console.error("[SMCTradingEngine] Erro ao carregar config do DB:", error);
@@ -599,9 +641,12 @@ export class SMCTradingEngine extends EventEmitter {
   /**
    * Carrega dados históricos para todos os timeframes e símbolos
    * NOTA: Usa loop sequencial com delay para evitar REQUEST_FREQUENCY_EXCEEDED
+   * 
+   * CORREÇÃO: Agora suporta qualquer número de símbolos (10+)
    */
   private async loadHistoricalData(): Promise<void> {
-    console.log("[SMCTradingEngine] Carregando dados históricos (com delay entre requisições)...");
+    console.log(`[SMCTradingEngine] 📊 Carregando dados históricos para ${this.config.symbols.length} símbolos...`);
+    console.log(`[SMCTradingEngine] Símbolos: ${JSON.stringify(this.config.symbols)}`);
     
     for (let i = 0; i < this.config.symbols.length; i++) {
       const symbol = this.config.symbols[i];
@@ -667,8 +712,16 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Subscreve a preços em tempo real de todos os símbolos
+   * 
+   * CORREÇÃO: Agora suporta qualquer número de símbolos (10+)
    */
   private async subscribeToAllPrices(): Promise<void> {
+    console.log(`[SMCTradingEngine] 📡 Iniciando subscrição de preços para ${this.config.symbols.length} símbolos...`);
+    console.log(`[SMCTradingEngine] Símbolos a subscrever: ${JSON.stringify(this.config.symbols)}`);
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
     for (const symbol of this.config.symbols) {
       try {
         await ctraderAdapter.subscribePrice(symbol, (tick) => {
@@ -676,12 +729,20 @@ export class SMCTradingEngine extends EventEmitter {
         });
         
         this.priceSubscriptions.add(symbol);
-        console.log(`[SMCTradingEngine] Subscrito a preços de ${symbol}`);
+        successCount++;
+        console.log(`[SMCTradingEngine] ✅ Subscrito a preços de ${symbol} (${successCount}/${this.config.symbols.length})`);
+        
+        // Pequeno delay entre subscrições para evitar rate limit
+        await sleep(100);
         
       } catch (error) {
-        console.error(`[SMCTradingEngine] Erro ao subscrever ${symbol}:`, error);
+        errorCount++;
+        console.error(`[SMCTradingEngine] ❌ Erro ao subscrever ${symbol}:`, error);
       }
     }
+    
+    console.log(`[SMCTradingEngine] 📊 Subscrição concluída: ${successCount} sucesso, ${errorCount} erros`);
+    console.log(`[SMCTradingEngine] Símbolos ativos: ${Array.from(this.priceSubscriptions).join(', ')}`);
   }
   
   /**
@@ -857,6 +918,8 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Executa análise de mercado para todos os símbolos
+   * 
+   * CORREÇÃO: Agora loga claramente quantos símbolos estão sendo analisados
    */
   private async performAnalysis(): Promise<void> {
     if (!this._isRunning || !this.strategy) return;
@@ -864,6 +927,11 @@ export class SMCTradingEngine extends EventEmitter {
     const now = Date.now();
     this.lastAnalysisTime = now;
     this.analysisCount++;
+    
+    // Log de análise a cada 10 ciclos para não poluir
+    if (this.analysisCount % 10 === 0) {
+      console.log(`[SMCTradingEngine] 🔍 Análise #${this.analysisCount} | Símbolos: ${this.config.symbols.length} | Lista: ${this.config.symbols.join(', ')}`);
+    }
     
     // Verificar se pode operar
     if (this.riskManager) {

@@ -256,6 +256,7 @@ export const icmarketsRouter = router({
         trailingStepPips: "Trailing Step (pips)",
         strategyType: "Tipo de Estratégia",
         // SMC Strategy
+        structureTimeframe: "Timeframe de Estrutura",
         activeSymbols: "Símbolos Ativos",
         swingH1Lookback: "Swing H1 Lookback",
         fractalLeftBars: "Fractal Left Bars",
@@ -314,7 +315,7 @@ export const icmarketsRouter = router({
       }
       
       // Verificar campos SMC Strategy
-      const smcFields = ["activeSymbols", "swingH1Lookback", "fractalLeftBars", "fractalRightBars", "sweepBufferPips", "sweepValidationMinutes", "chochM15Lookback", "chochMinPips", "orderBlockLookback", "orderBlockExtensionPips", "entryConfirmationType", "rejectionWickPercent", "riskPercentage", "maxOpenTrades", "dailyLossLimitPercent", "stopLossBufferPips", "rewardRiskRatio", "sessionFilterEnabled", "londonSessionStart", "londonSessionEnd", "nySessionStart", "nySessionEnd", "circuitBreakerEnabled", "verboseLogging"];
+      const smcFields = ["activeSymbols", "structureTimeframe", "swingH1Lookback", "fractalLeftBars", "fractalRightBars", "sweepBufferPips", "sweepValidationMinutes", "chochM15Lookback", "chochMinPips", "orderBlockLookback", "orderBlockExtensionPips", "entryConfirmationType", "rejectionWickPercent", "spreadFilterEnabled", "maxSpreadPips", "riskPercentage", "maxOpenTrades", "dailyLossLimitPercent", "stopLossBufferPips", "rewardRiskRatio", "sessionFilterEnabled", "londonSessionStart", "londonSessionEnd", "nySessionStart", "nySessionEnd", "smcTrailingEnabled", "smcTrailingTriggerPips", "smcTrailingStepPips", "circuitBreakerEnabled", "verboseLogging"];
       for (const field of smcFields) {
         const inputValue = (input as any)[field];
         if (inputValue === undefined) continue;

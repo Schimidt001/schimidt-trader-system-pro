@@ -549,6 +549,17 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   }
   
   updateConfig(config: Partial<SMCStrategyConfig>): void {
+    // CORREÇÃO: Log detalhado de TODOS os parâmetros recebidos
+    console.log(`[SMC] [updateConfig] ========== PARÂMETROS RECEBIDOS ==========`);
+    console.log(`[SMC] [updateConfig] structureTimeframe: ${config.structureTimeframe}`);
+    console.log(`[SMC] [updateConfig] fractalLeftBars: ${config.fractalLeftBars}`);
+    console.log(`[SMC] [updateConfig] fractalRightBars: ${config.fractalRightBars}`);
+    console.log(`[SMC] [updateConfig] swingH1Lookback: ${config.swingH1Lookback}`);
+    console.log(`[SMC] [updateConfig] spreadFilterEnabled: ${config.spreadFilterEnabled}`);
+    console.log(`[SMC] [updateConfig] maxSpreadPips: ${config.maxSpreadPips}`);
+    console.log(`[SMC] [updateConfig] activeSymbols: ${config.activeSymbols}`);
+    console.log(`[SMC] [updateConfig] ================================================`);
+    
     const previousSessionConfig = {
       londonSessionStart: this.config.londonSessionStart,
       londonSessionEnd: this.config.londonSessionEnd,
