@@ -125,6 +125,17 @@ export class SMCTradingEngine extends EventEmitter {
   private tradesExecuted: number = 0;
   private startTime: number | null = null;
   
+  // ============= CONTROLE DE CONCORRÊNCIA PER-SYMBOL =============
+  /**
+   * Map que controla se um símbolo está em processo de execução de ordem.
+   * Previne Race Condition onde múltiplas ordens são enviadas para o mesmo ativo
+   * antes da confirmação da API.
+   * 
+   * IMPORTANTE: Este lock é POR ATIVO, não global.
+   * Se EURUSD está travado, GBPUSD continua livre para operar.
+   */
+  private isExecutingOrder: Map<string, boolean> = new Map();
+  
   // Cache de dados
   private lastTickPrice: number | null = null;
   private lastTickTime: number | null = null;
@@ -1187,11 +1198,24 @@ export class SMCTradingEngine extends EventEmitter {
   
   /**
    * Avalia e executa trade se condições forem atendidas
+   * 
+   * CORREÇÃO CRÍTICA v2.0: Implementado controle de concorrência PER-SYMBOL
+   * para evitar Race Condition que causava múltiplas ordens duplicadas.
    */
   private async evaluateAndExecuteTrade(symbol: string, signal: SignalResult): Promise<void> {
     const now = Date.now();
     
-    // Verificar cooldown por símbolo
+    // ═══════════════════════════════════════════════════════════════
+    // CONTROLE DE CONCORRÊNCIA PER-SYMBOL (MUTEX)
+    // ═══════════════════════════════════════════════════════════════
+    
+    // VERIFICAÇÃO 1: Símbolo já está em processo de execução?
+    if (this.isExecutingOrder.get(symbol)) {
+      console.log(`[SMCTradingEngine] 🔒 ${symbol}: IGNORADO - Ordem em processamento (mutex ativo)`);
+      return;
+    }
+    
+    // VERIFICAÇÃO 2: Cooldown por símbolo
     const lastTrade = this.lastTradeTime.get(symbol) || 0;
     if (now - lastTrade < this.config.cooldownMs) {
       const remaining = Math.ceil((this.config.cooldownMs - (now - lastTrade)) / 1000);
@@ -1200,6 +1224,13 @@ export class SMCTradingEngine extends EventEmitter {
       return;
     }
     
+    // ═══════════════════════════════════════════════════════════════
+    // TRAVAR O SÍMBOLO ANTES DE QUALQUER OPERAÇÃO ASSÍNCRONA
+    // ═══════════════════════════════════════════════════════════════
+    this.isExecutingOrder.set(symbol, true);
+    console.log(`[SMCTradingEngine] 🔐 ${symbol}: TRAVADO para execução`);
+    
+    try {
     // Verificar com Risk Manager
     if (this.riskManager) {
       const canOpen = await this.riskManager.canOpenPosition();
@@ -1400,6 +1431,13 @@ export class SMCTradingEngine extends EventEmitter {
         "TRADE",
         { symbol, signal: signal.signal, error: (error as Error).message }
       );
+    }
+    } finally {
+      // ═══════════════════════════════════════════════════════════════
+      // DESTRAVAR O SÍMBOLO (SEMPRE, mesmo com erro)
+      // ═══════════════════════════════════════════════════════════════
+      this.isExecutingOrder.set(symbol, false);
+      console.log(`[SMCTradingEngine] 🔓 ${symbol}: DESTRAVADO`);
     }
   }
   

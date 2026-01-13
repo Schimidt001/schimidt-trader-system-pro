@@ -103,6 +103,17 @@ export class HybridTradingEngine extends EventEmitter {
   private tradesExecuted: number = 0;
   private startTime: number | null = null;
   
+  // ============= CONTROLE DE CONCORRÊNCIA PER-SYMBOL =============
+  /**
+   * Map que controla se um símbolo está em processo de execução de ordem.
+   * Previne Race Condition onde múltiplas ordens são enviadas para o mesmo ativo
+   * antes da confirmação da API.
+   * 
+   * IMPORTANTE: Este lock é POR ATIVO, não global.
+   * Se EURUSD está travado, GBPUSD continua livre para operar.
+   */
+  private isExecutingOrder: Map<string, boolean> = new Map();
+  
   // Dados multi-timeframe
   private timeframeData: {
     h1: Map<string, any[]>;
@@ -963,128 +974,162 @@ export class HybridTradingEngine extends EventEmitter {
    * 
    * IMPORTANTE: Usa o pipeline existente de execução (CTraderAdapter),
    * preservando a lógica de volume do CTraderClient.ts.
+   * 
+   * CORREÇÃO CRÍTICA v2.0: Implementado controle de concorrência PER-SYMBOL
+   * para evitar Race Condition que causava múltiplas ordens duplicadas.
+   * 
+   * LÓGICA DO MUTEX:
+   * 1. Verifica se o símbolo está travado (isExecutingOrder)
+   * 2. Se travado -> ignora (outro ciclo já está processando)
+   * 3. Se livre -> trava o símbolo ANTES de qualquer verificação assíncrona
+   * 4. Executa toda a lógica de ordem
+   * 5. Destrava o símbolo no finally (garante destravamento mesmo com erro)
    */
   private async executeSignal(symbol: string, combinedSignal: CombinedSignal): Promise<void> {
     const now = Date.now();
     
-    // Verificar cooldown
+    // ═══════════════════════════════════════════════════════════════
+    // CONTROLE DE CONCORRÊNCIA PER-SYMBOL (MUTEX)
+    // ═══════════════════════════════════════════════════════════════
+    
+    // VERIFICAÇÃO 1: Símbolo já está em processo de execução?
+    if (this.isExecutingOrder.get(symbol)) {
+      console.log(`[HybridEngine] 🔒 ${symbol}: IGNORADO - Ordem em processamento (mutex ativo)`);
+      return;
+    }
+    
+    // VERIFICAÇÃO 2: Cooldown por símbolo
     const lastTrade = this.lastTradeTime.get(symbol) || 0;
     if (now - lastTrade < this.config.cooldownMs) {
       return;
     }
     
-    // Verificar Risk Manager
-    if (this.riskManager) {
-      const canOpen = await this.riskManager.canOpenPosition();
-      if (!canOpen.allowed) {
-        console.log(`[HybridEngine] ⚠️ ${canOpen.reason}`);
-        return;
-      }
-    }
+    // ═══════════════════════════════════════════════════════════════
+    // TRAVAR O SÍMBOLO ANTES DE QUALQUER OPERAÇÃO ASSÍNCRONA
+    // ═══════════════════════════════════════════════════════════════
+    this.isExecutingOrder.set(symbol, true);
+    console.log(`[HybridEngine] 🔐 ${symbol}: TRAVADO para execução`);
     
-    // Verificar posições abertas no símbolo
-    const openPositions = await ctraderAdapter.getOpenPositions();
-    const symbolPositions = openPositions.filter(p => p.symbol === symbol);
-    
-    if (symbolPositions.length >= this.config.maxTradesPerSymbol) {
-      console.log(`[HybridEngine] ⚠️ Já existe posição em ${symbol}`);
-      return;
-    }
-    
-    // Verificar limite total de posições
-    if (openPositions.length >= this.config.maxPositions) {
-      console.log(`[HybridEngine] ⚠️ Limite de ${this.config.maxPositions} posições atingido`);
-      return;
-    }
-    
-    const signal = combinedSignal.finalSignal!;
-    const strategy = combinedSignal.source === "SMC" ? this.smcStrategy : this.rsiVwapStrategy;
-    
-    if (!strategy) return;
-    
-    // Obter informações da conta
-    const accountInfo = await ctraderAdapter.getAccountInfo();
-    const balance = accountInfo?.balance || 10000;
-    const pipValue = getCentralizedPipValue(symbol);
-    
-    // Obter preço atual
-    let currentPrice = 0;
     try {
-      const priceData = await ctraderAdapter.getPrice(symbol);
-      if (priceData && priceData.bid > 0 && priceData.ask > 0) {
-        const direction = signal.signal === "BUY" ? TradeSide.BUY : TradeSide.SELL;
-        currentPrice = direction === TradeSide.BUY ? priceData.ask : priceData.bid;
-      }
-    } catch (e) {
-      console.error(`[HybridEngine] Erro ao obter preço para ${symbol}`);
-      return;
-    }
-    
-    if (currentPrice <= 0) return;
-    
-    // Calcular SL/TP
-    const direction = signal.signal === "BUY" ? TradeSide.BUY : TradeSide.SELL;
-    const sltp = strategy.calculateSLTP(currentPrice, direction, pipValue, signal.metadata);
-    
-    // Calcular tamanho da posição via RiskManager
-    let lotSize = 0.01;
-    if (this.riskManager && sltp.stopLossPips) {
-      try {
-        const symbolInfo = await ctraderAdapter.getSymbolInfo(symbol);
-        const realMinVolume = ctraderAdapter.getRealMinVolume(symbol);
-        const realMinVolumeCents = Math.round(realMinVolume * 10000000);
-        
-        const volumeSpecs = symbolInfo ? {
-          minVolume: Math.max(symbolInfo.minVolume, realMinVolumeCents),
-          maxVolume: symbolInfo.maxVolume,
-          stepVolume: symbolInfo.stepVolume,
-        } : {
-          minVolume: realMinVolumeCents,
-          maxVolume: 100000000000000,
-          stepVolume: 100000,
-        };
-        
-        const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, pipValue, volumeSpecs);
-        if (posSize.canTrade) {
-          lotSize = posSize.lotSize;
-        } else {
-          console.warn(`[HybridEngine] ❌ Não pode operar: ${posSize.reason}`);
+      // Verificar Risk Manager
+      if (this.riskManager) {
+        const canOpen = await this.riskManager.canOpenPosition();
+        if (!canOpen.allowed) {
+          console.log(`[HybridEngine] ⚠️ ${canOpen.reason}`);
           return;
         }
-      } catch (e) {
-        console.warn(`[HybridEngine] Erro ao calcular volume, usando fallback`);
       }
-    }
-    
-    // Executar ordem via pipeline existente
-    console.log("═══════════════════════════════════════════════════════════════");
-    console.log(`[HybridEngine] 🎯 EXECUTANDO ORDEM: ${signal.signal} (${combinedSignal.source})`);
-    console.log(`[HybridEngine] Símbolo: ${symbol} | Lotes: ${lotSize}`);
-    console.log(`[HybridEngine] SL: ${sltp.stopLoss?.toFixed(5)} | TP: ${sltp.takeProfit?.toFixed(5)}`);
-    console.log("═══════════════════════════════════════════════════════════════");
-    
-    try {
-      const result = await ctraderAdapter.placeOrder({
-        symbol,
-        direction: signal.signal as "BUY" | "SELL",
-        orderType: "MARKET",
-        lots: lotSize,
-        stopLossPips: sltp.stopLossPips,
-        takeProfitPips: sltp.takeProfitPips,
-        comment: `HYBRID ${combinedSignal.source} ${signal.signal}`,
-      }, this.config.maxSpread);
       
-      if (result.success) {
-        this.lastTradeTime.set(symbol, now);
-        this.tradesExecuted++;
-        console.log(`[HybridEngine] ✅ ORDEM EXECUTADA: ${result.orderId}`);
-        
-        this.emit("trade", { symbol, signal, result, source: combinedSignal.source });
-      } else {
-        console.error(`[HybridEngine] ❌ ERRO: ${result.errorMessage}`);
+      // Verificar posições abertas no símbolo
+      const openPositions = await ctraderAdapter.getOpenPositions();
+      const symbolPositions = openPositions.filter(p => p.symbol === symbol);
+      
+      if (symbolPositions.length >= this.config.maxTradesPerSymbol) {
+        console.log(`[HybridEngine] ⚠️ Já existe posição em ${symbol}`);
+        return;
       }
-    } catch (error) {
-      console.error("[HybridEngine] Erro ao executar ordem:", error);
+      
+      // Verificar limite total de posições
+      if (openPositions.length >= this.config.maxPositions) {
+        console.log(`[HybridEngine] ⚠️ Limite de ${this.config.maxPositions} posições atingido`);
+        return;
+      }
+      
+      const signal = combinedSignal.finalSignal!;
+      const strategy = combinedSignal.source === "SMC" ? this.smcStrategy : this.rsiVwapStrategy;
+      
+      if (!strategy) return;
+      
+      // Obter informações da conta
+      const accountInfo = await ctraderAdapter.getAccountInfo();
+      const balance = accountInfo?.balance || 10000;
+      const pipValue = getCentralizedPipValue(symbol);
+      
+      // Obter preço atual
+      let currentPrice = 0;
+      try {
+        const priceData = await ctraderAdapter.getPrice(symbol);
+        if (priceData && priceData.bid > 0 && priceData.ask > 0) {
+          const direction = signal.signal === "BUY" ? TradeSide.BUY : TradeSide.SELL;
+          currentPrice = direction === TradeSide.BUY ? priceData.ask : priceData.bid;
+        }
+      } catch (e) {
+        console.error(`[HybridEngine] Erro ao obter preço para ${symbol}`);
+        return;
+      }
+      
+      if (currentPrice <= 0) return;
+      
+      // Calcular SL/TP
+      const direction = signal.signal === "BUY" ? TradeSide.BUY : TradeSide.SELL;
+      const sltp = strategy.calculateSLTP(currentPrice, direction, pipValue, signal.metadata);
+      
+      // Calcular tamanho da posição via RiskManager
+      let lotSize = 0.01;
+      if (this.riskManager && sltp.stopLossPips) {
+        try {
+          const symbolInfo = await ctraderAdapter.getSymbolInfo(symbol);
+          const realMinVolume = ctraderAdapter.getRealMinVolume(symbol);
+          const realMinVolumeCents = Math.round(realMinVolume * 10000000);
+          
+          const volumeSpecs = symbolInfo ? {
+            minVolume: Math.max(symbolInfo.minVolume, realMinVolumeCents),
+            maxVolume: symbolInfo.maxVolume,
+            stepVolume: symbolInfo.stepVolume,
+          } : {
+            minVolume: realMinVolumeCents,
+            maxVolume: 100000000000000,
+            stepVolume: 100000,
+          };
+          
+          const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, pipValue, volumeSpecs);
+          if (posSize.canTrade) {
+            lotSize = posSize.lotSize;
+          } else {
+            console.warn(`[HybridEngine] ❌ Não pode operar: ${posSize.reason}`);
+            return;
+          }
+        } catch (e) {
+          console.warn(`[HybridEngine] Erro ao calcular volume, usando fallback`);
+        }
+      }
+      
+      // Executar ordem via pipeline existente
+      console.log("═══════════════════════════════════════════════════════════════");
+      console.log(`[HybridEngine] 🎯 EXECUTANDO ORDEM: ${signal.signal} (${combinedSignal.source})`);
+      console.log(`[HybridEngine] Símbolo: ${symbol} | Lotes: ${lotSize}`);
+      console.log(`[HybridEngine] SL: ${sltp.stopLoss?.toFixed(5)} | TP: ${sltp.takeProfit?.toFixed(5)}`);
+      console.log("═══════════════════════════════════════════════════════════════");
+      
+      try {
+        const result = await ctraderAdapter.placeOrder({
+          symbol,
+          direction: signal.signal as "BUY" | "SELL",
+          orderType: "MARKET",
+          lots: lotSize,
+          stopLossPips: sltp.stopLossPips,
+          takeProfitPips: sltp.takeProfitPips,
+          comment: `HYBRID ${combinedSignal.source} ${signal.signal}`,
+        }, this.config.maxSpread);
+        
+        if (result.success) {
+          this.lastTradeTime.set(symbol, now);
+          this.tradesExecuted++;
+          console.log(`[HybridEngine] ✅ ORDEM EXECUTADA: ${result.orderId}`);
+          
+          this.emit("trade", { symbol, signal, result, source: combinedSignal.source });
+        } else {
+          console.error(`[HybridEngine] ❌ ERRO: ${result.errorMessage}`);
+        }
+      } catch (error) {
+        console.error("[HybridEngine] Erro ao executar ordem:", error);
+      }
+    } finally {
+      // ═══════════════════════════════════════════════════════════════
+      // DESTRAVAR O SÍMBOLO (SEMPRE, mesmo com erro)
+      // ═══════════════════════════════════════════════════════════════
+      this.isExecutingOrder.set(symbol, false);
+      console.log(`[HybridEngine] 🔓 ${symbol}: DESTRAVADO`);
     }
   }
   
