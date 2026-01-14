@@ -731,8 +731,12 @@ export class CTraderClient extends EventEmitter {
         // Documentação: "Volume in cents (e.g. 1000 in protocol means 10.00 units)"
         // Matemática: 1 Lote = 100,000 Unidades = 10,000,000 Cents
         // A API retorna valores em CENTS
+        // 
+        // CORREÇÃO 2026-01-14 (TAREFA #1): Default de maxVolume reduzido para 10 lotes
+        // O valor anterior (10,000 lotes) era muito alto e não protegia contra erros TRADING_BAD_VOLUME
+        // Agora usa 10 lotes (100,000,000 cents) como fallback conservador
         minVolume: convertLong(s.minVolume, 100000),       // Default: 0.01 lotes = 100,000 cents
-        maxVolume: convertLong(s.maxVolume, 100000000000000), // Default: 10,000 lotes
+        maxVolume: convertLong(s.maxVolume, 100000000),    // Default: 10 lotes = 100,000,000 cents (CORREÇÃO)
         stepVolume: convertLong(s.stepVolume, 100000),     // Default: 0.01 lotes = 100,000 cents
       };
     });
@@ -746,12 +750,19 @@ export class CTraderClient extends EventEmitter {
     console.log(`[CTraderClient] [getSymbolsList] ${symbols.length} símbolos carregados no cache interno`);
     
     // Log de debug para alguns símbolos importantes
+    // CORREÇÃO 2026-01-14 (TAREFA #1): Log melhorado para mostrar maxVolume em lotes
     const importantSymbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY'];
     for (const symName of importantSymbols) {
       const sym = this.symbolCache.get(symName);
       if (sym) {
         // CORREÇÃO DEFINITIVA: Mostrar conversão correta (1 lote = 10,000,000 cents)
-        console.log(`[CTraderClient] [VOLUME_SPECS] ${symName}: minVol=${sym.minVolume} cents (${sym.minVolume/10000000} lotes), maxVol=${sym.maxVolume} cents, step=${sym.stepVolume} cents`);
+        const minLots = sym.minVolume / 10000000;
+        const maxLots = sym.maxVolume / 10000000;
+        const stepLots = sym.stepVolume / 10000000;
+        console.log(`[CTraderClient] [VOLUME_SPECS] ${symName}:`);
+        console.log(`  - minVolume: ${sym.minVolume} cents = ${minLots} lotes`);
+        console.log(`  - maxVolume: ${sym.maxVolume} cents = ${maxLots} lotes`);
+        console.log(`  - stepVolume: ${sym.stepVolume} cents = ${stepLots} lotes`);
       }
     }
     

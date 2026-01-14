@@ -915,8 +915,11 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     // 🛡️ ============= FIM DA TRAVA DE SEGURANÇA =============
     
     // 📊 ============= NORMALIZAÇÃO DE VOLUME (CORREÇÃO TRADING_BAD_VOLUME) =============
-    // CORREÇÃO 2026-01-13: Normalizar volume para respeitar minVolume e stepVolume do ativo
-    // O erro TRADING_BAD_VOLUME ocorre quando o volume não é múltiplo do stepVolume
+    // CORREÇÃO 2026-01-14: Normalizar volume para respeitar minVolume, maxVolume e stepVolume do ativo
+    // O erro TRADING_BAD_VOLUME ocorre quando o volume excede o maxVolume ou não é múltiplo do stepVolume
+    // 
+    // TAREFA #1: Implementar "Clamping" para garantir que o volume não exceda o teto da corretora
+    // Se o RiskManager calcular 0.13 lotes mas a corretora só aceitar 0.10, ajustar para 0.10
     try {
       const symbolInfo = await this.client.getSymbolInfo(order.symbol);
       
@@ -931,7 +934,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
         console.log(`[CTraderAdapter] [VOLUME_NORM] ========== NORMALIZAÇÃO DE VOLUME ==========`);
         console.log(`[CTraderAdapter] [VOLUME_NORM] Símbolo: ${order.symbol}`);
         console.log(`[CTraderAdapter] [VOLUME_NORM] Volume calculado: ${volumeAnterior} lotes`);
-        console.log(`[CTraderAdapter] [VOLUME_NORM] Specs do ativo:`);
+        console.log(`[CTraderAdapter] [VOLUME_NORM] Specs do ativo (da API cTrader):`);
         console.log(`  - minVolume: ${minVolumeLots} lotes (${symbolInfo.minVolume} cents)`);
         console.log(`  - stepVolume: ${stepVolumeLots} lotes (${symbolInfo.stepVolume} cents)`);
         console.log(`  - maxVolume: ${maxVolumeLots} lotes (${symbolInfo.maxVolume} cents)`);
@@ -950,15 +953,21 @@ export class CTraderAdapter extends BaseBrokerAdapter {
           normalizedLots = minVolumeLots;
         }
         
-        // 3️⃣ Garantir que está abaixo do máximo
+        // 3️⃣ CLAMPING: Garantir que está abaixo do máximo (CORREÇÃO TAREFA #1)
+        // Este é o ponto crítico que resolve o erro TRADING_BAD_VOLUME
         if (normalizedLots > maxVolumeLots) {
-          console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ Volume ${normalizedLots} > máximo ${maxVolumeLots}`);
+          console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ CLAMPING ATIVADO: Volume ${normalizedLots} excede o máximo ${maxVolumeLots}`);
+          console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ Ajustando volume de ${normalizedLots} para ${maxVolumeLots} lotes (teto da corretora)`);
+          console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ NOTA: O risco real será ligeiramente menor que o calculado`);
           normalizedLots = maxVolumeLots;
         }
         
         // Log do resultado da normalização
         if (volumeAnterior !== normalizedLots) {
           console.log(`[CTraderAdapter] [VOLUME_NORM] 🔄 Normalização: ${volumeAnterior} -> ${normalizedLots} lotes`);
+          if (volumeAnterior > maxVolumeLots) {
+            console.log(`[CTraderAdapter] [VOLUME_NORM] 📊 Motivo: Volume original excedia o teto máximo permitido pela corretora`);
+          }
         } else {
           console.log(`[CTraderAdapter] [VOLUME_NORM] ✅ Volume já normalizado: ${normalizedLots} lotes`);
         }
@@ -967,11 +976,27 @@ export class CTraderAdapter extends BaseBrokerAdapter {
         // Atualizar o valor do lote na ordem
         order.lots = normalizedLots;
       } else {
-        console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ Não foi possível obter specs do símbolo, usando volume sem normalização`);
+        // CORREÇÃO: Usar defaults mais conservadores quando não conseguir obter specs
+        console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ Não foi possível obter specs do símbolo`);
+        console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ Aplicando fallback conservador: max 1.0 lotes`);
+        
+        // Fallback conservador: limitar a 1 lote se não tiver informação do símbolo
+        const FALLBACK_MAX_LOTS = 1.0;
+        if (normalizedLots > FALLBACK_MAX_LOTS) {
+          console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ CLAMPING FALLBACK: ${normalizedLots} -> ${FALLBACK_MAX_LOTS} lotes`);
+          normalizedLots = FALLBACK_MAX_LOTS;
+          order.lots = normalizedLots;
+        }
       }
     } catch (normError) {
       console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ Erro na normalização:`, normError);
-      // Continuar com o volume atual (fail-open)
+      // CORREÇÃO: Aplicar fallback conservador em caso de erro
+      const FALLBACK_MAX_LOTS = 1.0;
+      if (normalizedLots > FALLBACK_MAX_LOTS) {
+        console.warn(`[CTraderAdapter] [VOLUME_NORM] ⚠️ CLAMPING FALLBACK (erro): ${normalizedLots} -> ${FALLBACK_MAX_LOTS} lotes`);
+        normalizedLots = FALLBACK_MAX_LOTS;
+        order.lots = normalizedLots;
+      }
     }
     // 📊 ============= FIM DA NORMALIZAÇÃO DE VOLUME =============
     

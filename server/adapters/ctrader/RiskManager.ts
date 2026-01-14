@@ -313,9 +313,11 @@ export class RiskManager {
     }
     
     // CORREÇÃO DEFINITIVA: Defaults em CENTS (protocolo cTrader)
+    // CORREÇÃO 2026-01-14 (TAREFA #1): Default de maxVolume reduzido para 10 lotes
+    // O valor anterior (10,000 lotes) era muito alto e não protegia contra erros TRADING_BAD_VOLUME
     const specs: VolumeSpecs = volumeSpecs || {
       minVolume: 100000,           // 0.01 lotes = 100,000 cents
-      maxVolume: 100000000000000,  // 10,000 lotes = 100 trilhões de cents
+      maxVolume: 100000000,        // 10 lotes = 100,000,000 cents (CORREÇÃO - era 100 trilhões)
       stepVolume: 100000,          // 0.01 lotes = 100,000 cents
     };
     
@@ -369,9 +371,14 @@ export class RiskManager {
       volumeInCents = specs.minVolume;
     }
     
-    // 3. Garantir que <= maxVolume
+    // 3. CLAMPING: Garantir que <= maxVolume (CORREÇÃO TAREFA #1)
+    // Este é o ponto crítico que resolve o erro TRADING_BAD_VOLUME
     if (volumeInCents > specs.maxVolume) {
-      console.log(`[RiskManager] ⚠️ Volume ${volumeInCents} cents > maxVolume ${specs.maxVolume} cents`);
+      const volumeOriginalLots = volumeInCents / 10000000;
+      const maxVolumeLots = specs.maxVolume / 10000000;
+      console.warn(`[RiskManager] ⚠️ CLAMPING ATIVADO: Volume ${volumeOriginalLots.toFixed(4)} lotes excede o máximo ${maxVolumeLots.toFixed(4)} lotes`);
+      console.warn(`[RiskManager] ⚠️ Ajustando volume para o teto da corretora: ${maxVolumeLots.toFixed(4)} lotes`);
+      console.warn(`[RiskManager] ⚠️ NOTA: O risco real será ligeiramente menor que o calculado`);
       volumeInCents = specs.maxVolume;
     }
     
