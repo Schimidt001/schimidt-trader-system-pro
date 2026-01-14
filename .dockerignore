@@ -40,6 +40,25 @@ README.md
 DEPLOY_MANUS.md
 RAILWAY_DEPLOY.md
 
-# Railway
+# Railway config (não precisa no build)
 railway.json
+railway.toml
 nixpacks.toml
+
+# Backups e dados de desenvolvimento
+backups
+data
+*.sql
+*.bak
+
+# Scripts de desenvolvimento
+scripts
+filtro-horario
+migrations
+docs
+
+# Testes
+*.test.ts
+*.spec.ts
+coverage
+.nyc_output
