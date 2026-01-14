@@ -12,13 +12,14 @@ import SettingsMultiBroker from "./pages/SettingsMultiBroker";
 import Logs from "./pages/Logs";
 import MarketCalendar from "./pages/MarketCalendar";
 import AdminUsers from "./pages/AdminUsers";
+import Backtest from "./pages/Backtest";
 import { useAuth } from "./_core/hooks/useAuth";
 import { getLoginUrl } from "./const";
 import { CinematicLogin } from "./components/CinematicLogin";
 import LocalLogin from "./pages/LocalLogin";
 import FuturisticLogin from "./pages/FuturisticLogin";
 import { Button } from "./components/ui/button";
-import { BarChart3, Settings as SettingsIcon, FileText, LogOut, Calendar, Users } from "lucide-react";
+import { BarChart3, Settings as SettingsIcon, FileText, LogOut, Calendar, Users, FlaskConical } from "lucide-react";
 import { trpc } from "./lib/trpc";
 
 /**
@@ -50,6 +51,7 @@ function Navigation() {
     { path: "/market", label: "Mercado", icon: Calendar },
     { path: "/settings", label: "Configurações", icon: SettingsIcon },
     { path: "/logs", label: "Logs", icon: FileText },
+    { path: "/backtest", label: "Backtest", icon: FlaskConical },
   ];
   
   // Adicionar item de admin se usuário for admin
@@ -189,6 +191,7 @@ function Router() {
         <Route path="/settings-legacy" component={Settings} />
         <Route path="/logs" component={Logs} />
         <Route path="/admin/users" component={AdminUsers} />
+        <Route path="/backtest" component={Backtest} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

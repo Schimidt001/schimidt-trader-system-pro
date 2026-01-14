@@ -30,6 +30,7 @@ import { DerivReconciliationService } from "./deriv/derivReconciliationService";
 import { predictionService } from "./prediction/predictionService";
 import { engineManager } from "./prediction/engineManager";
 import { icmarketsRouter } from "./icmarkets/icmarketsRouter";
+import { backtestRouter } from "./backtest/backtestRouter";
 
 export const appRouter = router({
   // Rota para predição manual (diagnóstico)
@@ -1371,6 +1372,9 @@ export const appRouter = router({
 
   // IC Markets / cTrader Router
   icmarkets: icmarketsRouter,
+
+  // Backtest Router
+  backtest: backtestRouter,
 });
 
 export type AppRouter = typeof appRouter;
