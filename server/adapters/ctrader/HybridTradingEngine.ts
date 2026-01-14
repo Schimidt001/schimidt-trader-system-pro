@@ -121,6 +121,44 @@ export class HybridTradingEngine extends EventEmitter {
    */
   private lockTimestamps: Map<string, number> = new Map();
   
+  // ============= CORREÇÃO v4.0: SISTEMA DE CONTROLE DE MÚLTIPLOS TRADES =============
+  
+  /**
+   * CORREÇÃO v4.0: Posições Pendentes (Phantom Positions)
+   * Map que armazena posições que foram enviadas à API mas ainda não confirmadas.
+   * Isso previne race conditions onde múltiplas ordens são enviadas antes da confirmação.
+   * 
+   * Chave: symbol
+   * Valor: timestamp de quando a ordem foi enviada
+   */
+  private pendingPositions: Map<string, number> = new Map();
+  
+  /**
+   * CORREÇÃO v4.0: Último Timestamp de Candle Operado
+   * Map que armazena o timestamp do último candle M5 em que foi aberta uma posição.
+   * Impede múltiplas ordens no mesmo candle (mesmo que o sinal continue válido).
+   * 
+   * Chave: symbol
+   * Valor: timestamp do candle M5 (arredondado para 5 minutos)
+   */
+  private lastTradedCandleTimestamp: Map<string, number> = new Map();
+  
+  /**
+   * CORREÇÃO v4.0: Estruturas Consumidas (Signal Consumption)
+   * Set que armazena IDs únicos de estruturas (SwingPoints, OrderBlocks) já utilizadas.
+   * Uma estrutura consumida não pode gerar outro trade.
+   * 
+   * Formato do ID: "SYMBOL_TYPE_PRICE_TIMESTAMP"
+   * Exemplo: "USDCHF_SWING_HIGH_0.8950_1705234567000"
+   */
+  private consumedStructures: Set<string> = new Set();
+  
+  /**
+   * CORREÇÃO v4.0: Timeout para Posições Pendentes
+   * Após este tempo (em ms), uma posição pendente é considerada expirada.
+   */
+  private readonly PENDING_POSITION_TIMEOUT_MS = 30000; // 30 segundos
+  
   // Dados multi-timeframe
   private timeframeData: {
     h1: Map<string, any[]>;
@@ -993,46 +1031,76 @@ export class HybridTradingEngine extends EventEmitter {
    * IMPORTANTE: Usa o pipeline existente de execução (CTraderAdapter),
    * preservando a lógica de volume do CTraderClient.ts.
    * 
-   * CORREÇÃO CRÍTICA v3.0 (2026-01-13):
-   * - Implementado controle de concorrência PER-SYMBOL
-   * - Adicionado WATCHDOG de 15 segundos para liberar locks travados (Deadlock Prevention)
-   * - Registra timestamp do lock para monitoramento
+   * CORREÇÃO CRÍTICA v4.0 (2026-01-14):
+   * - Implementado controle de concorrência PER-SYMBOL (v3.0)
+   * - Adicionado WATCHDOG de 15 segundos para liberar locks travados
+   * - NOVO: Verificação em tempo real via API (reconcilePositions)
+   * - NOVO: Sistema de Posições Pendentes (Phantom Positions)
+   * - NOVO: Filtro de Candle (impede múltiplas ordens no mesmo candle M5)
+   * - NOVO: Signal Consumption (marca estruturas já utilizadas)
    * 
-   * LÓGICA DO MUTEX:
-   * 1. Verifica se o símbolo está travado (isExecutingOrder)
-   * 2. Se travado há mais de 15s -> WATCHDOG força destravamento
-   * 3. Se livre -> trava o símbolo ANTES de qualquer verificação assíncrona
-   * 4. Executa toda a lógica de ordem
-   * 5. Destrava o símbolo no finally (garante destravamento mesmo com erro/return)
+   * LÓGICA DE PROTEÇÃO (5 CAMADAS):
+   * 1. Mutex per-symbol com watchdog
+   * 2. Cooldown por símbolo
+   * 3. Verificação de posição pendente (phantom position)
+   * 4. Filtro de candle M5 (impede múltiplas ordens no mesmo candle)
+   * 5. Verificação em tempo real via API + cache local
    */
   private async executeSignal(symbol: string, combinedSignal: CombinedSignal): Promise<void> {
     const now = Date.now();
     
     // ═══════════════════════════════════════════════════════════════
-    // CONTROLE DE CONCORRÊNCIA PER-SYMBOL (MUTEX) + WATCHDOG
+    // CAMADA 1: CONTROLE DE CONCORRÊNCIA PER-SYMBOL (MUTEX) + WATCHDOG
     // ═══════════════════════════════════════════════════════════════
     
-    // VERIFICAÇÃO 1: Símbolo já está em processo de execução?
     if (this.isExecutingOrder.get(symbol)) {
-      // WATCHDOG: Verificar se o lock está travado há mais de 15 segundos
       const lockTime = this.lockTimestamps.get(symbol) || 0;
       const lockDuration = now - lockTime;
       
       if (lockDuration > 15000) {
-        // ⚠️ DEADLOCK DETECTADO - Forçar destravamento
         console.warn(`[HybridEngine] ⚠️ WATCHDOG: ${symbol} travado há ${Math.floor(lockDuration/1000)}s - FORÇANDO DESTRAVAMENTO`);
         this.isExecutingOrder.set(symbol, false);
         this.lockTimestamps.delete(symbol);
-        // Continuar para tentar executar novamente
       } else {
         console.log(`[HybridEngine] 🔒 ${symbol}: IGNORADO - Ordem em processamento (mutex ativo há ${Math.floor(lockDuration/1000)}s)`);
         return;
       }
     }
     
-    // VERIFICAÇÃO 2: Cooldown por símbolo
+    // ═══════════════════════════════════════════════════════════════
+    // CAMADA 2: COOLDOWN POR SÍMBOLO
+    // ═══════════════════════════════════════════════════════════════
     const lastTrade = this.lastTradeTime.get(symbol) || 0;
     if (now - lastTrade < this.config.cooldownMs) {
+      console.log(`[HybridEngine] ⏳ ${symbol}: IGNORADO - Cooldown ativo (${Math.floor((this.config.cooldownMs - (now - lastTrade))/1000)}s restantes)`);
+      return;
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // CAMADA 3: VERIFICAÇÃO DE POSIÇÃO PENDENTE (PHANTOM POSITION)
+    // ═══════════════════════════════════════════════════════════════
+    const pendingTime = this.pendingPositions.get(symbol);
+    if (pendingTime) {
+      const pendingDuration = now - pendingTime;
+      if (pendingDuration < this.PENDING_POSITION_TIMEOUT_MS) {
+        console.log(`[HybridEngine] 👻 ${symbol}: IGNORADO - Posição PENDENTE aguardando confirmação (${Math.floor(pendingDuration/1000)}s)`);
+        return;
+      } else {
+        // Timeout expirado, limpar posição pendente
+        console.warn(`[HybridEngine] ⚠️ ${symbol}: Posição pendente expirada após ${Math.floor(pendingDuration/1000)}s - limpando`);
+        this.pendingPositions.delete(symbol);
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // CAMADA 4: FILTRO DE CANDLE M5 (IMPEDE MÚLTIPLAS ORDENS NO MESMO CANDLE)
+    // ═══════════════════════════════════════════════════════════════
+    const M5_MS = 5 * 60 * 1000; // 5 minutos em milissegundos
+    const currentCandleTimestamp = Math.floor(now / M5_MS) * M5_MS;
+    const lastTradedCandle = this.lastTradedCandleTimestamp.get(symbol) || 0;
+    
+    if (currentCandleTimestamp === lastTradedCandle) {
+      console.log(`[HybridEngine] 🕯️ ${symbol}: IGNORADO - Já operou neste candle M5 (${new Date(currentCandleTimestamp).toISOString()})`);
       return;
     }
     
@@ -1040,7 +1108,7 @@ export class HybridTradingEngine extends EventEmitter {
     // TRAVAR O SÍMBOLO ANTES DE QUALQUER OPERAÇÃO ASSÍNCRONA
     // ═══════════════════════════════════════════════════════════════
     this.isExecutingOrder.set(symbol, true);
-    this.lockTimestamps.set(symbol, now); // Registrar timestamp do lock para Watchdog
+    this.lockTimestamps.set(symbol, now);
     console.log(`[HybridEngine] 🔐 ${symbol}: TRAVADO para execução`);
     
     try {
@@ -1049,22 +1117,45 @@ export class HybridTradingEngine extends EventEmitter {
         const canOpen = await this.riskManager.canOpenPosition();
         if (!canOpen.allowed) {
           console.log(`[HybridEngine] ⚠️ ${canOpen.reason}`);
-          return; // NOTA: return dentro de try AGORA passa pelo finally corretamente
+          return;
         }
       }
       
-      // Verificar posições abertas no símbolo
+      // ═══════════════════════════════════════════════════════════════
+      // CAMADA 5: VERIFICAÇÃO EM TEMPO REAL VIA API + CACHE LOCAL
+      // CORREÇÃO CRÍTICA v4.0: Sincronizar com a API antes de verificar
+      // ═══════════════════════════════════════════════════════════════
+      
+      // 5a. Primeiro, sincronizar posições com a API (reconcile)
+      try {
+        await ctraderAdapter.reconcilePositions();
+        console.log(`[HybridEngine] 🔄 ${symbol}: Posições sincronizadas com a API`);
+      } catch (reconcileError) {
+        console.warn(`[HybridEngine] ⚠️ ${symbol}: Erro ao sincronizar posições, usando cache local:`, reconcileError);
+      }
+      
+      // 5b. Agora verificar posições abertas (cache atualizado)
       const openPositions = await ctraderAdapter.getOpenPositions();
       const symbolPositions = openPositions.filter(p => p.symbol === symbol);
       
+      // 5c. Contar também posições pendentes de outros símbolos
+      const pendingCount = Array.from(this.pendingPositions.entries())
+        .filter(([_, timestamp]) => (now - timestamp) < this.PENDING_POSITION_TIMEOUT_MS)
+        .length;
+      
+      const totalPositions = openPositions.length + pendingCount;
+      
+      console.log(`[HybridEngine] 📊 ${symbol}: Posições abertas=${openPositions.length}, Pendentes=${pendingCount}, Total=${totalPositions}`);
+      console.log(`[HybridEngine] 📊 ${symbol}: Posições neste ativo=${symbolPositions.length}, Limite=${this.config.maxTradesPerSymbol}`);
+      
       if (symbolPositions.length >= this.config.maxTradesPerSymbol) {
-        console.log(`[HybridEngine] ⚠️ Já existe posição em ${symbol}`);
+        console.log(`[HybridEngine] ⚠️ ${symbol}: BLOQUEADO - Já existe ${symbolPositions.length} posição(ões) neste ativo (limite: ${this.config.maxTradesPerSymbol})`);
         return;
       }
       
-      // Verificar limite total de posições
-      if (openPositions.length >= this.config.maxPositions) {
-        console.log(`[HybridEngine] ⚠️ Limite de ${this.config.maxPositions} posições atingido`);
+      // Verificar limite total de posições (incluindo pendentes)
+      if (totalPositions >= this.config.maxPositions) {
+        console.log(`[HybridEngine] ⚠️ Limite de ${this.config.maxPositions} posições atingido (atual: ${totalPositions})`);
         return;
       }
       
@@ -1072,6 +1163,13 @@ export class HybridTradingEngine extends EventEmitter {
       const strategy = combinedSignal.source === "SMC" ? this.smcStrategy : this.rsiVwapStrategy;
       
       if (!strategy) return;
+      
+      // ═══════════════════════════════════════════════════════════════
+      // MARCAR POSIÇÃO COMO PENDENTE ANTES DE ENVIAR À API
+      // Isso bloqueia novas ordens para este símbolo imediatamente
+      // ═══════════════════════════════════════════════════════════════
+      this.pendingPositions.set(symbol, now);
+      console.log(`[HybridEngine] 👻 ${symbol}: Posição marcada como PENDENTE`);
       
       // Obter informações da conta
       const accountInfo = await ctraderAdapter.getAccountInfo();
@@ -1088,10 +1186,14 @@ export class HybridTradingEngine extends EventEmitter {
         }
       } catch (e) {
         console.error(`[HybridEngine] Erro ao obter preço para ${symbol}`);
+        this.pendingPositions.delete(symbol); // Limpar posição pendente em caso de erro
         return;
       }
       
-      if (currentPrice <= 0) return;
+      if (currentPrice <= 0) {
+        this.pendingPositions.delete(symbol);
+        return;
+      }
       
       // Calcular SL/TP
       const direction = signal.signal === "BUY" ? TradeSide.BUY : TradeSide.SELL;
@@ -1115,8 +1217,6 @@ export class HybridTradingEngine extends EventEmitter {
             stepVolume: 100000,
           };
           
-          // CORREÇÃO CRÍTICA 2026-01-13: Obter taxas de conversão para cálculo correto do pip value
-          // CORREÇÃO CRÍTICA 2026-01-14: Incluir preço atual do símbolo para pares USD_BASE
           const conversionRates: ConversionRates = await this.getConversionRates(symbol);
           
           const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, symbol, conversionRates, volumeSpecs);
@@ -1124,6 +1224,7 @@ export class HybridTradingEngine extends EventEmitter {
             lotSize = posSize.lotSize;
           } else {
             console.warn(`[HybridEngine] ❌ Não pode operar: ${posSize.reason}`);
+            this.pendingPositions.delete(symbol);
             return;
           }
         } catch (e) {
@@ -1151,20 +1252,32 @@ export class HybridTradingEngine extends EventEmitter {
         
         if (result.success) {
           this.lastTradeTime.set(symbol, now);
+          this.lastTradedCandleTimestamp.set(symbol, currentCandleTimestamp); // Marcar candle como operado
           this.tradesExecuted++;
           console.log(`[HybridEngine] ✅ ORDEM EXECUTADA: ${result.orderId}`);
           
+          // Marcar estrutura como consumida (Signal Consumption)
+          if (signal.metadata?.structureId) {
+            this.consumedStructures.add(signal.metadata.structureId);
+            console.log(`[HybridEngine] 🏷️ Estrutura consumida: ${signal.metadata.structureId}`);
+          }
+          
           this.emit("trade", { symbol, signal, result, source: combinedSignal.source });
+          
+          // Limpar posição pendente após sucesso (a posição real já está no cache)
+          this.pendingPositions.delete(symbol);
         } else {
           console.error(`[HybridEngine] ❌ ERRO: ${result.errorMessage}`);
+          // Limpar posição pendente em caso de erro
+          this.pendingPositions.delete(symbol);
         }
       } catch (error) {
         console.error("[HybridEngine] Erro ao executar ordem:", error);
+        this.pendingPositions.delete(symbol);
       }
     } finally {
       // ═══════════════════════════════════════════════════════════════
       // DESTRAVAR O SÍMBOLO (SEMPRE, mesmo com erro ou return antecipado)
-      // CORREÇÃO v3.0: Limpar também o timestamp do lock
       // ═══════════════════════════════════════════════════════════════
       this.isExecutingOrder.set(symbol, false);
       this.lockTimestamps.delete(symbol);
