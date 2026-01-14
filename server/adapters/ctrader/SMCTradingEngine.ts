@@ -23,7 +23,7 @@ import { getDb, insertSystemLog, type LogLevel, type LogCategory } from "../../d
 import { smcStrategyConfig, icmarketsConfig } from "../../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 // REFATORAÇÃO: Importar módulo centralizado de normalização de pips
-import { getPipValue as getCentralizedPipValue, calculateSpreadPips } from "../../../shared/normalizationUtils";
+import { getPipValue as getCentralizedPipValue, calculateSpreadPips, calculateMonetaryPipValue, ConversionRates } from "../../../shared/normalizationUtils";
 
 // ============= FUNÇÃO HELPER PARA DELAY =============
 
@@ -558,6 +558,54 @@ export class SMCTradingEngine extends EventEmitter {
   /**
    * Obtém configuração SMC do banco de dados
    */
+  /**
+   * CORREÇÃO CRÍTICA 2026-01-13: Obtém taxas de conversão para cálculo correto do pip value monetário
+   * 
+   * Essas taxas são necessárias para converter o valor do pip para USD em pares:
+   * - JPY (EURJPY, GBPJPY, etc.) - precisa de USDJPY
+   * - Cross pairs (EURGBP, etc.) - precisa da taxa da moeda de cotação
+   */
+  private async getConversionRates(): Promise<ConversionRates> {
+    const rates: ConversionRates = {};
+    
+    try {
+      // Obter taxa USDJPY (essencial para pares JPY)
+      const usdjpyPrice = await ctraderAdapter.getPrice("USDJPY");
+      if (usdjpyPrice && usdjpyPrice.bid > 0) {
+        rates.USDJPY = (usdjpyPrice.bid + usdjpyPrice.ask) / 2;
+      }
+      
+      // Obter taxa EURUSD
+      const eurusdPrice = await ctraderAdapter.getPrice("EURUSD");
+      if (eurusdPrice && eurusdPrice.bid > 0) {
+        rates.EURUSD = (eurusdPrice.bid + eurusdPrice.ask) / 2;
+      }
+      
+      // Obter taxa GBPUSD
+      const gbpusdPrice = await ctraderAdapter.getPrice("GBPUSD");
+      if (gbpusdPrice && gbpusdPrice.bid > 0) {
+        rates.GBPUSD = (gbpusdPrice.bid + gbpusdPrice.ask) / 2;
+      }
+      
+      // Obter taxa AUDUSD
+      const audusdPrice = await ctraderAdapter.getPrice("AUDUSD");
+      if (audusdPrice && audusdPrice.bid > 0) {
+        rates.AUDUSD = (audusdPrice.bid + audusdPrice.ask) / 2;
+      }
+      
+      console.log(`[SMCTradingEngine] Taxas de conversão obtidas: USDJPY=${rates.USDJPY?.toFixed(3)}, EURUSD=${rates.EURUSD?.toFixed(5)}, GBPUSD=${rates.GBPUSD?.toFixed(5)}`);
+    } catch (error) {
+      console.warn(`[SMCTradingEngine] Erro ao obter taxas de conversão, usando estimativas:`, error);
+      // Fallback com valores estimados
+      rates.USDJPY = rates.USDJPY || 150.0;
+      rates.EURUSD = rates.EURUSD || 1.08;
+      rates.GBPUSD = rates.GBPUSD || 1.27;
+      rates.AUDUSD = rates.AUDUSD || 0.65;
+    }
+    
+    return rates;
+  }
+  
   private async getSMCConfigFromDB(): Promise<any> {
     try {
       const db = await getDb();
@@ -1333,7 +1381,10 @@ export class SMCTradingEngine extends EventEmitter {
         
         console.log(`[SMCTradingEngine] Volume specs para ${symbol}: minVol=${volumeSpecs.minVolume} cents (${volumeSpecs.minVolume/10000000} lotes), realMinDetected=${realMinVolume} lotes`);
         
-        const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, pipValue, volumeSpecs);
+        // CORREÇÃO CRÍTICA 2026-01-13: Obter taxas de conversão para cálculo correto do pip value
+        const conversionRates: ConversionRates = await this.getConversionRates();
+        
+        const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, symbol, conversionRates, volumeSpecs);
         if (posSize.canTrade) {
           lotSize = posSize.lotSize;
           // CORREÇÃO DEFINITIVA: Usar volumeInCents (1 lote = 10,000,000 cents)
@@ -1355,7 +1406,8 @@ export class SMCTradingEngine extends EventEmitter {
       } catch (volumeError) {
         console.warn(`[SMCTradingEngine] ⚠️ Erro ao obter specs de volume, usando fallback:`, volumeError);
         // Fallback: usar cálculo sem specs (comportamento anterior)
-        const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, pipValue);
+        const conversionRatesFallback: ConversionRates = await this.getConversionRates();
+        const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, symbol, conversionRatesFallback);
         if (posSize.canTrade) {
           lotSize = posSize.lotSize;
         }

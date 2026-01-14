@@ -8,12 +8,23 @@
  * - Filtro de horário de operação
  * 
  * @author Schimidt Trader Pro
- * @version 1.0.0
+ * @version 2.0.0
+ * 
+ * CORREÇÃO CRÍTICA 2026-01-13:
+ * - Refatoração completa do cálculo de position size
+ * - Agora usa valor monetário do pip (USD) ao invés do tamanho do pip (movimento de preço)
+ * - Corrige bug que causava cálculo de 147 lotes ao invés de 0.02 lotes
  */
 
 import { getDb } from "../../db";
 import { smcStrategyConfig, forexPositions } from "../../../drizzle/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
+import { 
+  calculateMonetaryPipValue, 
+  ConversionRates, 
+  getSymbolType, 
+  SymbolType 
+} from "../../../shared/normalizationUtils";
 
 /**
  * Configuração do Risk Manager
@@ -78,12 +89,18 @@ export interface PositionSizeCalculation {
   riskAmount: number;
   riskPercent: number;
   stopLossPips: number;
-  pipValue: number;
+  pipValueMonetary: number;  // CORREÇÃO 2026-01-13: Valor monetário do pip em USD
   canTrade: boolean;
   reason: string;
   volumeAdjusted: boolean;  // Indica se o volume foi ajustado para respeitar limites
   originalLotSize?: number; // Lote original antes do ajuste
 }
+
+/**
+ * Limite máximo de segurança para volume (em lotes)
+ * SECURITY BLOCK: Impede ordens absurdamente grandes
+ */
+const MAX_SECURITY_LOT_SIZE = 5.0;
 
 /**
  * Classe principal de gestão de risco
@@ -207,22 +224,31 @@ export class RiskManager {
   }
   
   /**
-   * Calcula o tamanho da posição baseado no risco
+   * CORREÇÃO CRÍTICA 2026-01-13: Calcula o tamanho da posição baseado no risco
    * 
-   * Fórmula:
-   * riskAmount = accountBalance * (riskPercentage / 100)
-   * lotSize = riskAmount / (stopLossPips * pipValue)
+   * FÓRMULA CORRIGIDA:
+   * lotSize = riskAmount / (stopLossPips × pipValueMonetary)
    * 
-   * REFATORAÇÃO: Agora respeita os limites de volume da cTrader API
-   * - minVolume: Volume mínimo permitido
-   * - maxVolume: Volume máximo permitido  
-   * - stepVolume: Incremento de volume obrigatório
+   * Onde:
+   * - riskAmount = accountBalance × (riskPercentage / 100)
+   * - pipValueMonetary = valor em USD de 1 pip por 1 lote standard
+   * 
+   * IMPORTANTE: pipValueMonetary NÃO é o mesmo que pipSize (movimento de preço)!
+   * - pipSize (EURJPY) = 0.01 (movimento de preço)
+   * - pipValueMonetary (EURJPY) = ~$6.29 (valor em USD por lote)
+   * 
+   * @param accountBalance - Saldo da conta em USD
+   * @param stopLossPips - Distância do stop loss em pips
+   * @param symbol - Símbolo do ativo (ex: "EURJPY", "EURUSD")
+   * @param conversionRates - Taxas de conversão para cálculo do pip value
+   * @param volumeSpecs - Especificações de volume da cTrader API (opcional)
    */
   calculatePositionSize(
     accountBalance: number,
     stopLossPips: number,
-    pipValue: number,
-    volumeSpecs?: VolumeSpecs  // Specs do símbolo da cTrader API
+    symbol: string,
+    conversionRates: ConversionRates,
+    volumeSpecs?: VolumeSpecs
   ): PositionSizeCalculation {
     // Verificar se pode operar
     if (this.state.tradingBlocked) {
@@ -232,24 +258,16 @@ export class RiskManager {
         riskAmount: 0,
         riskPercent: 0,
         stopLossPips,
-        pipValue,
+        pipValueMonetary: 0,
         canTrade: false,
         reason: this.state.blockReason || "Trading bloqueado",
         volumeAdjusted: false,
       };
     }
     
-    // ============= PROTEÇÃO CONTRA VOLUME EXPLOSIVO (2026-01-13) =============
+    // ============= PROTEÇÃO CONTRA VOLUME EXPLOSIVO =============
     // CORREÇÃO CRÍTICA: Stop Loss mínimo de segurança
-    // 
-    // PROBLEMA: Quando o SL calculado é muito próximo de zero (ex: 0.1 pips em M5),
-    // a fórmula lotSize = riskAmount / (stopLossPips * pipValue) resulta em
-    // volumes absurdos (ex: 100 lotes em conta de $500).
-    // 
-    // SOLUÇÃO: Nunca aceitar SL menor que 3 pips para evitar alavancagem infinita.
-    // Isso protege contra candles minúsculos em timeframes baixos (M1, M5).
-    // =========================================================================
-    const MIN_SL_PIPS = 3.0; // Stop Loss mínimo de segurança em pips
+    const MIN_SL_PIPS = 3.0;
     const originalStopLossPips = stopLossPips;
     const effectiveSL = Math.max(stopLossPips, MIN_SL_PIPS);
     
@@ -258,7 +276,7 @@ export class RiskManager {
       console.warn(`[RiskManager] ⚠️ Usando SL efetivo de ${effectiveSL} pips para cálculo de volume`);
     }
     
-    // Validar que SL efetivo é positivo (proteção contra divisão por zero)
+    // Validar que SL efetivo é positivo
     if (effectiveSL <= 0) {
       console.error(`[RiskManager] ❌ ERRO CRÍTICO: SL efetivo é ${effectiveSL}. Bloqueando trade.`);
       return {
@@ -267,34 +285,81 @@ export class RiskManager {
         riskAmount: 0,
         riskPercent: 0,
         stopLossPips: originalStopLossPips,
-        pipValue,
+        pipValueMonetary: 0,
         canTrade: false,
         reason: `Stop Loss inválido (${originalStopLossPips} pips). Mínimo: ${MIN_SL_PIPS} pips.`,
         volumeAdjusted: false,
       };
     }
     
+    // ============= CÁLCULO DO PIP VALUE MONETÁRIO (CORREÇÃO CRÍTICA) =============
+    // Esta é a correção principal do bug de 147 lotes
+    const pipValueMonetary = calculateMonetaryPipValue(symbol, conversionRates, 1.0);
+    
+    // Validar pip value monetário
+    if (pipValueMonetary <= 0) {
+      console.error(`[RiskManager] ❌ ERRO CRÍTICO: Pip Value Monetário inválido (${pipValueMonetary}) para ${symbol}`);
+      return {
+        lotSize: 0,
+        volumeInCents: 0,
+        riskAmount: 0,
+        riskPercent: 0,
+        stopLossPips: originalStopLossPips,
+        pipValueMonetary: 0,
+        canTrade: false,
+        reason: `Pip Value Monetário inválido para ${symbol}. Verifique as taxas de conversão.`,
+        volumeAdjusted: false,
+      };
+    }
+    
     // CORREÇÃO DEFINITIVA: Defaults em CENTS (protocolo cTrader)
-    // Matemática:
-    // - 1 Lote = 100,000 Unidades = 10,000,000 Cents
-    // - 0.01 Lotes = 1,000 Unidades = 100,000 Cents
     const specs: VolumeSpecs = volumeSpecs || {
       minVolume: 100000,           // 0.01 lotes = 100,000 cents
       maxVolume: 100000000000000,  // 10,000 lotes = 100 trilhões de cents
       stepVolume: 100000,          // 0.01 lotes = 100,000 cents
     };
     
+    // ============= CÁLCULO DO LOTE (FÓRMULA CORRIGIDA) =============
     // Calcular risco em USD
     const riskAmount = accountBalance * (this.config.riskPercentage / 100);
     
-    // Calcular tamanho do lote bruto USANDO SL EFETIVO (protegido)
-    let lotSize = riskAmount / (effectiveSL * pipValue);
+    // FÓRMULA CORRIGIDA: lotSize = riskAmount / (stopLossPips × pipValueMonetary)
+    // Exemplo EURJPY: $10.06 / (6.8 × $6.29) = 0.235 lotes ✅
+    // Antes (ERRADO): $10.06 / (6.8 × 0.01) = 147.9 lotes ❌
+    let lotSize = riskAmount / (effectiveSL * pipValueMonetary);
     const originalLotSize = lotSize;
     
-    // CORREÇÃO DEFINITIVA: Converter para CENTS (1 lote = 10,000,000 cents)
-    let volumeInCents = Math.round(lotSize * 10000000);
+    // ============= SECURITY BLOCK: Limite máximo de segurança =============
+    if (lotSize > MAX_SECURITY_LOT_SIZE) {
+      console.error("═══════════════════════════════════════════════════════════════");
+      console.error(`[RiskManager] ❌ SECURITY BLOCK: Volume ${lotSize.toFixed(4)} lotes excede o limite de segurança de ${MAX_SECURITY_LOT_SIZE} lotes.`);
+      console.error(`[RiskManager] Detalhes do cálculo:`);
+      console.error(`  - Balance: $${accountBalance.toFixed(2)}`);
+      console.error(`  - Risco: ${this.config.riskPercentage}% = $${riskAmount.toFixed(2)}`);
+      console.error(`  - SL: ${effectiveSL.toFixed(2)} pips`);
+      console.error(`  - Pip Value Monetário: $${pipValueMonetary.toFixed(4)}`);
+      console.error(`  - Símbolo: ${symbol}`);
+      console.error(`  - Taxas de conversão: ${JSON.stringify(conversionRates)}`);
+      console.error("═══════════════════════════════════════════════════════════════");
+      
+      return {
+        lotSize: 0,
+        volumeInCents: 0,
+        riskAmount,
+        riskPercent: this.config.riskPercentage,
+        stopLossPips: originalStopLossPips,
+        pipValueMonetary,
+        canTrade: false,
+        reason: `SECURITY BLOCK: Volume ${lotSize.toFixed(4)} lotes excede o limite de segurança de ${MAX_SECURITY_LOT_SIZE} lotes.`,
+        volumeAdjusted: false,
+        originalLotSize,
+      };
+    }
     
     // ============= NORMALIZAÇÃO DE VOLUME (cTrader API) =============
+    // Converter para CENTS (1 lote = 10,000,000 cents)
+    let volumeInCents = Math.round(lotSize * 10000000);
+    
     // 1. Arredondar para o stepVolume mais próximo (PARA BAIXO)
     volumeInCents = Math.floor(volumeInCents / specs.stepVolume) * specs.stepVolume;
     
@@ -310,22 +375,21 @@ export class RiskManager {
       volumeInCents = specs.maxVolume;
     }
     
-    // CORREÇÃO DEFINITIVA: Converter de volta para lotes (1 lote = 10,000,000 cents)
+    // Converter de volta para lotes
     lotSize = volumeInCents / 10000000;
     
-    // CORREÇÃO 2026-01-10: Arredondar para 2 casas decimais (precisão padrão de lotes)
-    // Isso evita valores como 0.0134 que causam erro "Lote deve estar entre 0.01 e 100"
+    // Arredondar para 2 casas decimais
     lotSize = Math.round(lotSize * 100) / 100;
     
     // Verificar se o volume foi ajustado
     const volumeAdjusted = Math.abs(lotSize - originalLotSize) > 0.0001;
     
-    // Verificar se o volume mínimo excede o risco permitido
-    const minLotSize = specs.minVolume / 10000000;
-    const actualRiskAmount = lotSize * stopLossPips * pipValue;
+    // Calcular risco real após normalização
+    const actualRiskAmount = lotSize * stopLossPips * pipValueMonetary;
     const actualRiskPercent = (actualRiskAmount / accountBalance) * 100;
     
-    // Se o volume mínimo resultar em risco > 2x o configurado, bloquear
+    // Verificar se o volume mínimo excede o risco permitido (2x limite)
+    const minLotSize = specs.minVolume / 10000000;
     if (actualRiskPercent > this.config.riskPercentage * 2) {
       console.log(`[RiskManager] ❌ Volume mínimo (${minLotSize} lotes) excede limite de risco seguro`);
       console.log(`  - Risco real: ${actualRiskPercent.toFixed(2)}% vs configurado: ${this.config.riskPercentage}%`);
@@ -335,7 +399,7 @@ export class RiskManager {
         riskAmount: 0,
         riskPercent: 0,
         stopLossPips,
-        pipValue,
+        pipValueMonetary,
         canTrade: false,
         reason: `Volume mínimo (${minLotSize} lotes) excede risco permitido (${actualRiskPercent.toFixed(1)}% > ${this.config.riskPercentage * 2}%)`,
         volumeAdjusted: true,
@@ -343,22 +407,31 @@ export class RiskManager {
       };
     }
     
-    console.log(`[RiskManager] Cálculo de posição:`);
-    console.log(`  - Balance: $${accountBalance.toFixed(2)}`);
-    console.log(`  - Risco configurado: ${this.config.riskPercentage}% = $${riskAmount.toFixed(2)}`);
-    // CORREÇÃO 2026-01-13: Mostrar SL original e efetivo
-    console.log(`  - SL original: ${originalStopLossPips.toFixed(2)} pips | SL efetivo: ${effectiveSL.toFixed(2)} pips (mín: ${MIN_SL_PIPS} pips)`);
-    console.log(`  - Pip Value: $${pipValue}`);
-    console.log(`  - Volume Specs: min=${specs.minVolume} cents (${minLotSize} lotes), max=${specs.maxVolume} cents, step=${specs.stepVolume} cents`);
-    console.log(`  - Lote bruto: ${originalLotSize.toFixed(4)}`);
-    console.log(`  - Lote normalizado: ${lotSize} lotes (${volumeInCents} cents)`);
-    console.log(`  - Risco real: ${actualRiskPercent.toFixed(2)}% = $${actualRiskAmount.toFixed(2)}`);
+    // ============= LOG DETALHADO DO CÁLCULO =============
+    console.log(`[RiskManager] ═══════════════════════════════════════════════════════════════`);
+    console.log(`[RiskManager] 📊 CÁLCULO DE POSIÇÃO (v2.0 - CORRIGIDO)`);
+    console.log(`[RiskManager] ═══════════════════════════════════════════════════════════════`);
+    console.log(`[RiskManager]   Símbolo: ${symbol}`);
+    console.log(`[RiskManager]   Balance: $${accountBalance.toFixed(2)}`);
+    console.log(`[RiskManager]   Risco configurado: ${this.config.riskPercentage}% = $${riskAmount.toFixed(2)}`);
+    console.log(`[RiskManager]   SL original: ${originalStopLossPips.toFixed(2)} pips | SL efetivo: ${effectiveSL.toFixed(2)} pips`);
+    console.log(`[RiskManager]   ✅ Pip Value Monetário: $${pipValueMonetary.toFixed(4)} (por lote standard)`);
+    console.log(`[RiskManager]   Taxas de conversão: ${JSON.stringify(conversionRates)}`);
+    console.log(`[RiskManager]   Volume Specs: min=${specs.minVolume} cents (${minLotSize} lotes), step=${specs.stepVolume} cents`);
+    console.log(`[RiskManager]   ───────────────────────────────────────────────────────────────`);
+    console.log(`[RiskManager]   Fórmula: lotSize = riskAmount / (SL × pipValueMonetary)`);
+    console.log(`[RiskManager]   Cálculo: ${riskAmount.toFixed(2)} / (${effectiveSL.toFixed(2)} × ${pipValueMonetary.toFixed(4)}) = ${originalLotSize.toFixed(4)}`);
+    console.log(`[RiskManager]   ───────────────────────────────────────────────────────────────`);
+    console.log(`[RiskManager]   Lote bruto: ${originalLotSize.toFixed(4)}`);
+    console.log(`[RiskManager]   Lote normalizado: ${lotSize} lotes (${volumeInCents} cents)`);
+    console.log(`[RiskManager]   Risco real: ${actualRiskPercent.toFixed(2)}% = $${actualRiskAmount.toFixed(2)}`);
     if (originalStopLossPips < MIN_SL_PIPS) {
-      console.log(`  - 🛡️ PROTEÇÃO SL MÍNIMO: SL ajustado de ${originalStopLossPips.toFixed(2)} para ${effectiveSL.toFixed(2)} pips`);
+      console.log(`[RiskManager]   🛡️ PROTEÇÃO SL MÍNIMO: SL ajustado de ${originalStopLossPips.toFixed(2)} para ${effectiveSL.toFixed(2)} pips`);
     }
     if (volumeAdjusted) {
-      console.log(`  - ⚠️ VOLUME AJUSTADO para respeitar limites da corretora`);
+      console.log(`[RiskManager]   ⚠️ VOLUME AJUSTADO para respeitar limites da corretora`);
     }
+    console.log(`[RiskManager] ═══════════════════════════════════════════════════════════════`);
     
     return {
       lotSize,
@@ -366,7 +439,7 @@ export class RiskManager {
       riskAmount: actualRiskAmount,
       riskPercent: actualRiskPercent,
       stopLossPips,
-      pipValue,
+      pipValueMonetary,
       canTrade: true,
       reason: "OK",
       volumeAdjusted,
