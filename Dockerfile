@@ -18,12 +18,12 @@ COPY patches ./patches
 # Instalar dependências
 RUN pnpm install --frozen-lockfile
 
-# Copiar código fonte (excluindo arquivos do .dockerignore)
+# Copiar código fonte (estrutura correta do projeto)
 COPY client ./client
 COPY server ./server
 COPY shared ./shared
 COPY drizzle ./drizzle
-COPY index.html vite.config.ts tsconfig.json tailwind.config.ts postcss.config.mjs ./
+COPY vite.config.ts tsconfig.json drizzle.config.ts ./
 
 # Build do projeto (frontend + backend)
 RUN pnpm build
