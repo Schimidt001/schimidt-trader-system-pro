@@ -979,19 +979,28 @@ export async function getForexPositionHistory(
 
 /**
  * Obtém estatísticas de posições Forex do dia
+ * CORREÇÃO 2026-01-13: Corrigido problema de timezone
+ * - Usa UTC para garantir consistência entre servidor e banco de dados
+ * - Inclui posições abertas E fechadas hoje (baseado em openTime)
  */
 export async function getForexDailyStats(userId: number, botId: number = 1): Promise<{
   totalTrades: number;
   wins: number;
   losses: number;
   pnlUsd: number;
+  openPositions: number;
 }> {
   const db = await getDb();
-  if (!db) return { totalTrades: 0, wins: 0, losses: 0, pnlUsd: 0 };
+  if (!db) return { totalTrades: 0, wins: 0, losses: 0, pnlUsd: 0, openPositions: 0 };
   
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // CORREÇÃO: Usar UTC para evitar problemas de timezone
+  // O banco de dados armazena timestamps em UTC
+  const now = new Date();
+  const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
   
+  console.log(`[DB] getForexDailyStats - Today UTC: ${todayUTC.toISOString()}`);
+  
+  // Buscar TODAS as posições abertas hoje (independente do status)
   const positions = await db
     .select()
     .from(forexPositions)
@@ -999,20 +1008,26 @@ export async function getForexDailyStats(userId: number, botId: number = 1): Pro
       and(
         eq(forexPositions.userId, userId),
         eq(forexPositions.botId, botId),
-        eq(forexPositions.status, "CLOSED"),
-        gte(forexPositions.closeTime, today)
+        gte(forexPositions.openTime, todayUTC)
       )
     );
+  
+  console.log(`[DB] getForexDailyStats - Found ${positions.length} positions today`);
   
   let wins = 0;
   let losses = 0;
   let pnlUsd = 0;
+  let openPositions = 0;
   
   for (const pos of positions) {
-    const pnl = Number(pos.pnlUsd || 0);
-    pnlUsd += pnl;
-    if (pnl > 0) wins++;
-    else if (pnl < 0) losses++;
+    if (pos.status === "OPEN") {
+      openPositions++;
+    } else if (pos.status === "CLOSED") {
+      const pnl = Number(pos.pnlUsd || 0);
+      pnlUsd += pnl;
+      if (pnl > 0) wins++;
+      else if (pnl < 0) losses++;
+    }
   }
   
   return {
@@ -1020,26 +1035,28 @@ export async function getForexDailyStats(userId: number, botId: number = 1): Pro
     wins,
     losses,
     pnlUsd,
+    openPositions,
   };
 }
 
 
 /**
  * Obtém estatísticas de posições Forex do mês
+ * CORREÇÃO 2026-01-13: Corrigido problema de timezone (usar UTC)
  */
 export async function getForexMonthlyStats(userId: number, botId: number = 1): Promise<{
   totalTrades: number;
   wins: number;
   losses: number;
   pnlUsd: number;
+  openPositions: number;
 }> {
   const db = await getDb();
-  if (!db) return { totalTrades: 0, wins: 0, losses: 0, pnlUsd: 0 };
+  if (!db) return { totalTrades: 0, wins: 0, losses: 0, pnlUsd: 0, openPositions: 0 };
   
-  // Primeiro dia do mês atual
+  // CORREÇÃO: Usar UTC para evitar problemas de timezone
   const now = new Date();
-  const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  firstDayOfMonth.setHours(0, 0, 0, 0);
+  const firstDayOfMonthUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
   
   const positions = await db
     .select()
@@ -1048,20 +1065,24 @@ export async function getForexMonthlyStats(userId: number, botId: number = 1): P
       and(
         eq(forexPositions.userId, userId),
         eq(forexPositions.botId, botId),
-        eq(forexPositions.status, "CLOSED"),
-        gte(forexPositions.closeTime, firstDayOfMonth)
+        gte(forexPositions.openTime, firstDayOfMonthUTC)
       )
     );
   
   let wins = 0;
   let losses = 0;
   let pnlUsd = 0;
+  let openPositions = 0;
   
   for (const pos of positions) {
-    const pnl = Number(pos.pnlUsd || 0);
-    pnlUsd += pnl;
-    if (pnl > 0) wins++;
-    else if (pnl < 0) losses++;
+    if (pos.status === "OPEN") {
+      openPositions++;
+    } else if (pos.status === "CLOSED") {
+      const pnl = Number(pos.pnlUsd || 0);
+      pnlUsd += pnl;
+      if (pnl > 0) wins++;
+      else if (pnl < 0) losses++;
+    }
   }
   
   return {
@@ -1069,6 +1090,7 @@ export async function getForexMonthlyStats(userId: number, botId: number = 1): P
     wins,
     losses,
     pnlUsd,
+    openPositions,
   };
 }
 

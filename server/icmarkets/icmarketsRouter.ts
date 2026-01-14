@@ -923,6 +923,7 @@ export const icmarketsRouter = router({
           wins: dailyStats.wins,
           losses: dailyStats.losses,
           pnlUsd: dailyStats.pnlUsd,
+          openPositions: dailyStats.openPositions,
           winRate: dailyStats.totalTrades > 0 
             ? ((dailyStats.wins / dailyStats.totalTrades) * 100).toFixed(1) 
             : "0.0",
@@ -932,6 +933,7 @@ export const icmarketsRouter = router({
           wins: monthlyStats.wins,
           losses: monthlyStats.losses,
           pnlUsd: monthlyStats.pnlUsd,
+          openPositions: monthlyStats.openPositions,
           winRate: monthlyStats.totalTrades > 0 
             ? ((monthlyStats.wins / monthlyStats.totalTrades) * 100).toFixed(1) 
             : "0.0",

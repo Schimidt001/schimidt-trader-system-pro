@@ -11,6 +11,14 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import {
+  getSymbolLabel,
+  formatPrice,
+  formatLots,
+  formatPnL,
+  getDirectionClasses,
+  getPnLClasses,
+} from "@/lib/forexUtils";
 import { SmartChart } from "@/components/SmartChart";
 // DrawingLine e Annotation agora são definidos no SmartChart
 interface DrawingLine {
@@ -841,49 +849,46 @@ export default function ICMarketsDashboard() {
                   </div>
                 ) : positionsQuery.data?.live && positionsQuery.data.live.length > 0 ? (
                   <div className="space-y-3">
-                    {positionsQuery.data.live.map((position) => (
-                      <div
-                        key={position.positionId}
-                        className={`p-3 rounded-lg border ${
-                          position.direction === "BUY"
-                            ? "bg-green-500/10 border-green-500/30"
-                            : "bg-red-500/10 border-red-500/30"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <Badge variant={position.direction === "BUY" ? "default" : "destructive"}>
-                              {position.direction}
-                            </Badge>
-                            <span className="text-white font-medium">{position.symbol}</span>
-                          </div>
-                          <span className="text-slate-400 text-sm">{position.size} lotes</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>
-                            <p className="text-slate-400">Entrada</p>
-                            <p className="text-white font-mono">{position.entryPrice.toFixed(5)}</p>
-                          </div>
-                          <div>
-                            <p className="text-slate-400">P&L</p>
-                            <p className={`font-mono ${
-                              position.unrealizedPnL >= 0 ? "text-green-400" : "text-red-400"
-                            }`}>
-                              ${position.unrealizedPnL.toFixed(2)}
-                            </p>
-                          </div>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleClosePosition(position.positionId)}
-                          disabled={closePositionMutation.isPending}
-                          className="w-full mt-2"
+                    {positionsQuery.data.live.map((position) => {
+                      const dirClasses = getDirectionClasses(position.direction);
+                      return (
+                        <div
+                          key={position.positionId}
+                          className={`p-3 rounded-lg border ${dirClasses.bg} ${dirClasses.border}`}
                         >
-                          Fechar Posição
-                        </Button>
-                      </div>
-                    ))}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Badge className={dirClasses.badge}>
+                                {position.direction}
+                              </Badge>
+                              <span className="text-white font-medium">{getSymbolLabel(position.symbol)}</span>
+                            </div>
+                            <span className="text-slate-400 text-sm font-mono">{formatLots(position.size)} lotes</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div>
+                              <p className="text-slate-400">Entrada</p>
+                              <p className="text-white font-mono">{formatPrice(position.entryPrice, position.symbol)}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-400">P&L</p>
+                              <p className={`font-mono font-bold ${getPnLClasses(position.unrealizedPnL)}`}>
+                                {formatPnL(position.unrealizedPnL)}
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleClosePosition(position.positionId)}
+                            disabled={closePositionMutation.isPending}
+                            className="w-full mt-2"
+                          >
+                            Fechar Posição
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-center py-8 text-slate-400">

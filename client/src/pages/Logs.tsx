@@ -1,6 +1,19 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
+import {
+  getSymbolLabel,
+  formatPrice,
+  formatLots,
+  formatPnL,
+  formatPips,
+  getDirectionString,
+  formatDateTime,
+  formatDateTimeShort,
+  getDirectionClasses,
+  getPnLClasses,
+  getStatusClasses,
+} from "@/lib/forexUtils";
 import { 
   Loader2, Activity, Clock, TrendingUp, AlertCircle, Wifi, WifiOff, 
   DollarSign, Target, Terminal, Filter, Trash2, RefreshCw, Zap,
@@ -742,41 +755,45 @@ function ICMarketsLogsContent({ connectionStatus, positions, positionHistory, se
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {positions.map((position) => (
-                      <div
-                        key={position.id}
-                        className="flex items-center justify-between p-4 bg-slate-800/60 rounded-xl border border-slate-700/50 hover:border-blue-600/50 transition-all duration-200"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className={`p-2 rounded-lg ${position.direction === "BUY" ? "bg-green-500/20" : "bg-red-500/20"}`}>
-                            {position.direction === "BUY" ? (
-                              <TrendingUp className={`w-5 h-5 ${getDirectionColor(position.direction)}`} />
-                            ) : (
-                              <AlertCircle className={`w-5 h-5 ${getDirectionColor(position.direction)}`} />
-                            )}
+                    {positions.map((position) => {
+                      const dirClasses = getDirectionClasses(position.direction);
+                      const direction = getDirectionString(position.direction);
+                      return (
+                        <div
+                          key={position.id}
+                          className={`flex items-center justify-between p-4 bg-slate-800/60 rounded-xl border ${dirClasses.border} hover:border-blue-600/50 transition-all duration-200`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`p-2 rounded-lg ${dirClasses.bg}`}>
+                              {direction === "BUY" ? (
+                                <TrendingUp className={`w-5 h-5 ${dirClasses.text}`} />
+                              ) : (
+                                <AlertCircle className={`w-5 h-5 ${dirClasses.text}`} />
+                              )}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-white font-semibold">{getSymbolLabel(position.symbol)}</span>
+                                <Badge className={dirClasses.badge}>
+                                  {direction}
+                                </Badge>
+                              </div>
+                              <div className="text-xs text-slate-500 font-mono">
+                                {formatLots(position.lots)} lotes | Entrada: {formatPrice(position.entryPrice, position.symbol)}
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-white font-semibold">{position.symbol}</span>
-                              <span className={`text-sm font-medium ${getDirectionColor(position.direction)}`}>
-                                {position.direction}
-                              </span>
+                          <div className="text-right">
+                            <div className={`text-lg font-bold ${getPnLClasses(position.pnlUsd)}`}>
+                              {formatPnL(position.pnlUsd)}
                             </div>
                             <div className="text-xs text-slate-500">
-                              Lotes: {position.lots} | Entrada: {position.entryPrice}
+                              {formatPips(position.pnlPips)}
                             </div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <div className={`text-lg font-bold ${getPnLColor(position.pnlUsd)}`}>
-                            {position.pnlUsd !== null ? `$${Number(position.pnlUsd).toFixed(2)}` : "-"}
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            {position.pnlPips !== null ? `${Number(position.pnlPips).toFixed(1)} pips` : "-"}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -802,33 +819,40 @@ function ICMarketsLogsContent({ connectionStatus, positions, positionHistory, se
                   <div className="text-center py-8 text-slate-400">Nenhuma posição no histórico</div>
                 ) : (
                   <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                    {positionHistory.map((position) => (
-                      <div
-                        key={position.id}
-                        className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-slate-600 transition-colors"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-28 text-xs text-slate-500 font-mono">
-                            {formatDateTime(position.closeTime)}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-white font-medium">{position.symbol}</span>
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded ${getDirectionColor(position.direction)} bg-slate-800`}>
-                              {position.direction}
+                    {positionHistory.map((position) => {
+                      const dirClasses = getDirectionClasses(position.direction);
+                      const direction = getDirectionString(position.direction);
+                      const statusClasses = getStatusClasses(position.status);
+                      return (
+                        <div
+                          key={position.id}
+                          className={`flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border ${dirClasses.border} hover:border-slate-600 transition-colors`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="w-32 text-xs text-slate-500 font-mono">
+                              {formatDateTimeShort(position.closeTime)}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-white font-medium">{getSymbolLabel(position.symbol)}</span>
+                              <Badge className={dirClasses.badge}>
+                                {direction}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-slate-500 font-mono">
+                              {formatLots(position.lots)} lotes
                             </span>
                           </div>
-                          <span className="text-xs text-slate-500">
-                            {position.lots} lotes
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          {getStatusBadge(position.status)}
-                          <div className={`text-sm font-bold ${getPnLColor(position.pnlUsd)}`}>
-                            {position.pnlUsd !== null ? `$${Number(position.pnlUsd).toFixed(2)}` : "-"}
+                          <div className="flex items-center gap-4">
+                            <Badge className={statusClasses.badge}>
+                              {position.status === "CLOSED" ? "FECHADA" : position.status}
+                            </Badge>
+                            <div className={`text-sm font-bold min-w-[80px] text-right ${getPnLClasses(position.pnlUsd)}`}>
+                              {formatPnL(position.pnlUsd)}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
