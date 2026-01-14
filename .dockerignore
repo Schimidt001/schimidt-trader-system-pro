@@ -35,10 +35,6 @@ tmp
 temp
 *.tmp
 
-# Backups and data
-backups
-data
-
 # Documentation
 README.md
 DEPLOY_MANUS.md

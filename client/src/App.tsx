@@ -12,7 +12,8 @@ import SettingsMultiBroker from "./pages/SettingsMultiBroker";
 import Logs from "./pages/Logs";
 import MarketCalendar from "./pages/MarketCalendar";
 import AdminUsers from "./pages/AdminUsers";
-import Laboratory from "./pages/Laboratory";
+import Backtest from "./pages/Backtest";
+import BacktestLab from "./pages/BacktestLab";
 import { useAuth } from "./_core/hooks/useAuth";
 import { getLoginUrl } from "./const";
 import { CinematicLogin } from "./components/CinematicLogin";
@@ -51,7 +52,8 @@ function Navigation() {
     { path: "/market", label: "Mercado", icon: Calendar },
     { path: "/settings", label: "Configurações", icon: SettingsIcon },
     { path: "/logs", label: "Logs", icon: FileText },
-    { path: "/laboratory", label: "Laboratório", icon: FlaskConical },
+    { path: "/backtest", label: "Backtest", icon: FlaskConical },
+    { path: "/backtest-lab", label: "Lab", icon: FlaskConical },
   ];
   
   // Adicionar item de admin se usuário for admin
@@ -191,10 +193,8 @@ function Router() {
         <Route path="/settings-legacy" component={Settings} />
         <Route path="/logs" component={Logs} />
         <Route path="/admin/users" component={AdminUsers} />
-        <Route path="/laboratory" component={Laboratory} />
-        {/* Redirect antigos para o novo laboratório unificado */}
-        <Route path="/backtest">{() => { window.location.href = '/laboratory'; return null; }}</Route>
-        <Route path="/backtest-lab">{() => { window.location.href = '/laboratory'; return null; }}</Route>
+        <Route path="/backtest" component={Backtest} />
+        <Route path="/backtest-lab" component={BacktestLab} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
