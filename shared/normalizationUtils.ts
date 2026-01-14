@@ -87,15 +87,21 @@ export enum SymbolType {
 
 /**
  * Interface para taxas de conversão necessárias
+ * 
+ * CORREÇÃO CRÍTICA 2026-01-14:
+ * - Adicionado currentPrice para pares USD_BASE (USDCAD, USDCHF)
+ * - O preço atual do próprio par É a taxa de conversão necessária
  */
 export interface ConversionRates {
-  USDJPY?: number;   // Taxa USD/JPY (necessária para pares JPY)
+  USDJPY?: number;   // Taxa USD/JPY (necessária para pares JPY e USDJPY)
   EURUSD?: number;   // Taxa EUR/USD (para conversão de pares EUR cross)
   GBPUSD?: number;   // Taxa GBP/USD (para conversão de pares GBP cross)
   AUDUSD?: number;   // Taxa AUD/USD (para conversão de pares AUD cross)
   NZDUSD?: number;   // Taxa NZD/USD (para conversão de pares NZD cross)
-  USDCAD?: number;   // Taxa USD/CAD (para conversão de pares CAD)
-  USDCHF?: number;   // Taxa USD/CHF (para conversão de pares CHF)
+  USDCAD?: number;   // Taxa USD/CAD (para USDCAD e pares CAD cross)
+  USDCHF?: number;   // Taxa USD/CHF (para USDCHF e pares CHF cross)
+  // Preço atual do símbolo sendo operado (usado como fallback para USD_BASE)
+  currentPrice?: number;
 }
 
 /**
@@ -252,21 +258,40 @@ export function calculateMonetaryPipValue(
       return basePipValue;
     
     case SymbolType.USD_BASE:
-      // Pares USD/XXX: dividir pela taxa do próprio par
+      // CORREÇÃO CRÍTICA 2026-01-14: Pares USD/XXX
+      // Para pares onde USD é a moeda base, a taxa de conversão É o preço do próprio par
+      // Fórmula: Pip Value (USD) = (Lot Size × Pip Size) / Exchange Rate
+      // Ex: USDCAD @ 1.39 = (100,000 × 0.0001) / 1.39 = $7.19
       // Ex: USDJPY @ 159.00 = (100,000 × 0.01) / 159.00 = $6.29
-      const usdBaseRate = conversionRates.USDJPY || conversionRates.USDCAD || conversionRates.USDCHF;
+      
+      // 1. Tentar usar a taxa específica do par
       if (symbol === "USDJPY" && conversionRates.USDJPY) {
+        console.log(`[calculateMonetaryPipValue] USDJPY: usando taxa ${conversionRates.USDJPY.toFixed(3)}`);
         return basePipValue / conversionRates.USDJPY;
       }
       if (symbol === "USDCAD" && conversionRates.USDCAD) {
+        console.log(`[calculateMonetaryPipValue] USDCAD: usando taxa ${conversionRates.USDCAD.toFixed(5)}`);
         return basePipValue / conversionRates.USDCAD;
       }
       if (symbol === "USDCHF" && conversionRates.USDCHF) {
+        console.log(`[calculateMonetaryPipValue] USDCHF: usando taxa ${conversionRates.USDCHF.toFixed(5)}`);
         return basePipValue / conversionRates.USDCHF;
       }
-      // Fallback: usar taxa estimada se não disponível
-      console.warn(`[calculateMonetaryPipValue] Taxa de conversão não disponível para ${symbol}, usando estimativa`);
-      return basePipValue / 150; // Estimativa conservadora
+      
+      // 2. FALLBACK INTELIGENTE: usar currentPrice se disponível
+      // O preço atual do par É a taxa de conversão para pares USD_BASE
+      if (conversionRates.currentPrice && conversionRates.currentPrice > 0) {
+        console.log(`[calculateMonetaryPipValue] ${symbol}: usando currentPrice ${conversionRates.currentPrice.toFixed(5)} como taxa de conversão`);
+        return basePipValue / conversionRates.currentPrice;
+      }
+      
+      // 3. ERRO CRÍTICO: Não temos taxa de conversão
+      // Retornar um valor que vai causar SECURITY BLOCK ao invés de calcular errado
+      console.error(`[calculateMonetaryPipValue] ❌ ERRO CRÍTICO: Taxa de conversão não disponível para ${symbol}`);
+      console.error(`[calculateMonetaryPipValue] ❌ Taxas recebidas: ${JSON.stringify(conversionRates)}`);
+      console.error(`[calculateMonetaryPipValue] ❌ SOLUÇÃO: Adicionar ${symbol} ou currentPrice nas conversionRates`);
+      // Retornar 0 para forçar o SECURITY BLOCK - melhor bloquear do que calcular errado
+      return 0
     
     case SymbolType.JPY_QUOTE:
       // Pares XXX/JPY: dividir pela taxa USDJPY

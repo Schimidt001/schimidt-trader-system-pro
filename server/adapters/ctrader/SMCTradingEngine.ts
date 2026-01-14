@@ -559,48 +559,84 @@ export class SMCTradingEngine extends EventEmitter {
    * Obtém configuração SMC do banco de dados
    */
   /**
-   * CORREÇÃO CRÍTICA 2026-01-13: Obtém taxas de conversão para cálculo correto do pip value monetário
+   * CORREÇÃO CRÍTICA 2026-01-14: Obtém taxas de conversão para cálculo correto do pip value monetário
+   * 
+   * Refatoração completa:
+   * - Adicionado suporte a USDCAD, USDCHF, NZDUSD
+   * - Adicionado currentPrice para pares USD_BASE
    * 
    * Essas taxas são necessárias para converter o valor do pip para USD em pares:
+   * - Direct pairs (EURUSD, etc.) - não precisa de conversão
+   * - Indirect pairs (USDJPY, USDCAD, USDCHF) - precisa da taxa do próprio par
    * - JPY (EURJPY, GBPJPY, etc.) - precisa de USDJPY
    * - Cross pairs (EURGBP, etc.) - precisa da taxa da moeda de cotação
+   * 
+   * @param symbol - Símbolo atual sendo operado (opcional, usado para currentPrice)
    */
-  private async getConversionRates(): Promise<ConversionRates> {
+  private async getConversionRates(symbol?: string): Promise<ConversionRates> {
     const rates: ConversionRates = {};
     
     try {
-      // Obter taxa USDJPY (essencial para pares JPY)
+      // ============= PARES ESSENCIAIS PARA CONVERSÃO =============
+      
+      // USDJPY - essencial para pares JPY e USDJPY
       const usdjpyPrice = await ctraderAdapter.getPrice("USDJPY");
       if (usdjpyPrice && usdjpyPrice.bid > 0) {
         rates.USDJPY = (usdjpyPrice.bid + usdjpyPrice.ask) / 2;
       }
       
-      // Obter taxa EURUSD
+      // EURUSD - para pares EUR cross
       const eurusdPrice = await ctraderAdapter.getPrice("EURUSD");
       if (eurusdPrice && eurusdPrice.bid > 0) {
         rates.EURUSD = (eurusdPrice.bid + eurusdPrice.ask) / 2;
       }
       
-      // Obter taxa GBPUSD
+      // GBPUSD - para pares GBP cross
       const gbpusdPrice = await ctraderAdapter.getPrice("GBPUSD");
       if (gbpusdPrice && gbpusdPrice.bid > 0) {
         rates.GBPUSD = (gbpusdPrice.bid + gbpusdPrice.ask) / 2;
       }
       
-      // Obter taxa AUDUSD
+      // AUDUSD - para pares AUD cross
       const audusdPrice = await ctraderAdapter.getPrice("AUDUSD");
       if (audusdPrice && audusdPrice.bid > 0) {
         rates.AUDUSD = (audusdPrice.bid + audusdPrice.ask) / 2;
       }
       
-      console.log(`[SMCTradingEngine] Taxas de conversão obtidas: USDJPY=${rates.USDJPY?.toFixed(3)}, EURUSD=${rates.EURUSD?.toFixed(5)}, GBPUSD=${rates.GBPUSD?.toFixed(5)}`);
+      // ============= CORREÇÃO 2026-01-14: PARES USD_BASE =============
+      
+      // USDCAD - essencial para USDCAD e pares CAD cross
+      const usdcadPrice = await ctraderAdapter.getPrice("USDCAD");
+      if (usdcadPrice && usdcadPrice.bid > 0) {
+        rates.USDCAD = (usdcadPrice.bid + usdcadPrice.ask) / 2;
+      }
+      
+      // USDCHF - essencial para USDCHF e pares CHF cross
+      const usdchfPrice = await ctraderAdapter.getPrice("USDCHF");
+      if (usdchfPrice && usdchfPrice.bid > 0) {
+        rates.USDCHF = (usdchfPrice.bid + usdchfPrice.ask) / 2;
+      }
+      
+      // NZDUSD - para pares NZD cross
+      const nzdusdPrice = await ctraderAdapter.getPrice("NZDUSD");
+      if (nzdusdPrice && nzdusdPrice.bid > 0) {
+        rates.NZDUSD = (nzdusdPrice.bid + nzdusdPrice.ask) / 2;
+      }
+      
+      // ============= FALLBACK: PREÇO ATUAL DO SÍMBOLO =============
+      // Se um símbolo foi especificado, obter seu preço atual como fallback
+      if (symbol) {
+        const currentSymbolPrice = await ctraderAdapter.getPrice(symbol);
+        if (currentSymbolPrice && currentSymbolPrice.bid > 0) {
+          rates.currentPrice = (currentSymbolPrice.bid + currentSymbolPrice.ask) / 2;
+        }
+      }
+      
+      console.log(`[SMCTradingEngine] Taxas de conversão obtidas: USDJPY=${rates.USDJPY?.toFixed(3)}, EURUSD=${rates.EURUSD?.toFixed(5)}, GBPUSD=${rates.GBPUSD?.toFixed(5)}, USDCAD=${rates.USDCAD?.toFixed(5)}, USDCHF=${rates.USDCHF?.toFixed(5)}`);
     } catch (error) {
-      console.warn(`[SMCTradingEngine] Erro ao obter taxas de conversão, usando estimativas:`, error);
-      // Fallback com valores estimados
-      rates.USDJPY = rates.USDJPY || 150.0;
-      rates.EURUSD = rates.EURUSD || 1.08;
-      rates.GBPUSD = rates.GBPUSD || 1.27;
-      rates.AUDUSD = rates.AUDUSD || 0.65;
+      console.warn(`[SMCTradingEngine] Erro ao obter taxas de conversão:`, error);
+      // NÃO usar fallbacks estimados - melhor bloquear do que calcular errado
+      // O RiskManager vai detectar pip value 0 e bloquear a operação
     }
     
     return rates;
@@ -1382,7 +1418,8 @@ export class SMCTradingEngine extends EventEmitter {
         console.log(`[SMCTradingEngine] Volume specs para ${symbol}: minVol=${volumeSpecs.minVolume} cents (${volumeSpecs.minVolume/10000000} lotes), realMinDetected=${realMinVolume} lotes`);
         
         // CORREÇÃO CRÍTICA 2026-01-13: Obter taxas de conversão para cálculo correto do pip value
-        const conversionRates: ConversionRates = await this.getConversionRates();
+        // CORREÇÃO CRÍTICA 2026-01-14: Passar símbolo para obter currentPrice (essencial para USD_BASE)
+        const conversionRates: ConversionRates = await this.getConversionRates(symbol);
         
         const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, symbol, conversionRates, volumeSpecs);
         if (posSize.canTrade) {
@@ -1406,7 +1443,8 @@ export class SMCTradingEngine extends EventEmitter {
       } catch (volumeError) {
         console.warn(`[SMCTradingEngine] ⚠️ Erro ao obter specs de volume, usando fallback:`, volumeError);
         // Fallback: usar cálculo sem specs (comportamento anterior)
-        const conversionRatesFallback: ConversionRates = await this.getConversionRates();
+        // CORREÇÃO CRÍTICA 2026-01-14: Passar símbolo para obter currentPrice
+        const conversionRatesFallback: ConversionRates = await this.getConversionRates(symbol);
         const posSize = this.riskManager.calculatePositionSize(balance, sltp.stopLossPips, symbol, conversionRatesFallback);
         if (posSize.canTrade) {
           lotSize = posSize.lotSize;
