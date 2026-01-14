@@ -374,19 +374,50 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
   
   /**
    * Load historical data from JSON files
+   * 
+   * HOTFIX 2026-01-14: Added detailed logging and error handling
    */
   async loadHistoricalData(dataPath: string, symbol: string, timeframes: string[]): Promise<void> {
-    console.log(`[BacktestAdapter] Loading data for ${symbol} from ${dataPath}`);
+    // Resolve to absolute path to avoid issues in production environments (Railway, etc.)
+    const absoluteDataPath = path.isAbsolute(dataPath) 
+      ? dataPath 
+      : path.resolve(process.cwd(), dataPath);
+    
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("[BacktestAdapter] 📂 CARREGANDO DADOS HISTÓRICOS");
+    console.log(`[BacktestAdapter] Símbolo: ${symbol}`);
+    console.log(`[BacktestAdapter] Caminho recebido: ${dataPath}`);
+    console.log(`[BacktestAdapter] Caminho absoluto: ${absoluteDataPath}`);
+    console.log(`[BacktestAdapter] Diretório existe? ${fs.existsSync(absoluteDataPath) ? "✅ SIM" : "❌ NÃO"}`);
+    console.log(`[BacktestAdapter] Período: ${this.config.startDate.toISOString()} - ${this.config.endDate.toISOString()}`);
+    console.log("═══════════════════════════════════════════════════════════════");
+    
+    // Check if directory exists
+    if (!fs.existsSync(absoluteDataPath)) {
+      const errorMsg = `Diretório de dados não encontrado: ${absoluteDataPath}`;
+      console.error(`[BacktestAdapter] ❌ ${errorMsg}`);
+      throw new Error(errorMsg);
+    }
+    
+    // List files in directory for debugging
+    const filesInDir = fs.readdirSync(absoluteDataPath);
+    console.log(`[BacktestAdapter] Arquivos no diretório: ${filesInDir.join(", ") || "(vazio)"}`);
     
     if (!this.candleData.has(symbol)) {
       this.candleData.set(symbol, new Map());
     }
     
+    let totalBarsLoaded = 0;
+    
     for (const tf of timeframes) {
-      const filePath = path.join(dataPath, `${symbol}_${tf}.json`);
+      const fileName = `${symbol}_${tf}.json`;
+      const filePath = path.join(absoluteDataPath, fileName);
+      
+      console.log(`[BacktestAdapter] Tentando ler arquivo: ${filePath}`);
+      console.log(`[BacktestAdapter] Arquivo existe? ${fs.existsSync(filePath) ? "✅ SIM" : "❌ NÃO"}`);
       
       if (!fs.existsSync(filePath)) {
-        console.warn(`[BacktestAdapter] Data file not found: ${filePath}`);
+        console.warn(`[BacktestAdapter] ⚠️ Arquivo não encontrado: ${fileName}`);
         continue;
       }
       
@@ -394,21 +425,73 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
         const fileContent = fs.readFileSync(filePath, "utf-8");
         const data: HistoricalDataFile = JSON.parse(fileContent);
         
+        console.log(`[BacktestAdapter] Arquivo lido com sucesso: ${fileName}`);
+        console.log(`[BacktestAdapter] Total de velas no arquivo: ${data.bars?.length || 0}`);
+        
+        if (!data.bars || data.bars.length === 0) {
+          console.warn(`[BacktestAdapter] ⚠️ Arquivo ${fileName} não contém velas`);
+          continue;
+        }
+        
+        // Debug: show first and last bar timestamps
+        const firstBar = data.bars[0];
+        const lastBar = data.bars[data.bars.length - 1];
+        
+        // Detect if timestamps are in seconds or milliseconds
+        // Timestamps in seconds are typically < 10^12, in ms are >= 10^12
+        const isMilliseconds = firstBar.timestamp >= 1e12;
+        console.log(`[BacktestAdapter] Formato de timestamp: ${isMilliseconds ? "milissegundos" : "segundos"}`);
+        console.log(`[BacktestAdapter] Primeira vela: ${new Date(isMilliseconds ? firstBar.timestamp : firstBar.timestamp * 1000).toISOString()}`);
+        console.log(`[BacktestAdapter] Última vela: ${new Date(isMilliseconds ? lastBar.timestamp : lastBar.timestamp * 1000).toISOString()}`);
+        
         // Filter by date range
         const startTime = this.config.startDate.getTime();
         const endTime = this.config.endDate.getTime();
         
+        console.log(`[BacktestAdapter] Filtro - Início: ${new Date(startTime).toISOString()}`);
+        console.log(`[BacktestAdapter] Filtro - Fim: ${new Date(endTime).toISOString()}`);
+        
         const filteredBars = data.bars.filter(bar => {
-          const barTime = bar.timestamp * 1000; // Convert to ms if in seconds
+          // Handle both seconds and milliseconds timestamps
+          const barTime = isMilliseconds ? bar.timestamp : bar.timestamp * 1000;
           return barTime >= startTime && barTime <= endTime;
         });
         
-        this.candleData.get(symbol)!.set(tf, filteredBars);
-        console.log(`[BacktestAdapter] Loaded ${filteredBars.length} bars for ${symbol} ${tf}`);
+        console.log(`[BacktestAdapter] Velas após filtro de data: ${filteredBars.length}`);
+        
+        if (filteredBars.length === 0) {
+          console.warn(`[BacktestAdapter] ⚠️ ATENÇÃO: Nenhuma vela dentro do período selecionado!`);
+          console.warn(`[BacktestAdapter] Período dos dados: ${new Date(isMilliseconds ? firstBar.timestamp : firstBar.timestamp * 1000).toISOString()} - ${new Date(isMilliseconds ? lastBar.timestamp : lastBar.timestamp * 1000).toISOString()}`);
+          console.warn(`[BacktestAdapter] Período solicitado: ${this.config.startDate.toISOString()} - ${this.config.endDate.toISOString()}`);
+        }
+        
+        // Normalize timestamps to milliseconds for internal use
+        const normalizedBars = filteredBars.map(bar => ({
+          ...bar,
+          timestamp: isMilliseconds ? bar.timestamp : bar.timestamp * 1000,
+        }));
+        
+        this.candleData.get(symbol)!.set(tf, normalizedBars);
+        totalBarsLoaded += normalizedBars.length;
+        
+        console.log(`[BacktestAdapter] ✅ Carregadas ${normalizedBars.length} velas para ${symbol} ${tf}`);
         
       } catch (error) {
-        console.error(`[BacktestAdapter] Error loading ${filePath}:`, error);
+        console.error(`[BacktestAdapter] ❌ Erro ao carregar ${filePath}:`, error);
+        throw new Error(`Erro ao carregar dados históricos: ${(error as Error).message}`);
       }
+    }
+    
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log(`[BacktestAdapter] 📊 RESUMO DO CARREGAMENTO`);
+    console.log(`[BacktestAdapter] Total de velas carregadas: ${totalBarsLoaded}`);
+    console.log("═══════════════════════════════════════════════════════════════");
+    
+    // CRITICAL: Throw error if no data loaded
+    if (totalBarsLoaded === 0) {
+      const errorMsg = `Nenhum dado histórico encontrado para ${symbol} no período ${this.config.startDate.toISOString()} - ${this.config.endDate.toISOString()}. Verifique se os dados foram baixados e se o período está correto.`;
+      console.error(`[BacktestAdapter] ❌ ${errorMsg}`);
+      throw new Error(errorMsg);
     }
     
     // Initialize bar index
@@ -444,7 +527,7 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
       symbol,
       bid: bar.close,
       ask: bar.close + spreadPrice,
-      timestamp: bar.timestamp * 1000, // Convert to ms
+      timestamp: bar.timestamp, // Already normalized to ms in loadHistoricalData
       spread,
     };
     
@@ -470,46 +553,78 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
   
   /**
    * Run full backtest simulation
+   * 
+   * HOTFIX 2026-01-14: Added validation and detailed logging
    */
   async runSimulation(): Promise<{
     trades: BacktestTrade[];
     equityCurve: { timestamp: number; equity: number }[];
     drawdownCurve: { timestamp: number; drawdown: number; drawdownPercent: number }[];
   }> {
-    console.log("[BacktestAdapter] Starting simulation...");
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("[BacktestAdapter] 🚀 INICIANDO SIMULAÇÃO");
+    console.log("═══════════════════════════════════════════════════════════════");
     
     this._connectionState = "CONNECTED";
     
     const symbol = this.config.symbol;
     const primaryTimeframe = this.config.timeframes[0] || "M5";
     
-    // Load data
+    console.log(`[BacktestAdapter] Símbolo: ${symbol}`);
+    console.log(`[BacktestAdapter] Timeframe primário: ${primaryTimeframe}`);
+    console.log(`[BacktestAdapter] Caminho dos dados: ${this.config.dataPath}`);
+    
+    // Load data - this will throw if no data found
     await this.loadHistoricalData(this.config.dataPath, symbol, this.config.timeframes);
     
-    // Warm-up period (skip first 200 bars for indicators)
-    const warmupBars = 200;
+    // Validate data was loaded
+    const symbolData = this.candleData.get(symbol);
+    const tfData = symbolData?.get(primaryTimeframe);
+    
+    if (!tfData || tfData.length === 0) {
+      const errorMsg = `Nenhum dado carregado para ${symbol} ${primaryTimeframe}. Verifique se o arquivo existe e contém dados no período selecionado.`;
+      console.error(`[BacktestAdapter] ❌ ${errorMsg}`);
+      throw new Error(errorMsg);
+    }
+    
+    console.log(`[BacktestAdapter] ✅ Dados validados: ${tfData.length} velas disponíveis`);
+    
+    // Adjust warmup based on available data
+    const warmupBars = Math.min(200, Math.floor(tfData.length * 0.1));
+    console.log(`[BacktestAdapter] Período de warmup: ${warmupBars} velas`);
+    
     for (let i = 0; i < warmupBars; i++) {
       if (!this.advanceBar(symbol, primaryTimeframe)) break;
     }
     
-    console.log(`[BacktestAdapter] Warmup complete. Starting main simulation...`);
+    console.log(`[BacktestAdapter] ✅ Warmup completo. Iniciando simulação principal...`);
     
     // Main simulation loop
     let barCount = 0;
+    const startTime = Date.now();
+    
     while (this.advanceBar(symbol, primaryTimeframe)) {
       barCount++;
       
       // Log progress every 1000 bars
       if (barCount % 1000 === 0) {
-        console.log(`[BacktestAdapter] Processed ${barCount} bars...`);
+        const elapsed = (Date.now() - startTime) / 1000;
+        console.log(`[BacktestAdapter] Processadas ${barCount} velas em ${elapsed.toFixed(1)}s...`);
       }
     }
     
     // Close any remaining positions
     this.closeAllPositions(TradeExitReason.END_OF_DATA);
     
-    console.log(`[BacktestAdapter] Simulation complete. Total bars: ${barCount}`);
-    console.log(`[BacktestAdapter] Total trades: ${this.accountState.closedTrades.length}`);
+    const totalTime = (Date.now() - startTime) / 1000;
+    
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("[BacktestAdapter] ✅ SIMULAÇÃO CONCLUÍDA");
+    console.log(`[BacktestAdapter] Total de velas processadas: ${barCount}`);
+    console.log(`[BacktestAdapter] Total de trades: ${this.accountState.closedTrades.length}`);
+    console.log(`[BacktestAdapter] Tempo de execução: ${totalTime.toFixed(2)}s`);
+    console.log(`[BacktestAdapter] Saldo final: $${this.accountState.balance.toFixed(2)}`);
+    console.log("═══════════════════════════════════════════════════════════════");
     
     this._connectionState = "DISCONNECTED";
     
