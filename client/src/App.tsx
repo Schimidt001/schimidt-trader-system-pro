@@ -13,6 +13,7 @@ import Logs from "./pages/Logs";
 import MarketCalendar from "./pages/MarketCalendar";
 import AdminUsers from "./pages/AdminUsers";
 import Backtest from "./pages/Backtest";
+import BacktestLab from "./pages/BacktestLab";
 import { useAuth } from "./_core/hooks/useAuth";
 import { getLoginUrl } from "./const";
 import { CinematicLogin } from "./components/CinematicLogin";
@@ -52,6 +53,7 @@ function Navigation() {
     { path: "/settings", label: "Configurações", icon: SettingsIcon },
     { path: "/logs", label: "Logs", icon: FileText },
     { path: "/backtest", label: "Backtest", icon: FlaskConical },
+    { path: "/backtest-lab", label: "Lab", icon: FlaskConical },
   ];
   
   // Adicionar item de admin se usuário for admin
@@ -192,6 +194,7 @@ function Router() {
         <Route path="/logs" component={Logs} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/backtest" component={Backtest} />
+        <Route path="/backtest-lab" component={BacktestLab} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

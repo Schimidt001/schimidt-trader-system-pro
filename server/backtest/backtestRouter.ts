@@ -6,9 +6,10 @@
  * - Execução de backtests
  * - Consulta de resultados
  * - Status de progresso
+ * - Otimização em lotes (Batch Optimization)
  * 
  * @author Schimidt Trader Pro - Backtest Module
- * @version 1.0.0
+ * @version 2.0.0
  */
 
 import { z } from "zod";
@@ -19,7 +20,17 @@ import * as fs from "fs";
 import { getMarketDataCollector } from "./collectors/MarketDataCollector";
 import { BacktestRunner, DEFAULT_BACKTEST_CONFIG } from "./runners/BacktestRunner";
 import { BacktestOptimizer, OptimizationConfig, OptimizationResult, OptimizationProgress } from "./runners/BacktestOptimizer";
+import { BatchOptimizer, createBatchOptimizer, DEFAULT_BATCH_OPTIMIZATION_CONFIG } from "./runners/BatchOptimizer";
 import { BacktestConfig, BacktestStrategyType, BacktestResult } from "./types/backtest.types";
+import { 
+  BatchOptimizationConfig, 
+  BatchOptimizationResult, 
+  BatchOptimizationProgress,
+  ParameterRange,
+  SMC_PARAMETER_DEFINITIONS,
+  RANKING_CATEGORY_LABELS,
+  RankingCategory,
+} from "./types/batchOptimizer.types";
 import { ctraderAdapter } from "../adapters/CTraderAdapter";
 
 // ============================================================================
@@ -60,7 +71,7 @@ const downloadState: DownloadState = {
   errors: [],
 };
 
-// Store optimization state
+// Store optimization state (legacy)
 interface OptimizationState {
   isRunning: boolean;
   progress: OptimizationProgress | null;
@@ -75,8 +86,29 @@ const optimizationState: OptimizationState = {
   error: null,
 };
 
-// Active optimizer instance (for abort)
+// Active optimizer instance (for abort) - legacy
 let activeOptimizer: BacktestOptimizer | null = null;
+
+// ============================================================================
+// BATCH OPTIMIZATION STATE (NEW)
+// ============================================================================
+
+interface BatchOptimizationState {
+  isRunning: boolean;
+  progress: BatchOptimizationProgress | null;
+  result: BatchOptimizationResult | null;
+  error: string | null;
+}
+
+const batchOptimizationState: BatchOptimizationState = {
+  isRunning: false,
+  progress: null,
+  result: null,
+  error: null,
+};
+
+// Active batch optimizer instance
+let activeBatchOptimizer: BatchOptimizer | null = null;
 
 // ============================================================================
 // SCHEMAS
@@ -101,6 +133,39 @@ const downloadDataSchema = z.object({
   symbols: z.array(z.string()).min(1).default(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
   timeframes: z.array(z.string()).min(1).default(["M5", "H1", "H4"]),
   monthsBack: z.number().min(1).max(24).default(6),
+});
+
+// Schema para parâmetro de otimização
+const parameterRangeSchema = z.object({
+  name: z.string(),
+  label: z.string(),
+  type: z.enum(["number", "boolean", "select"]),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  step: z.number().optional(),
+  options: z.array(z.union([z.string(), z.number()])).optional(),
+  values: z.array(z.union([z.number(), z.string(), z.boolean()])).optional(),
+  enabled: z.boolean(),
+  defaultValue: z.union([z.number(), z.string(), z.boolean()]),
+  category: z.enum(["structure", "sweep", "choch", "orderBlock", "entry", "risk", "session", "trailing", "spread"]),
+  description: z.string().optional(),
+});
+
+// Schema para batch optimization
+const batchOptimizationSchema = z.object({
+  symbol: z.string().min(1),
+  startDate: z.string(),
+  endDate: z.string(),
+  initialBalance: z.number().min(100).default(10000),
+  leverage: z.number().min(1).default(500),
+  commission: z.number().min(0).default(7),
+  slippage: z.number().min(0).default(0.5),
+  spread: z.number().min(0).default(1),
+  strategies: z.array(z.enum(["SMC", "HYBRID", "RSI_VWAP"])).min(1),
+  parameterRanges: z.array(parameterRangeSchema),
+  batchSize: z.number().min(10).max(200).default(50),
+  topResultsToKeep: z.number().min(3).max(20).default(5),
+  rankingCategories: z.array(z.enum(["profitability", "recoveryFactor", "minDrawdown", "winRate"])).default(["profitability", "recoveryFactor", "minDrawdown", "winRate"]),
 });
 
 // ============================================================================
@@ -458,11 +523,11 @@ export const backtestRouter = router({
     }),
 
   // =========================================================================
-  // OPTIMIZATION
+  // LEGACY OPTIMIZATION (mantido para compatibilidade)
   // =========================================================================
 
   /**
-   * Run parameter optimization
+   * Run parameter optimization (legacy)
    */
   runOptimization: protectedProcedure
     .input(z.object({
@@ -569,7 +634,7 @@ export const backtestRouter = router({
     }),
 
   /**
-   * Get optimization status
+   * Get optimization status (legacy)
    */
   getOptimizationStatus: protectedProcedure
     .query(() => {
@@ -581,7 +646,7 @@ export const backtestRouter = router({
     }),
 
   /**
-   * Get optimization results
+   * Get optimization results (legacy)
    */
   getOptimizationResults: protectedProcedure
     .query(() => {
@@ -600,7 +665,7 @@ export const backtestRouter = router({
     }),
 
   /**
-   * Abort running optimization
+   * Abort running optimization (legacy)
    */
   abortOptimization: protectedProcedure
     .mutation(() => {
@@ -614,13 +679,182 @@ export const backtestRouter = router({
     }),
 
   /**
-   * Clear optimization results
+   * Clear optimization results (legacy)
    */
   clearOptimizationResults: protectedProcedure
     .mutation(() => {
       optimizationState.result = null;
       optimizationState.error = null;
       optimizationState.progress = null;
+      return { success: true };
+    }),
+
+  // =========================================================================
+  // BATCH OPTIMIZATION (NEW - Laboratório Avançado)
+  // =========================================================================
+
+  /**
+   * Get available parameters for optimization
+   */
+  getOptimizableParameters: protectedProcedure
+    .query(() => {
+      return {
+        parameters: SMC_PARAMETER_DEFINITIONS,
+        categories: Object.entries(RANKING_CATEGORY_LABELS).map(([key, value]) => ({
+          value: key,
+          label: value.label,
+          icon: value.icon,
+          description: value.description,
+        })),
+      };
+    }),
+
+  /**
+   * Run batch optimization
+   */
+  runBatchOptimization: protectedProcedure
+    .input(batchOptimizationSchema)
+    .mutation(async ({ input }) => {
+      // Check if already running
+      if (batchOptimizationState.isRunning) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Otimização em lotes já em execução",
+        });
+      }
+
+      // Check if data exists
+      const dataPath = path.join(process.cwd(), "data", "candles");
+      const dataFile = path.join(dataPath, `${input.symbol}_M5.json`);
+
+      if (!fs.existsSync(dataFile)) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Dados históricos não encontrados para ${input.symbol}. Baixe os dados primeiro.`,
+        });
+      }
+
+      // Reset state
+      batchOptimizationState.isRunning = true;
+      batchOptimizationState.progress = null;
+      batchOptimizationState.result = null;
+      batchOptimizationState.error = null;
+
+      try {
+        // Build batch optimization config
+        const config: BatchOptimizationConfig = {
+          symbol: input.symbol,
+          startDate: new Date(input.startDate),
+          endDate: new Date(input.endDate),
+          dataPath,
+          initialBalance: input.initialBalance,
+          leverage: input.leverage,
+          commission: input.commission,
+          slippage: input.slippage,
+          spread: input.spread,
+          strategies: input.strategies as BacktestStrategyType[],
+          parameterRanges: input.parameterRanges as ParameterRange[],
+          batchSize: input.batchSize,
+          topResultsToKeep: input.topResultsToKeep,
+          rankingCategories: input.rankingCategories as RankingCategory[],
+        };
+
+        // Create batch optimizer
+        activeBatchOptimizer = createBatchOptimizer(config);
+
+        // Set progress callback
+        activeBatchOptimizer.setProgressCallback((progress) => {
+          batchOptimizationState.progress = progress;
+        });
+
+        // Run batch optimization
+        const result = await activeBatchOptimizer.run();
+
+        // Store result
+        batchOptimizationState.result = result;
+        batchOptimizationState.isRunning = false;
+        activeBatchOptimizer = null;
+
+        return {
+          success: true,
+          message: `Otimização em lotes concluída! ${result.completedCombinations} combinações testadas em ${result.totalBatches} lotes.`,
+          totalCombinations: result.totalCombinations,
+          completedCombinations: result.completedCombinations,
+          totalBatches: result.totalBatches,
+          executionTime: result.executionTime,
+          overallBest: result.overallBest,
+          aborted: result.aborted,
+        };
+
+      } catch (error) {
+        batchOptimizationState.isRunning = false;
+        batchOptimizationState.error = (error as Error).message;
+        activeBatchOptimizer = null;
+
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erro na otimização em lotes: ${(error as Error).message}`,
+        });
+      }
+    }),
+
+  /**
+   * Get batch optimization status
+   */
+  getBatchOptimizationStatus: protectedProcedure
+    .query(() => {
+      return {
+        isRunning: batchOptimizationState.isRunning,
+        progress: batchOptimizationState.progress,
+        error: batchOptimizationState.error,
+      };
+    }),
+
+  /**
+   * Get batch optimization results
+   */
+  getBatchOptimizationResults: protectedProcedure
+    .query(() => {
+      if (!batchOptimizationState.result) {
+        return null;
+      }
+
+      const result = batchOptimizationState.result;
+
+      return {
+        rankings: result.rankings,
+        overallBest: result.overallBest,
+        totalCombinations: result.totalCombinations,
+        completedCombinations: result.completedCombinations,
+        totalBatches: result.totalBatches,
+        executionTime: result.executionTime,
+        aborted: result.aborted,
+        errors: result.errors,
+      };
+    }),
+
+  /**
+   * Abort running batch optimization
+   */
+  abortBatchOptimization: protectedProcedure
+    .mutation(() => {
+      if (activeBatchOptimizer) {
+        activeBatchOptimizer.abort();
+        batchOptimizationState.isRunning = false;
+        activeBatchOptimizer = null;
+        return { success: true, message: "Otimização em lotes abortada" };
+      }
+      return { success: false, message: "Nenhuma otimização em lotes em execução" };
+    }),
+
+  /**
+   * Clear batch optimization results
+   */
+  clearBatchOptimizationResults: protectedProcedure
+    .mutation(() => {
+      batchOptimizationState.result = null;
+      batchOptimizationState.error = null;
+      batchOptimizationState.progress = null;
       return { success: true };
     }),
 });

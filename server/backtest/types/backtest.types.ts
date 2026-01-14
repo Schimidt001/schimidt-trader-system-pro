@@ -428,6 +428,9 @@ export interface DataCollectorConfig {
   format: "json" | "csv";
 }
 
+// Re-export batch optimizer types
+export * from "./batchOptimizer.types";
+
 export interface DataCollectorProgress {
   /** Símbolo atual */
   currentSymbol: string;
