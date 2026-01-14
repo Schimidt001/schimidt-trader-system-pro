@@ -23,6 +23,7 @@ COPY client ./client
 COPY server ./server
 COPY shared ./shared
 COPY drizzle ./drizzle
+COPY filtro-horario ./filtro-horario
 COPY vite.config.ts tsconfig.json drizzle.config.ts ./
 
 # Build do projeto (frontend + backend)
