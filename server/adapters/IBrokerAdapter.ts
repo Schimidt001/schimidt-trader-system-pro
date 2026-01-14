@@ -185,6 +185,12 @@ export interface OrderResult {
   rawResponse?: any;
   /** Volume mínimo detectado (quando erro de volume) - CORREÇÃO 2026-01-13 */
   detectedMinVolume?: number;
+  /** 
+   * Indica se o resultado foi recuperado via Safety Latch - CORREÇÃO 2026-01-14
+   * Quando true, significa que a resposta inicial da API não continha confirmação,
+   * mas a ordem foi verificada e confirmada via reconciliação de posições.
+   */
+  safetyLatchTriggered?: boolean;
 }
 
 /**

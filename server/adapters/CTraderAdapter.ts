@@ -1154,20 +1154,77 @@ export class CTraderAdapter extends BaseBrokerAdapter {
         };
       }
       
-      // Verificar se a posição foi criada
+      // ============= CORREÇÃO BUG FALSO NEGATIVO (2026-01-14) =============
+      // PROBLEMA: A API cTrader às vezes responde com payload 2126 sem position/deal,
+      // mas a ordem foi executada com sucesso. O código antigo tratava isso como erro
+      // e liberava o mutex, permitindo duplicidade de ordens.
+      //
+      // SOLUÇÃO: Se a resposta não contém position/deal MAS também não contém erro explícito,
+      // devemos verificar via reconcilePositions() se a ordem realmente entrou.
+      // Este é o "Safety Latch" que previne falsos negativos.
+      //
+      // Referência: Briefing de Desenvolvimento - Correção Crítica de Execução
+      // =====================================================================
+      
       if (!response.position && !response.deal) {
-        console.error("[CTraderAdapter] ❌ Resposta da API não contém position nem deal!");
-        console.error("[CTraderAdapter] Resposta recebida:", JSON.stringify(response, null, 2));
-        console.error("[CTraderAdapter] Possíveis causas:");
-        console.error("  1. Volume inválido (abaixo do mínimo ou acima do máximo)");
-        console.error("  2. Token sem permissão de trading (SCOPE_VIEW apenas)");
-        console.error("  3. Saldo insuficiente");
-        console.error("  4. Mercado fechado");
-        console.error("  5. Símbolo inválido ou não disponível");
-        return {
-          success: false,
-          errorMessage: "Ordem não executada: resposta da API vazia. Verifique: volume, permissões do token, saldo e mercado.",
-        };
+        console.warn("[CTraderAdapter] ⚠️ Resposta da API não contém position nem deal!");
+        console.warn("[CTraderAdapter] Resposta recebida:", JSON.stringify(response, null, 2));
+        console.warn("[CTraderAdapter] Payload Type:", response.payloadType);
+        
+        // SAFETY LATCH: Verificar se a ordem entrou mesmo assim via reconciliação
+        console.log("[CTraderAdapter] 🔍 SAFETY LATCH: Verificando se a ordem entrou via reconciliação...");
+        
+        try {
+          // Aguardar um breve momento para a API processar a ordem
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Reconciliar posições com a cTrader
+          const syncedPositions = await this.reconcilePositions();
+          
+          // Verificar se existe uma posição aberta para este símbolo
+          const openPositions = await this.getOpenPositions();
+          const symbolPosition = openPositions.find(p => p.symbol === order.symbol);
+          
+          if (symbolPosition) {
+            // A ordem ENTROU apesar da resposta vazia!
+            console.log("[CTraderAdapter] ✅ SAFETY LATCH: Ordem confirmada via reconciliação!");
+            console.log(`[CTraderAdapter] ✅ Posição encontrada: ${symbolPosition.positionId} @ ${symbolPosition.entryPrice}`);
+            
+            return {
+              success: true,
+              orderId: symbolPosition.positionId,
+              executionPrice: symbolPosition.entryPrice,
+              executionTime: Date.now(),
+              rawResponse: response,
+              safetyLatchTriggered: true, // Flag para indicar que foi recuperado via Safety Latch
+            };
+          } else {
+            // A ordem realmente não entrou - é um erro genuíno
+            console.error("[CTraderAdapter] ❌ SAFETY LATCH: Ordem NÃO encontrada após reconciliação.");
+            console.error("[CTraderAdapter] Possíveis causas:");
+            console.error("  1. Volume inválido (abaixo do mínimo ou acima do máximo)");
+            console.error("  2. Token sem permissão de trading (SCOPE_VIEW apenas)");
+            console.error("  3. Saldo insuficiente");
+            console.error("  4. Mercado fechado");
+            console.error("  5. Símbolo inválido ou não disponível");
+            
+            return {
+              success: false,
+              errorMessage: "Ordem não executada: resposta da API vazia e ordem não confirmada via reconciliação.",
+              safetyLatchTriggered: true,
+            };
+          }
+        } catch (reconcileError) {
+          console.error("[CTraderAdapter] ❌ SAFETY LATCH: Erro ao reconciliar posições:", reconcileError);
+          
+          // Em caso de erro na reconciliação, assumir que a ordem NÃO entrou
+          // para evitar estado inconsistente
+          return {
+            success: false,
+            errorMessage: "Ordem não executada: resposta da API vazia e falha na verificação.",
+            safetyLatchTriggered: true,
+          };
+        }
       }
       
       const orderId = response.position?.positionId?.toString() || response.deal?.dealId?.toString() || `ORD-${Date.now()}`;

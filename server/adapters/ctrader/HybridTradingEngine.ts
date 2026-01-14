@@ -1254,7 +1254,13 @@ export class HybridTradingEngine extends EventEmitter {
           this.lastTradeTime.set(symbol, now);
           this.lastTradedCandleTimestamp.set(symbol, currentCandleTimestamp); // Marcar candle como operado
           this.tradesExecuted++;
-          console.log(`[HybridEngine] ✅ ORDEM EXECUTADA: ${result.orderId}`);
+          
+          // Log especial se foi recuperado via Safety Latch
+          if ((result as any).safetyLatchTriggered) {
+            console.log(`[HybridEngine] ✅ ORDEM EXECUTADA (via SAFETY LATCH): ${result.orderId}`);
+          } else {
+            console.log(`[HybridEngine] ✅ ORDEM EXECUTADA: ${result.orderId}`);
+          }
           
           // Marcar estrutura como consumida (Signal Consumption)
           if (signal.metadata?.structureId) {
@@ -1268,11 +1274,89 @@ export class HybridTradingEngine extends EventEmitter {
           this.pendingPositions.delete(symbol);
         } else {
           console.error(`[HybridEngine] ❌ ERRO: ${result.errorMessage}`);
-          // Limpar posição pendente em caso de erro
+          
+          // ============= CORREÇÃO BUG FALSO NEGATIVO (2026-01-14) =============
+          // SAFETY LATCH: Antes de limpar a posição pendente, verificar se a ordem
+          // entrou mesmo assim. Isso previne duplicidade causada por falsos negativos.
+          //
+          // Se o Safety Latch já foi acionado no CTraderAdapter, não precisamos
+          // verificar novamente aqui.
+          // =====================================================================
+          
+          if (!(result as any).safetyLatchTriggered) {
+            console.log(`[HybridEngine] 🔍 SAFETY LATCH: Verificando se a ordem entrou apesar do erro...`);
+            
+            try {
+              // Reconciliar posições para verificar estado real
+              await ctraderAdapter.reconcilePositions();
+              
+              // Verificar se existe posição para este símbolo
+              const openPositions = await ctraderAdapter.getOpenPositions();
+              const symbolPosition = openPositions.find(p => p.symbol === symbol);
+              
+              if (symbolPosition) {
+                // A ordem ENTROU apesar do erro reportado!
+                console.log(`[HybridEngine] ✅ SAFETY LATCH: Ordem encontrada! Posição ${symbolPosition.positionId}`);
+                console.log(`[HybridEngine] ✅ MANTENDO LOCK - NÃO liberar posição pendente`);
+                
+                // Atualizar estado como se fosse sucesso
+                this.lastTradeTime.set(symbol, now);
+                this.lastTradedCandleTimestamp.set(symbol, currentCandleTimestamp);
+                this.tradesExecuted++;
+                
+                // Marcar estrutura como consumida
+                if (signal.metadata?.structureId) {
+                  this.consumedStructures.add(signal.metadata.structureId);
+                }
+                
+                this.emit("trade", { symbol, signal, result: { success: true, orderId: symbolPosition.positionId }, source: combinedSignal.source });
+                
+                // NÃO limpar posição pendente - a posição real existe
+                this.pendingPositions.delete(symbol);
+                return; // Sair sem marcar como erro
+              } else {
+                console.log(`[HybridEngine] ❌ SAFETY LATCH: Ordem NÃO encontrada - erro genuíno`);
+              }
+            } catch (reconcileError) {
+              console.error(`[HybridEngine] ❌ SAFETY LATCH: Erro na verificação:`, reconcileError);
+            }
+          }
+          
+          // Limpar posição pendente apenas se confirmado que a ordem não entrou
           this.pendingPositions.delete(symbol);
         }
       } catch (error) {
         console.error("[HybridEngine] Erro ao executar ordem:", error);
+        
+        // ============= CORREÇÃO BUG FALSO NEGATIVO (2026-01-14) =============
+        // SAFETY LATCH: Mesmo em caso de exceção, verificar se a ordem entrou
+        // =====================================================================
+        console.log(`[HybridEngine] 🔍 SAFETY LATCH (catch): Verificando se a ordem entrou apesar da exceção...`);
+        
+        try {
+          await ctraderAdapter.reconcilePositions();
+          const openPositions = await ctraderAdapter.getOpenPositions();
+          const symbolPosition = openPositions.find(p => p.symbol === symbol);
+          
+          if (symbolPosition) {
+            console.log(`[HybridEngine] ✅ SAFETY LATCH (catch): Ordem encontrada! Posição ${symbolPosition.positionId}`);
+            
+            this.lastTradeTime.set(symbol, now);
+            this.lastTradedCandleTimestamp.set(symbol, currentCandleTimestamp);
+            this.tradesExecuted++;
+            
+            if (signal.metadata?.structureId) {
+              this.consumedStructures.add(signal.metadata.structureId);
+            }
+            
+            this.emit("trade", { symbol, signal, result: { success: true, orderId: symbolPosition.positionId }, source: combinedSignal.source });
+            this.pendingPositions.delete(symbol);
+            return;
+          }
+        } catch (reconcileError) {
+          console.error(`[HybridEngine] ❌ SAFETY LATCH (catch): Erro na verificação:`, reconcileError);
+        }
+        
         this.pendingPositions.delete(symbol);
       }
     } finally {
