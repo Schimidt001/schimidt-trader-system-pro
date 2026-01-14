@@ -13,11 +13,15 @@ import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   getSymbolLabel,
+  getSymbolName,
   formatPrice,
   formatLots,
   formatPnL,
+  formatDateTimeShort,
+  getDirectionString,
   getDirectionClasses,
   getPnLClasses,
+  SYMBOL_ID_MAP,
 } from "@/lib/forexUtils";
 import { SmartChart } from "@/components/SmartChart";
 // DrawingLine e Annotation agora são definidos no SmartChart
@@ -162,6 +166,49 @@ export default function ICMarketsDashboard() {
       close: candle.close,
     }));
   }, [candlesQuery.data]);
+  
+  // CORREÇÃO 2026-01-14: Combinar posições live e stored com formatação adequada
+  // Prioriza posições live (tempo real), mas usa stored (banco de dados) como fallback
+  const openPositions = useMemo(() => {
+    const livePositions = positionsQuery.data?.live || [];
+    const storedPositions = positionsQuery.data?.stored || [];
+    
+    // Se tiver posições live, usar elas (dados em tempo real)
+    if (livePositions.length > 0) {
+      return livePositions.map((pos: any) => ({
+        positionId: String(pos.positionId),
+        symbol: getSymbolName(pos.symbol), // Converte ID para nome se necessário
+        direction: getDirectionString(pos.direction), // Converte 1/2 para BUY/SELL
+        size: pos.size || pos.lots || 0,
+        entryPrice: pos.entryPrice,
+        currentPrice: pos.currentPrice,
+        unrealizedPnL: pos.unrealizedPnL || 0,
+        stopLoss: pos.stopLoss,
+        takeProfit: pos.takeProfit,
+        openTime: pos.openTime,
+        source: 'live' as const,
+      }));
+    }
+    
+    // Fallback: usar posições do banco de dados
+    if (storedPositions.length > 0) {
+      return storedPositions.map((pos: any) => ({
+        positionId: String(pos.positionId || pos.id),
+        symbol: getSymbolName(pos.symbol), // Converte ID para nome se necessário
+        direction: getDirectionString(pos.direction), // Converte 1/2 para BUY/SELL
+        size: parseFloat(pos.lots) || 0,
+        entryPrice: parseFloat(pos.entryPrice) || 0,
+        currentPrice: 0, // Não disponível no banco
+        unrealizedPnL: 0, // Não disponível no banco (precisa de preço atual)
+        stopLoss: pos.currentStopLoss ? parseFloat(pos.currentStopLoss) : undefined,
+        takeProfit: pos.takeProfit ? parseFloat(pos.takeProfit) : undefined,
+        openTime: pos.openTime ? new Date(pos.openTime).getTime() : Date.now(),
+        source: 'stored' as const,
+      }));
+    }
+    
+    return [];
+  }, [positionsQuery.data]);
   
   // Mutations - CONEXÃO
   const connectMutation = trpc.icmarkets.connect.useMutation({
@@ -622,7 +669,7 @@ export default function ICMarketsDashboard() {
                     <SmartChart
                       data={chartData}
                       currentPrice={priceQuery.data?.bid || null}
-                      openPositions={(positionsQuery.data?.live || []) as any}
+                      openPositions={openPositions as any}
                       symbol={selectedSymbol}
                       timeframe={selectedTimeframe}
                       height={chartHeight}
@@ -834,12 +881,17 @@ export default function ICMarketsDashboard() {
               </CardContent>
             </Card>
             
-            {/* Card de Posições Abertas */}
+            {/* Card de Posições Abertas - CORREÇÃO 2026-01-14 */}
             <Card className="bg-slate-900/50 border-slate-800">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <Activity className="w-5 h-5 text-blue-400" />
                   Posições Abertas
+                  {openPositions.length > 0 && (
+                    <Badge variant="outline" className="ml-2 text-xs">
+                      {openPositions.length}
+                    </Badge>
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -847,42 +899,87 @@ export default function ICMarketsDashboard() {
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
                   </div>
-                ) : positionsQuery.data?.live && positionsQuery.data.live.length > 0 ? (
+                ) : openPositions.length > 0 ? (
                   <div className="space-y-3">
-                    {positionsQuery.data.live.map((position) => {
+                    {openPositions.map((position) => {
                       const dirClasses = getDirectionClasses(position.direction);
+                      const isBuy = position.direction === "BUY";
                       return (
                         <div
                           key={position.positionId}
-                          className={`p-3 rounded-lg border ${dirClasses.bg} ${dirClasses.border}`}
+                          className={`p-4 rounded-lg border ${dirClasses.bg} ${dirClasses.border}`}
                         >
-                          <div className="flex items-center justify-between mb-2">
+                          {/* Cabeçalho: Símbolo + Direção + Lotes */}
+                          <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
-                              <Badge className={dirClasses.badge}>
+                              <Badge className={`${dirClasses.badge} px-3 py-1`}>
+                                {isBuy ? (
+                                  <TrendingUp className="w-3 h-3 mr-1 inline" />
+                                ) : (
+                                  <TrendingDown className="w-3 h-3 mr-1 inline" />
+                                )}
                                 {position.direction}
                               </Badge>
-                              <span className="text-white font-medium">{getSymbolLabel(position.symbol)}</span>
+                              <span className="text-white font-bold text-lg">
+                                {getSymbolLabel(position.symbol)}
+                              </span>
                             </div>
-                            <span className="text-slate-400 text-sm font-mono">{formatLots(position.size)} lotes</span>
+                            <span className="text-slate-300 text-sm font-mono bg-slate-800/50 px-2 py-1 rounded">
+                              {formatLots(position.size)} lotes
+                            </span>
                           </div>
-                          <div className="grid grid-cols-2 gap-2 text-sm">
-                            <div>
-                              <p className="text-slate-400">Entrada</p>
-                              <p className="text-white font-mono">{formatPrice(position.entryPrice, position.symbol)}</p>
+                          
+                          {/* Grid de informações */}
+                          <div className="grid grid-cols-3 gap-3 text-sm mb-3">
+                            <div className="bg-slate-800/30 p-2 rounded">
+                              <p className="text-slate-400 text-xs mb-1">Entrada</p>
+                              <p className="text-white font-mono font-medium">
+                                {formatPrice(position.entryPrice, position.symbol)}
+                              </p>
                             </div>
-                            <div>
-                              <p className="text-slate-400">P&L</p>
+                            <div className="bg-slate-800/30 p-2 rounded">
+                              <p className="text-slate-400 text-xs mb-1">P&L</p>
                               <p className={`font-mono font-bold ${getPnLClasses(position.unrealizedPnL)}`}>
                                 {formatPnL(position.unrealizedPnL)}
                               </p>
                             </div>
+                            <div className="bg-slate-800/30 p-2 rounded">
+                              <p className="text-slate-400 text-xs mb-1">Abertura</p>
+                              <p className="text-white font-mono text-xs">
+                                {formatDateTimeShort(position.openTime)}
+                              </p>
+                            </div>
                           </div>
+                          
+                          {/* SL/TP se disponíveis */}
+                          {(position.stopLoss || position.takeProfit) && (
+                            <div className="flex gap-2 text-xs mb-3">
+                              {position.stopLoss && (
+                                <span className="text-red-400 bg-red-500/10 px-2 py-1 rounded">
+                                  SL: {formatPrice(position.stopLoss, position.symbol)}
+                                </span>
+                              )}
+                              {position.takeProfit && (
+                                <span className="text-green-400 bg-green-500/10 px-2 py-1 rounded">
+                                  TP: {formatPrice(position.takeProfit, position.symbol)}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* Indicador de fonte (live vs stored) */}
+                          {position.source === 'stored' && (
+                            <div className="text-xs text-yellow-400 mb-2">
+                              ⚠️ Dados do banco (P&L não disponível em tempo real)
+                            </div>
+                          )}
+                          
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => handleClosePosition(position.positionId)}
                             disabled={closePositionMutation.isPending}
-                            className="w-full mt-2"
+                            className="w-full border-slate-600 hover:bg-slate-700"
                           >
                             Fechar Posição
                           </Button>
