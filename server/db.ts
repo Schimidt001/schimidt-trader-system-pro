@@ -867,26 +867,57 @@ export async function upsertICMarketsConfig(data: InsertICMarketsConfig): Promis
 
 /**
  * Insere uma nova posição Forex
+ * CORREÇÃO 2026-01-13: Adicionados logs de debug detalhados
  */
 export async function insertForexPosition(data: InsertForexPosition): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  console.log(`[DB] 💾 insertForexPosition() chamado`);
+  console.log(`[DB] 💾   - Position ID: ${data.positionId}`);
+  console.log(`[DB] 💾   - User ID: ${data.userId}`);
+  console.log(`[DB] 💾   - Bot ID: ${data.botId}`);
+  console.log(`[DB] 💾   - Símbolo: ${data.symbol}`);
   
-  const result = await db.insert(forexPositions).values(data);
-  return Number(result[0].insertId);
+  const db = await getDb();
+  if (!db) {
+    console.error(`[DB] ❌ ERRO: Database not available`);
+    throw new Error("Database not available");
+  }
+  
+  try {
+    const result = await db.insert(forexPositions).values(data);
+    const insertedId = Number(result[0].insertId);
+    console.log(`[DB] ✅ Posição inserida com sucesso. ID: ${insertedId}`);
+    return insertedId;
+  } catch (error) {
+    console.error(`[DB] ❌ ERRO ao inserir posição:`, error);
+    throw error;
+  }
 }
 
 /**
  * Atualiza uma posição Forex
+ * CORREÇÃO 2026-01-13: Adicionados logs de debug detalhados
  */
 export async function updateForexPosition(positionId: string, data: Partial<InsertForexPosition>): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  console.log(`[DB] 💾 updateForexPosition() chamado`);
+  console.log(`[DB] 💾   - Position ID: ${positionId}`);
+  console.log(`[DB] 💾   - Campos a atualizar: ${Object.keys(data).join(', ')}`);
   
-  await db
-    .update(forexPositions)
-    .set({ ...data, updatedAt: new Date() })
-    .where(eq(forexPositions.positionId, positionId));
+  const db = await getDb();
+  if (!db) {
+    console.error(`[DB] ❌ ERRO: Database not available`);
+    throw new Error("Database not available");
+  }
+  
+  try {
+    await db
+      .update(forexPositions)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(forexPositions.positionId, positionId));
+    console.log(`[DB] ✅ Posição ${positionId} atualizada com sucesso`);
+  } catch (error) {
+    console.error(`[DB] ❌ ERRO ao atualizar posição ${positionId}:`, error);
+    throw error;
+  }
 }
 
 /**

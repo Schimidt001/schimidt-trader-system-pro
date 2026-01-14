@@ -544,6 +544,20 @@ export const icmarketsRouter = router({
       
       const accountInfo = await ctraderAdapter.connect(credentials);
       
+      // CORREÇÃO CRÍTICA 2026-01-13: Configurar contexto do usuário para persistência global
+      // Isso garante que QUALQUER ordem executada (de qualquer estratégia) seja salva no banco
+      ctraderAdapter.setUserContext(ctx.user.id, 1);
+      console.log(`[ICMarketsRouter] 🔗 Contexto de usuário configurado: userId=${ctx.user.id}`);
+      
+      // CORREÇÃO CRÍTICA 2026-01-13: Reconciliar posições no boot
+      // Sincroniza posições abertas na cTrader com o banco de dados local
+      try {
+        const syncedCount = await ctraderAdapter.reconcilePositions();
+        console.log(`[ICMarketsRouter] 🔄 Reconciliação concluída: ${syncedCount} posições sincronizadas`);
+      } catch (reconcileError) {
+        console.error(`[ICMarketsRouter] ⚠️ Erro na reconciliação (não crítico):`, reconcileError);
+      }
+      
       // Log de conexão bem-sucedida
       await insertSystemLog({
         userId: ctx.user.id,

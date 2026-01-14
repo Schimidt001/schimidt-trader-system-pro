@@ -264,7 +264,14 @@ export class CTraderAdapter extends BaseBrokerAdapter {
    * - ORDER_EXPIRED: Ordem expirada
    */
   private async handleExecutionEvent(event: any): Promise<void> {
-    console.log("[CTraderAdapter] Execution event received:", JSON.stringify(event, null, 2));
+    // ==================== GLOBAL EXECUTION LISTENER ====================
+    // Este handler captura TODOS os eventos de execução da cTrader,
+    // independente de qual estratégia (SMC, Hybrid, Manual) originou a ordem.
+    // CORREÇÃO CRÍTICA 2026-01-13: Centralização da persistência
+    // ===================================================================
+    
+    console.log("\n[GLOBAL] 🎯 ==================== EXECUTION EVENT RECEIVED ====================");
+    console.log("[GLOBAL] 🎯 Este é o GLOBAL EXECUTION LISTENER - captura TODAS as ordens");
     
     // Extrair tipo de execução
     const executionType = event.executionType;
@@ -272,7 +279,25 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     const order = event.order;
     const deal = event.deal;
     
-    console.log(`[CTraderAdapter] Execution type: ${executionType}`);
+    // Mapear tipos de execução para nomes legíveis
+    const executionTypeNames: Record<number, string> = {
+      1: "ORDER_ACCEPTED",
+      2: "ORDER_FILLED",
+      3: "ORDER_REPLACED",
+      4: "ORDER_CANCELLED",
+      5: "ORDER_EXPIRED",
+      6: "ORDER_REJECTED",
+      7: "POSITION_CLOSED",
+      8: "STOP_LOSS_TRIGGERED",
+      9: "TAKE_PROFIT_TRIGGERED",
+      10: "POSITION_PARTIAL_CLOSE",
+    };
+    const executionTypeName = executionTypeNames[executionType] || `UNKNOWN(${executionType})`;
+    
+    console.log(`[GLOBAL] 🎯 Tipo de Execução: ${executionTypeName}`);
+    console.log(`[GLOBAL] 🎯 Position ID: ${position?.positionId || 'N/A'}`);
+    console.log(`[GLOBAL] 🎯 Order ID: ${order?.orderId || 'N/A'}`);
+    console.log(`[GLOBAL] 🎯 User Context: userId=${this._userId}, botId=${this._botId}`);
     
     // Atualizar posições em memória
     if (position) {
@@ -283,9 +308,11 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       }
     }
     
-    // CORREÇÃO 2026-01-13: Persistir no banco de dados
+    // CORREÇÃO CRÍTICA 2026-01-13: Persistir no banco de dados
     if (!this._userId) {
-      console.warn("[CTraderAdapter] userId não configurado - posição não será persistida no banco");
+      console.warn("[GLOBAL] ⚠️ userId NÃO CONFIGURADO - posição NÃO será persistida no banco!");
+      console.warn("[GLOBAL] ⚠️ Certifique-se de que setUserContext() foi chamado após connect()");
+      console.log("[GLOBAL] 🎯 =================================================================");
       return;
     }
     
@@ -317,14 +344,18 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   /**
    * Handler para posição aberta (ORDER_FILLED)
    * CORREÇÃO 2026-01-13: Persiste nova posição no banco de dados
+   * CORREÇÃO 2026-01-13: Adicionados logs de debug detalhados
    */
   private async handlePositionOpened(event: any): Promise<void> {
     const position = event.position;
     const order = event.order;
     const deal = event.deal;
     
+    console.log("[DB] 💾 ==================== GLOBAL EXECUTION LISTENER ====================");
+    console.log("[DB] 💾 Evento ORDER_FILLED recebido - Iniciando persistência...");
+    
     if (!position) {
-      console.warn("[CTraderAdapter] ORDER_FILLED sem position - ignorando");
+      console.warn("[DB] ❌ ORDER_FILLED sem position - ignorando");
       return;
     }
     
@@ -338,23 +369,40 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     const stopLoss = position.stopLoss;
     const takeProfit = position.takeProfit;
     
-    console.log(`[CTraderAdapter] 🟢 POSIÇÃO ABERTA: ${positionId} | ${symbolName} | ${direction} | ${volumeInLots} lotes @ ${entryPrice}`);
+    console.log(`[DB] 💾 Dados da posição:`);
+    console.log(`[DB] 💾   - Position ID: ${positionId}`);
+    console.log(`[DB] 💾   - Símbolo: ${symbolName}`);
+    console.log(`[DB] 💾   - Direção: ${direction}`);
+    console.log(`[DB] 💾   - Volume: ${volumeInLots} lotes`);
+    console.log(`[DB] 💾   - Preço de Entrada: ${entryPrice}`);
+    console.log(`[DB] 💾   - Stop Loss: ${stopLoss || 'N/A'}`);
+    console.log(`[DB] 💾   - Take Profit: ${takeProfit || 'N/A'}`);
+    console.log(`[DB] 💾   - User ID: ${this._userId}`);
+    console.log(`[DB] 💾   - Bot ID: ${this._botId}`);
     
     // Verificar se já existe no banco (evitar duplicatas)
+    console.log(`[DB] 💾 Verificando se posição ${positionId} já existe no banco...`);
     const existingPosition = await getForexPositionById(positionId);
     if (existingPosition) {
-      console.log(`[CTraderAdapter] Posição ${positionId} já existe no banco - atualizando`);
-      await updateForexPosition(positionId, {
-        entryPrice: String(entryPrice),
-        initialStopLoss: stopLoss ? String(stopLoss) : undefined,
-        currentStopLoss: stopLoss ? String(stopLoss) : undefined,
-        takeProfit: takeProfit ? String(takeProfit) : undefined,
-        status: "OPEN",
-      });
+      console.log(`[DB] 💾 Posição ${positionId} já existe no banco - atualizando`);
+      try {
+        await updateForexPosition(positionId, {
+          entryPrice: String(entryPrice),
+          initialStopLoss: stopLoss ? String(stopLoss) : undefined,
+          currentStopLoss: stopLoss ? String(stopLoss) : undefined,
+          takeProfit: takeProfit ? String(takeProfit) : undefined,
+          status: "OPEN",
+        });
+        console.log(`[DB] ✅ Posição ${positionId} atualizada com sucesso`);
+      } catch (updateError) {
+        console.error(`[DB] ❌ ERRO ao atualizar posição ${positionId}:`, updateError);
+      }
+      console.log("[DB] 💾 =================================================================");
       return;
     }
     
     // Inserir nova posição
+    console.log(`[DB] 💾 Salvando nova ordem #${positionId} (${symbolName}) no banco de dados...`);
     const newPosition: InsertForexPosition = {
       userId: this._userId!,
       botId: this._botId,
@@ -371,21 +419,35 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       openTime: new Date(),
     };
     
-    const insertedId = await insertForexPosition(newPosition);
-    console.log(`[CTraderAdapter] ✅ Posição ${positionId} persistida no banco (ID: ${insertedId})`);
+    try {
+      const insertedId = await insertForexPosition(newPosition);
+      console.log(`[DB] ✅ Ordem salva com sucesso. ID no banco: ${insertedId}`);
+    } catch (insertError) {
+      console.error(`[DB] ❌ ERRO ao salvar ordem #${positionId}:`, insertError);
+      // Log detalhado do erro para diagnóstico
+      if (insertError instanceof Error) {
+        console.error(`[DB] ❌ Mensagem: ${insertError.message}`);
+        console.error(`[DB] ❌ Stack: ${insertError.stack}`);
+      }
+    }
+    console.log("[DB] 💾 =================================================================");
   }
   
   /**
    * Handler para posição fechada (POSITION_CLOSED, SL, TP)
    * CORREÇÃO 2026-01-13: Atualiza posição no banco com status CLOSED
+   * CORREÇÃO 2026-01-13: Adicionados logs de debug detalhados
    */
   private async handlePositionClosed(event: any): Promise<void> {
     const position = event.position;
     const deal = event.deal;
     const executionType = event.executionType;
     
+    console.log("[DB] 💾 ==================== GLOBAL CLOSE LISTENER ====================");
+    console.log("[DB] 💾 Evento POSITION_CLOSED recebido - Atualizando banco...");
+    
     if (!position) {
-      console.warn("[CTraderAdapter] POSITION_CLOSED sem position - ignorando");
+      console.warn("[DB] ❌ POSITION_CLOSED sem position - ignorando");
       return;
     }
     
@@ -411,23 +473,37 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       closeReason = "TAKE_PROFIT";
     }
     
-    console.log(`[CTraderAdapter] 🔴 POSIÇÃO FECHADA: ${positionId} | Exit: ${exitPrice} | PnL: $${pnlUsd.toFixed(2)} | Motivo: ${closeReason}`);
+    console.log(`[DB] 💾 Dados do fechamento:`);
+    console.log(`[DB] 💾   - Position ID: ${positionId}`);
+    console.log(`[DB] 💾   - Preço de Saída: ${exitPrice}`);
+    console.log(`[DB] 💾   - PnL: $${pnlUsd.toFixed(2)}`);
+    console.log(`[DB] 💾   - Swap: $${swap.toFixed(2)}`);
+    console.log(`[DB] 💾   - Comissão: $${commission.toFixed(2)}`);
+    console.log(`[DB] 💾   - Motivo: ${closeReason}`);
     
     // Remover da memória local
     this.openPositions.delete(positionId);
     
     // Atualizar no banco de dados
-    await updateForexPosition(positionId, {
-      exitPrice: String(exitPrice),
-      pnlUsd: String(pnlUsd),
-      swap: String(swap),
-      commission: String(commission),
-      status: "CLOSED",
-      closeReason: closeReason,
-      closeTime: new Date(),
-    });
-    
-    console.log(`[CTraderAdapter] ✅ Posição ${positionId} atualizada no banco como CLOSED`);
+    console.log(`[DB] 💾 Atualizando posição #${positionId} no banco de dados...`);
+    try {
+      await updateForexPosition(positionId, {
+        exitPrice: String(exitPrice),
+        pnlUsd: String(pnlUsd),
+        swap: String(swap),
+        commission: String(commission),
+        status: "CLOSED",
+        closeReason: closeReason,
+        closeTime: new Date(),
+      });
+      console.log(`[DB] ✅ Posição #${positionId} atualizada como CLOSED com sucesso`);
+    } catch (updateError) {
+      console.error(`[DB] ❌ ERRO ao atualizar posição #${positionId}:`, updateError);
+      if (updateError instanceof Error) {
+        console.error(`[DB] ❌ Mensagem: ${updateError.message}`);
+      }
+    }
+    console.log("[DB] 💾 =================================================================");
     
     // Emitir evento de fechamento
     this.eventHandlers.onPositionClose?.(positionId, pnlUsd);
