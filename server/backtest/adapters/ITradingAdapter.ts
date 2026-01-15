@@ -157,6 +157,15 @@ export interface ITradingAdapter {
    */
   getVolumeSpecs(symbol: string): Promise<VolumeSpecs | null>;
   
+  /**
+   * Obtém o volume mínimo real detectado para um símbolo
+   * Necessário porque algumas contas têm limites diferentes do padrão
+   * 
+   * @param symbol - Nome do símbolo
+   * @returns Volume mínimo em lotes (ex: 0.01)
+   */
+  getRealMinVolume?(symbol: string): number;
+  
   // -------------------------------------------------------------------------
   // Event Handlers
   // -------------------------------------------------------------------------
@@ -189,6 +198,15 @@ export interface SymbolInfo {
   
   /** Margem requerida por lote */
   marginRequired?: number;
+  
+  /** Volume mínimo em cents (compat. cTrader API) */
+  minVolume?: number;
+  
+  /** Volume máximo em cents */
+  maxVolume?: number;
+  
+  /** Incremento de volume em cents */
+  stepVolume?: number;
 }
 
 // ============================================================================

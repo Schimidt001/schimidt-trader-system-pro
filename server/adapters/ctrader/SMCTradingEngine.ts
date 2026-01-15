@@ -7,13 +7,15 @@
  * - Gestão de Risco Dinâmica
  * - Circuit Breakers
  * - Modo Swarm (múltiplos ativos simultâneos)
+ * - INJEÇÃO DE DEPENDÊNCIA: Aceita adapter via construtor para suportar backtest
  * 
  * @author Schimidt Trader Pro
- * @version 1.0.0
+ * @version 2.0.0 - Refatorado para DI (2026-01-14)
  */
 
 import { EventEmitter } from "events";
 import { ctraderAdapter } from "../CTraderAdapter";
+import { ITradingAdapter } from "../../backtest/adapters/ITradingAdapter";
 import { TrendbarPeriod, TradeSide } from "./CTraderClient";
 import { ITradingStrategy, IMultiTimeframeStrategy, StrategyType, SignalResult, MultiTimeframeData } from "./ITradingStrategy";
 import { strategyFactory } from "./StrategyFactory";
@@ -169,7 +171,30 @@ export class SMCTradingEngine extends EventEmitter {
   private ticksProcessedWithMetrics: number = 0;
   private readonly PERFORMANCE_HISTORY_SIZE = 100;  // Manter últimos 100 tempos para média
   
-  constructor(userId: number, botId: number, config: Partial<SMCTradingEngineConfig> = {}) {
+  // ============= INJEÇÃO DE DEPENDÊNCIA =============
+  /**
+   * Adapter de trading injetado via construtor.
+   * Em produção: CTraderAdapter (singleton global)
+   * Em backtest: BacktestAdapter (instância isolada)
+   * 
+   * IMPORTANTE: Se não for fornecido, usa o ctraderAdapter global (retrocompatibilidade)
+   */
+  private adapter: ITradingAdapter;
+  
+  /**
+   * Construtor com suporte a Injeção de Dependência
+   * 
+   * @param userId - ID do usuário
+   * @param botId - ID do bot
+   * @param config - Configurações parciais do engine
+   * @param adapter - Adapter de trading (opcional, usa ctraderAdapter se não fornecido)
+   */
+  constructor(
+    userId: number, 
+    botId: number, 
+    config: Partial<SMCTradingEngineConfig> = {},
+    adapter?: ITradingAdapter
+  ) {
     super();
     this.config = {
       ...DEFAULT_ENGINE_CONFIG,
@@ -177,6 +202,10 @@ export class SMCTradingEngine extends EventEmitter {
       botId,
       ...config,
     };
+    
+    // INJEÇÃO DE DEPENDÊNCIA: Usar adapter injetado ou fallback para singleton global
+    // Isso permite que o mesmo engine seja usado em produção e backtest
+    this.adapter = adapter || (ctraderAdapter as unknown as ITradingAdapter);
     
     console.log("[SMCTradingEngine] Instância criada para usuário", userId, "bot", botId);
   }
@@ -193,7 +222,7 @@ export class SMCTradingEngine extends EventEmitter {
     }
     
     // Verificar conexão
-    if (!ctraderAdapter.isConnected()) {
+    if (!this.adapter.isConnected()) {
       throw new Error("Não conectado ao IC Markets. Conecte primeiro antes de iniciar o robô.");
     }
     
@@ -205,13 +234,13 @@ export class SMCTradingEngine extends EventEmitter {
     try {
       // CORREÇÃO 2026-01-13: Configurar contexto do usuário no CTraderAdapter
       // Isso permite que o handleExecutionEvent persista posições no banco de dados
-      ctraderAdapter.setUserContext(this.config.userId, this.config.botId);
+      this.adapter.setUserContext(this.config.userId, this.config.botId);
       console.log("[SMCTradingEngine] ✅ Contexto de usuário configurado no CTraderAdapter");
       
       // CORREÇÃO 2026-01-13: Reconciliar posições abertas com a cTrader
       // Sincroniza o banco de dados com as posições reais da corretora
       console.log("[SMCTradingEngine] 🔄 Iniciando reconciliação de posições...");
-      const syncedPositions = await ctraderAdapter.reconcilePositions();
+      const syncedPositions = await this.adapter.reconcilePositions();
       console.log(`[SMCTradingEngine] ✅ Reconciliação concluída: ${syncedPositions} posições sincronizadas`);
       
       // Carregar configurações do banco de dados
@@ -580,25 +609,25 @@ export class SMCTradingEngine extends EventEmitter {
       // ============= PARES ESSENCIAIS PARA CONVERSÃO =============
       
       // USDJPY - essencial para pares JPY e USDJPY
-      const usdjpyPrice = await ctraderAdapter.getPrice("USDJPY");
+      const usdjpyPrice = await this.adapter.getPrice("USDJPY");
       if (usdjpyPrice && usdjpyPrice.bid > 0) {
         rates.USDJPY = (usdjpyPrice.bid + usdjpyPrice.ask) / 2;
       }
       
       // EURUSD - para pares EUR cross
-      const eurusdPrice = await ctraderAdapter.getPrice("EURUSD");
+      const eurusdPrice = await this.adapter.getPrice("EURUSD");
       if (eurusdPrice && eurusdPrice.bid > 0) {
         rates.EURUSD = (eurusdPrice.bid + eurusdPrice.ask) / 2;
       }
       
       // GBPUSD - para pares GBP cross
-      const gbpusdPrice = await ctraderAdapter.getPrice("GBPUSD");
+      const gbpusdPrice = await this.adapter.getPrice("GBPUSD");
       if (gbpusdPrice && gbpusdPrice.bid > 0) {
         rates.GBPUSD = (gbpusdPrice.bid + gbpusdPrice.ask) / 2;
       }
       
       // AUDUSD - para pares AUD cross
-      const audusdPrice = await ctraderAdapter.getPrice("AUDUSD");
+      const audusdPrice = await this.adapter.getPrice("AUDUSD");
       if (audusdPrice && audusdPrice.bid > 0) {
         rates.AUDUSD = (audusdPrice.bid + audusdPrice.ask) / 2;
       }
@@ -606,19 +635,19 @@ export class SMCTradingEngine extends EventEmitter {
       // ============= CORREÇÃO 2026-01-14: PARES USD_BASE =============
       
       // USDCAD - essencial para USDCAD e pares CAD cross
-      const usdcadPrice = await ctraderAdapter.getPrice("USDCAD");
+      const usdcadPrice = await this.adapter.getPrice("USDCAD");
       if (usdcadPrice && usdcadPrice.bid > 0) {
         rates.USDCAD = (usdcadPrice.bid + usdcadPrice.ask) / 2;
       }
       
       // USDCHF - essencial para USDCHF e pares CHF cross
-      const usdchfPrice = await ctraderAdapter.getPrice("USDCHF");
+      const usdchfPrice = await this.adapter.getPrice("USDCHF");
       if (usdchfPrice && usdchfPrice.bid > 0) {
         rates.USDCHF = (usdchfPrice.bid + usdchfPrice.ask) / 2;
       }
       
       // NZDUSD - para pares NZD cross
-      const nzdusdPrice = await ctraderAdapter.getPrice("NZDUSD");
+      const nzdusdPrice = await this.adapter.getPrice("NZDUSD");
       if (nzdusdPrice && nzdusdPrice.bid > 0) {
         rates.NZDUSD = (nzdusdPrice.bid + nzdusdPrice.ask) / 2;
       }
@@ -626,7 +655,7 @@ export class SMCTradingEngine extends EventEmitter {
       // ============= FALLBACK: PREÇO ATUAL DO SÍMBOLO =============
       // Se um símbolo foi especificado, obter seu preço atual como fallback
       if (symbol) {
-        const currentSymbolPrice = await ctraderAdapter.getPrice(symbol);
+        const currentSymbolPrice = await this.adapter.getPrice(symbol);
         if (currentSymbolPrice && currentSymbolPrice.bid > 0) {
           rates.currentPrice = (currentSymbolPrice.bid + currentSymbolPrice.ask) / 2;
         }
@@ -736,7 +765,7 @@ export class SMCTradingEngine extends EventEmitter {
     this.riskManager = createRiskManager(riskConfig);
     
     // Obter equity atual da conta
-    const accountInfo = await ctraderAdapter.getAccountInfo();
+    const accountInfo = await this.adapter.getAccountInfo();
     if (accountInfo?.balance) {
       await this.riskManager.initialize(accountInfo.balance);
     }
@@ -788,7 +817,7 @@ export class SMCTradingEngine extends EventEmitter {
           }
           
           // Carregar H1 (mínimo 200 candles)
-          const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", 250);
+          const h1Candles = await this.adapter.getCandleHistory(symbol, "H1", 250);
           this.timeframeData.h1.set(symbol, h1Candles);
           
           if (h1Candles.length > 0) {
@@ -801,7 +830,7 @@ export class SMCTradingEngine extends EventEmitter {
           await sleep(DELAY_BETWEEN_REQUESTS);
           
           // Carregar M15 (mínimo 200 candles)
-          const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 250);
+          const m15Candles = await this.adapter.getCandleHistory(symbol, "M15", 250);
           this.timeframeData.m15.set(symbol, m15Candles);
           
           if (m15Candles.length > 0) {
@@ -814,7 +843,7 @@ export class SMCTradingEngine extends EventEmitter {
           await sleep(DELAY_BETWEEN_REQUESTS);
           
           // Carregar M5 (mínimo 200 candles)
-          const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 250);
+          const m5Candles = await this.adapter.getCandleHistory(symbol, "M5", 250);
           this.timeframeData.m5.set(symbol, m5Candles);
           
           if (m5Candles.length > 0) {
@@ -902,7 +931,7 @@ export class SMCTradingEngine extends EventEmitter {
     
     for (const symbol of this.config.symbols) {
       try {
-        await ctraderAdapter.subscribePrice(symbol, (tick) => {
+        await this.adapter.subscribePrice(symbol, (tick) => {
           this.onPriceTick(symbol, tick);
         });
         
@@ -938,7 +967,7 @@ export class SMCTradingEngine extends EventEmitter {
     
     for (const symbol of symbols) {
       try {
-        await ctraderAdapter.unsubscribePrice(symbol);
+        await this.adapter.unsubscribePrice(symbol);
         successCount++;
       } catch (error) {
         errorCount++;
@@ -1044,15 +1073,15 @@ export class SMCTradingEngine extends EventEmitter {
       
       try {
         // Atualizar apenas os últimos candles - SEQUENCIAL COM DELAY
-        const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", 50);
+        const h1Candles = await this.adapter.getCandleHistory(symbol, "H1", 50);
         this.mergeCandles(symbol, "h1", h1Candles);
         await sleep(API_REQUEST_DELAY_MS); // Delay para evitar rate limit
         
-        const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 50);
+        const m15Candles = await this.adapter.getCandleHistory(symbol, "M15", 50);
         this.mergeCandles(symbol, "m15", m15Candles);
         await sleep(API_REQUEST_DELAY_MS); // Delay para evitar rate limit
         
-        const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 50);
+        const m5Candles = await this.adapter.getCandleHistory(symbol, "M5", 50);
         this.mergeCandles(symbol, "m5", m5Candles);
         
         console.log(`[SMCTradingEngine] ${symbol}: dados atualizados`);
@@ -1144,6 +1173,111 @@ export class SMCTradingEngine extends EventEmitter {
   }
   
   /**
+   * Analisa um símbolo com dados MTF fornecidos externamente
+   * 
+   * REFATORAÇÃO 2026-01-14: Método público para uso em backtest
+   * Permite que o BacktestRunner forneça os dados históricos diretamente
+   * 
+   * @param symbol - Símbolo a analisar
+   * @param mtfData - Dados multi-timeframe (H1, M15, M5)
+   * @returns Sinal gerado pela estratégia
+   */
+  public async analyzeWithData(
+    symbol: string,
+    mtfData: MultiTimeframeData
+  ): Promise<SignalResult | null> {
+    if (!this.strategy) {
+      console.warn("[SMCTradingEngine] Estratégia não inicializada");
+      return null;
+    }
+    
+    // Verificar dados mínimos
+    if (!mtfData.h1 || mtfData.h1.length < 50 ||
+        !mtfData.m15 || mtfData.m15.length < 30 ||
+        !mtfData.m5 || mtfData.m5.length < 20) {
+      return null;
+    }
+    
+    // Configurar símbolo atual na estratégia (se for SMC)
+    if (this.strategy instanceof SMCStrategy) {
+      this.strategy.setCurrentSymbol(symbol);
+    }
+    
+    // Atualizar dados na estratégia MTF
+    if ("updateTimeframeData" in this.strategy) {
+      const mtfStrategy = this.strategy as IMultiTimeframeStrategy;
+      mtfStrategy.updateTimeframeData("H1", mtfData.h1);
+      mtfStrategy.updateTimeframeData("M15", mtfData.m15);
+      mtfStrategy.updateTimeframeData("M5", mtfData.m5);
+    }
+    
+    // Analisar sinal
+    const signal = this.strategy.analyzeSignal(mtfData.m5, mtfData);
+    
+    // Se houver sinal válido, executar trade via adapter
+    if (signal.signal !== "NONE" && signal.confidence >= 50) {
+      await this.executeBacktestTrade(symbol, signal, mtfData);
+    }
+    
+    return signal;
+  }
+  
+  /**
+   * Executa trade em modo backtest
+   * Usa o adapter injetado (BacktestAdapter em backtest)
+   */
+  private async executeBacktestTrade(
+    symbol: string,
+    signal: SignalResult,
+    mtfData: MultiTimeframeData
+  ): Promise<void> {
+    if (!this.adapter) return;
+    
+    const pipValue = this.getPipValue(symbol);
+    const direction = signal.signal === "BUY" ? TradeSide.BUY : TradeSide.SELL;
+    const currentPrice = mtfData.currentBid || mtfData.m5![mtfData.m5!.length - 1].close;
+    
+    // Calcular SL/TP
+    const sltp = this.strategy!.calculateSLTP(currentPrice, direction, pipValue, signal.metadata);
+    
+    // Executar ordem via adapter
+    try {
+      const result = await this.adapter.placeOrder({
+        symbol,
+        direction: signal.signal as "BUY" | "SELL",
+        orderType: "MARKET",
+        lots: this.config.lots,
+        stopLossPips: sltp.stopLossPips,
+        takeProfitPips: sltp.takeProfitPips,
+        comment: `SMC ${signal.signal} | ${signal.reason.substring(0, 50)}`,
+      }, this.config.maxSpread);
+      
+      if (result.success) {
+        this.tradesExecuted++;
+        console.log(`[SMCTradingEngine] ✅ Backtest trade executado: ${result.orderId}`);
+      }
+    } catch (error) {
+      console.error(`[SMCTradingEngine] Erro ao executar backtest trade:`, error);
+    }
+  }
+  
+  /**
+   * Inicializa a estratégia para backtest (sem iniciar loops)
+   */
+  public async initializeForBacktest(): Promise<void> {
+    // Inicializar estratégia
+    this.strategy = strategyFactory.createStrategy(this.config.strategyType);
+    
+    // Carregar configurações padrão
+    if (this.strategy instanceof SMCStrategy) {
+      // Usar configurações padrão para backtest
+      console.log("[SMCTradingEngine] Estratégia SMC inicializada para backtest");
+    }
+    
+    console.log("[SMCTradingEngine] ✅ Engine inicializado para backtest");
+  }
+  
+  /**
    * Analisa um símbolo específico
    * 
    * AUDITORIA: Implementação de medição de latência na análise de sinal.
@@ -1188,7 +1322,7 @@ export class SMCTradingEngine extends EventEmitter {
     let currentSpreadPips: number | undefined;
     
     try {
-      const price = await ctraderAdapter.getPrice(symbol);
+      const price = await this.adapter.getPrice(symbol);
       if (price && price.bid > 0 && price.ask > 0) {
         currentBid = price.bid;
         currentAsk = price.ask;
@@ -1337,7 +1471,7 @@ export class SMCTradingEngine extends EventEmitter {
     }
     
     // Verificar posições abertas
-    const openPositions = await ctraderAdapter.getOpenPositions();
+    const openPositions = await this.adapter.getOpenPositions();
     const symbolPositions = openPositions.filter(p => p.symbol === symbol);
     
     if (symbolPositions.length >= 1) {
@@ -1347,7 +1481,7 @@ export class SMCTradingEngine extends EventEmitter {
     }
     
     // Calcular tamanho da posição
-    const accountInfo = await ctraderAdapter.getAccountInfo();
+    const accountInfo = await this.adapter.getAccountInfo();
     const balance = accountInfo?.balance || 10000;
     
     // Obter pip value para o símbolo
@@ -1361,7 +1495,7 @@ export class SMCTradingEngine extends EventEmitter {
     let currentPrice = 0;
     let currentSpreadPips: number | undefined;
     try {
-      const priceData = await ctraderAdapter.getPrice(symbol);
+      const priceData = await this.adapter.getPrice(symbol);
       if (priceData && priceData.bid > 0 && priceData.ask > 0) {
         // Usar bid para BUY (entry no ask, mas SL/TP calculado a partir do bid)
         // Usar ask para SELL (entry no bid, mas SL/TP calculado a partir do ask)
@@ -1395,20 +1529,20 @@ export class SMCTradingEngine extends EventEmitter {
     if (this.riskManager && sltp.stopLossPips) {
       try {
         // Obter specs de volume do símbolo da cTrader API
-        const symbolInfo = await ctraderAdapter.getSymbolInfo(symbol);
+        const symbolInfo = await this.adapter.getSymbolInfo(symbol);
         
         // CORREÇÃO DEFINITIVA: Verificar se temos um volume mínimo REAL detectado
         // Isso é necessário porque algumas contas têm limites diferentes do padrão
-        const realMinVolume = ctraderAdapter.getRealMinVolume(symbol);
+        const realMinVolume = this.adapter.getRealMinVolume?.(symbol) ?? 0.01;
         // Converter lotes para cents: 1 lote = 10,000,000 cents
         const realMinVolumeCents = Math.round(realMinVolume * 10000000);
         
         const volumeSpecs = symbolInfo ? {
           // CORREÇÃO: symbolInfo.minVolume já está em cents (da API)
           // Usar o MAIOR entre o minVolume da API e o detectado
-          minVolume: Math.max(symbolInfo.minVolume, realMinVolumeCents),
-          maxVolume: symbolInfo.maxVolume,
-          stepVolume: symbolInfo.stepVolume,
+          minVolume: Math.max(symbolInfo.minVolume ?? 100000, realMinVolumeCents),
+          maxVolume: symbolInfo.maxVolume ?? 100000000000000,
+          stepVolume: symbolInfo.stepVolume ?? 100000,
         } : {
           minVolume: realMinVolumeCents,
           maxVolume: 100000000000000, // 10,000 lotes
@@ -1463,7 +1597,7 @@ export class SMCTradingEngine extends EventEmitter {
     
     try {
       // TAREFA B: Passar maxSpread para filtro de spread
-      const result = await ctraderAdapter.placeOrder({
+      const result = await this.adapter.placeOrder({
         symbol,
         direction: signal.signal as "BUY" | "SELL",
         orderType: "MARKET",
@@ -1910,7 +2044,7 @@ export class SMCTradingEngine extends EventEmitter {
    */
   private async getCurrentAsk(symbol: string): Promise<number | undefined> {
     try {
-      const price = await ctraderAdapter.getPrice(symbol);
+      const price = await this.adapter.getPrice(symbol);
       return price?.ask;
     } catch (error) {
       // Nao deixar erro de preco quebrar o fluxo principal

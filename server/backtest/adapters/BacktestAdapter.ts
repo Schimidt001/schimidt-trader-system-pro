@@ -341,7 +341,7 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
   
   async getSymbolInfo(symbol: string): Promise<SymbolInfo | null> {
     const pipSize = getPipValue(symbol);
-    const digits = symbol.includes("JPY") || symbol === "XAUUSD" ? 2 : 5;
+    const digits = symbol.includes("JPY") ? 3 : (symbol.includes("XAU") ? 2 : 5);
     
     return {
       symbol,
@@ -349,6 +349,9 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
       pipSize,
       lotSize: 100000,
       contractSize: 100000,
+      minVolume: 100000, // 0.01 lots in cents
+      maxVolume: 50000000000, // 500 lots in cents
+      stepVolume: 100000, // 0.01 lots step
     };
   }
   
@@ -358,6 +361,14 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
       maxVolume: 50000000000, // 500 lots in cents
       stepVolume: 100000, // 0.01 lots step
     };
+  }
+  
+  /**
+   * Retorna volume mínimo real para backtest
+   * Em simulação, sempre retorna 0.01 lotes
+   */
+  getRealMinVolume(symbol: string): number {
+    return 0.01;
   }
   
   // -------------------------------------------------------------------------
@@ -500,6 +511,9 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
   
   /**
    * Advance simulation by one bar
+   * 
+   * REFATORAÇÃO 2026-01-14: Agora emite eventos via EventEmitter E callbacks
+   * Isso permite que a estratégia receba os ticks de preço durante o backtest
    */
   advanceBar(symbol: string, timeframe: string = "M5"): boolean {
     const symbolData = this.candleData.get(symbol);
@@ -539,16 +553,51 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
     // Check SL/TP
     this.checkStopLossAndTakeProfit(bar);
     
-    // Emit tick to callbacks
+    // REFATORAÇÃO 2026-01-14: Emitir tick via callback (para subscribePrice)
     const callback = this.priceCallbacks.get(symbol);
     if (callback) {
       callback(tick);
     }
     
+    // REFATORAÇÃO 2026-01-14: Emitir tick via EventEmitter (para BrokerEvents.onPriceTick)
+    if (this.eventHandlers.onPriceTick) {
+      this.eventHandlers.onPriceTick(tick);
+    }
+    
+    // Emitir evento genérico via EventEmitter (para listeners externos)
+    this.emit("tick", tick);
+    this.emit("bar", bar);
+    
     // Record equity curve
     this.recordEquityCurve(tick.timestamp);
     
     return true;
+  }
+  
+  /**
+   * Obtém o índice atual da barra para um símbolo
+   */
+  getCurrentBarIndex(symbol: string): number {
+    return this.currentBarIndex.get(symbol) || 0;
+  }
+  
+  /**
+   * Obtém o total de barras disponíveis para um símbolo/timeframe
+   */
+  getTotalBars(symbol: string, timeframe: string = "M5"): number {
+    const symbolData = this.candleData.get(symbol);
+    if (!symbolData) return 0;
+    const tfData = symbolData.get(timeframe);
+    return tfData?.length || 0;
+  }
+  
+  /**
+   * Carrega dados de múltiplos timeframes para simulação MTF
+   * Necessário para que a estratégia SMC tenha acesso a H1, M15, M5
+   */
+  async loadMultiTimeframeData(dataPath: string, symbol: string): Promise<void> {
+    const timeframes = ["M5", "M15", "H1"];
+    await this.loadHistoricalData(dataPath, symbol, timeframes);
   }
   
   /**

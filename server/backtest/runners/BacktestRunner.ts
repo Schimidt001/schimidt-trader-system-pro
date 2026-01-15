@@ -1,6 +1,8 @@
 /**
  * BacktestRunner - Executor de Backtests com Cálculo de Métricas
  * 
+ * REFATORAÇÃO 2026-01-14: Implementação de Injeção de Dependência
+ * 
  * Orquestra a execução de backtests e calcula todas as métricas
  * de performance solicitadas:
  * - Lucro Líquido ($)
@@ -9,8 +11,13 @@
  * - Drawdown Máximo (%)
  * - Fator de Lucro (Profit Factor)
  * 
+ * ARQUITETURA SANDBOX:
+ * - O BacktestAdapter é injetado no SMCTradingEngine
+ * - A estratégia real (SMCStrategy) é usada, não uma cópia
+ * - Nenhuma conexão com corretora real é feita
+ * 
  * @author Schimidt Trader Pro - Backtest Module
- * @version 1.0.0
+ * @version 2.0.0 - Refatorado para DI
  */
 
 import {
@@ -21,6 +28,10 @@ import {
   BacktestStrategyType,
 } from "../types/backtest.types";
 import { BacktestAdapter } from "../adapters/BacktestAdapter";
+import { SMCTradingEngine, SMCTradingEngineConfig } from "../../adapters/ctrader/SMCTradingEngine";
+import { StrategyType } from "../../adapters/ctrader/ITradingStrategy";
+import { ITradingAdapter } from "../adapters/ITradingAdapter";
+import { CandleData, PriceTick } from "../../adapters/IBrokerAdapter";
 
 // ============================================================================
 // BACKTEST RUNNER CLASS
@@ -29,32 +40,82 @@ import { BacktestAdapter } from "../adapters/BacktestAdapter";
 export class BacktestRunner {
   private config: BacktestConfig;
   private adapter: BacktestAdapter | null = null;
+  private engine: SMCTradingEngine | null = null;
   
   constructor(config: BacktestConfig) {
     this.config = config;
   }
   
   /**
-   * Run the backtest
+   * Run the backtest using the real SMCTradingEngine with injected BacktestAdapter
+   * 
+   * REFATORAÇÃO 2026-01-14:
+   * - Instancia BacktestAdapter como mock da corretora
+   * - Injeta o adapter no SMCTradingEngine via construtor
+   * - A estratégia SMC real analisa os dados históricos
+   * - Os trades são executados no ambiente simulado
    */
   async run(): Promise<BacktestResult> {
     const startTime = Date.now();
     
     console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[BacktestRunner] 🚀 INICIANDO BACKTEST");
+    console.log("[BacktestRunner] 🚀 INICIANDO BACKTEST COM INJEÇÃO DE DEPENDÊNCIA");
     console.log(`[BacktestRunner] Símbolo: ${this.config.symbol}`);
     console.log(`[BacktestRunner] Estratégia: ${this.config.strategy}`);
     console.log(`[BacktestRunner] Período: ${this.config.startDate.toISOString()} - ${this.config.endDate.toISOString()}`);
     console.log(`[BacktestRunner] Saldo Inicial: $${this.config.initialBalance}`);
     console.log("═══════════════════════════════════════════════════════════════");
     
-    // Create adapter
+    // 1. Create BacktestAdapter (Mock da corretora)
     this.adapter = new BacktestAdapter(this.config);
     
-    // Run simulation
-    const { trades, equityCurve, drawdownCurve } = await this.adapter.runSimulation();
+    // 2. Load historical data into adapter
+    await this.adapter.loadHistoricalData(
+      this.config.dataPath,
+      this.config.symbol,
+      this.config.timeframes
+    );
     
-    // Calculate metrics
+    // Validate data was loaded
+    const totalBars = this.adapter.getTotalBars(this.config.symbol, this.config.timeframes[0] || "M5");
+    if (totalBars === 0) {
+      throw new Error(`Nenhum dado carregado para ${this.config.symbol}. Verifique o caminho dos dados.`);
+    }
+    
+    console.log(`[BacktestRunner] ✅ Dados carregados: ${totalBars} velas`);
+    
+    // 3. Determine strategy type
+    const strategyType = this.mapStrategyType(this.config.strategy);
+    
+    // 4. Create engine config
+    const engineConfig: Partial<SMCTradingEngineConfig> = {
+      strategyType,
+      symbols: [this.config.symbol],
+      lots: this.calculateLotSize(),
+      maxPositions: this.config.maxPositions,
+      cooldownMs: 0, // No cooldown in backtest
+      maxSpread: this.config.maxSpread,
+    };
+    
+    // 5. INJEÇÃO DE DEPENDÊNCIA: Criar SMCTradingEngine com BacktestAdapter
+    // Este é o "pulo do gato" - a mesma engine de produção, mas com adapter simulado
+    this.engine = new SMCTradingEngine(
+      0, // userId fictício para backtest
+      0, // botId fictício para backtest
+      engineConfig,
+      this.adapter as unknown as ITradingAdapter
+    );
+    
+    console.log("[BacktestRunner] ✅ SMCTradingEngine instanciado com BacktestAdapter");
+    
+    // 6. Inicializar engine para backtest (sem loops de produção)
+    await this.engine.initializeForBacktest();
+    console.log("[BacktestRunner] ✅ Engine inicializado para backtest");
+    
+    // 7. Run simulation with strategy integration
+    const { trades, equityCurve, drawdownCurve } = await this.runSimulationWithStrategy();
+    
+    // 7. Calculate metrics
     const metrics = this.calculateMetrics(trades, equityCurve, drawdownCurve);
     
     const executionTime = Date.now() - startTime;
@@ -79,6 +140,222 @@ export class BacktestRunner {
       endTimestamp: this.config.endDate.getTime(),
       executionTime,
     };
+  }
+  
+  /**
+   * Run simulation with strategy integration
+   * 
+   * Este método avança as velas e dispara os eventos que a estratégia escuta.
+   * A estratégia SMC analisa os dados e gera sinais, que são executados no adapter simulado.
+   */
+  private async runSimulationWithStrategy(): Promise<{
+    trades: BacktestTrade[];
+    equityCurve: { timestamp: number; equity: number }[];
+    drawdownCurve: { timestamp: number; drawdown: number; drawdownPercent: number }[];
+  }> {
+    if (!this.adapter || !this.engine) {
+      throw new Error("Adapter ou Engine não inicializados");
+    }
+    
+    const symbol = this.config.symbol;
+    const primaryTimeframe = this.config.timeframes[0] || "M5";
+    const totalBars = this.adapter.getTotalBars(symbol, primaryTimeframe);
+    
+    console.log(`[BacktestRunner] Iniciando simulação com ${totalBars} velas...`);
+    
+    // Warmup period - avançar velas sem trading para popular indicadores
+    const warmupBars = Math.min(200, Math.floor(totalBars * 0.1));
+    console.log(`[BacktestRunner] Período de warmup: ${warmupBars} velas`);
+    
+    for (let i = 0; i < warmupBars; i++) {
+      if (!this.adapter.advanceBar(symbol, primaryTimeframe)) break;
+    }
+    
+    console.log(`[BacktestRunner] ✅ Warmup completo. Iniciando trading...`);
+    
+    // Main simulation loop
+    let barCount = 0;
+    const startTime = Date.now();
+    
+    // Configurar callback para receber ticks
+    await this.adapter.subscribePrice(symbol, (tick: PriceTick) => {
+      // O tick é processado automaticamente pelo adapter
+      // A estratégia será chamada via eventos
+    });
+    
+    while (this.adapter.advanceBar(symbol, primaryTimeframe)) {
+      barCount++;
+      
+      // Obter dados MTF para análise
+      const mtfData = await this.buildMTFData(symbol);
+      
+      // Chamar análise da estratégia diretamente
+      // (Em produção, isso é feito via eventos, aqui fazemos manualmente)
+      await this.triggerStrategyAnalysis(symbol, mtfData);
+      
+      // Log progress every 1000 bars
+      if (barCount % 1000 === 0) {
+        const elapsed = (Date.now() - startTime) / 1000;
+        const trades = this.adapter.getClosedTrades().length;
+        console.log(`[BacktestRunner] Processadas ${barCount} velas em ${elapsed.toFixed(1)}s | Trades: ${trades}`);
+      }
+    }
+    
+    // Close any remaining positions
+    const accountState = this.adapter.getAccountState();
+    const openPositionIds = Array.from(accountState.openPositions.keys());
+    for (const positionId of openPositionIds) {
+      await this.adapter.closePosition(positionId);
+    }
+    
+    const totalTime = (Date.now() - startTime) / 1000;
+    const closedTrades = this.adapter.getClosedTrades();
+    
+    console.log(`[BacktestRunner] ✅ Simulação concluída: ${barCount} velas, ${closedTrades.length} trades em ${totalTime.toFixed(2)}s`);
+    
+    return {
+      trades: closedTrades,
+      equityCurve: this.adapter["equityCurve"] || [],
+      drawdownCurve: this.adapter["drawdownCurve"] || [],
+    };
+  }
+  
+  /**
+   * Build Multi-Timeframe data for strategy analysis
+   */
+  private async buildMTFData(symbol: string): Promise<{
+    h1: CandleData[];
+    m15: CandleData[];
+    m5: CandleData[];
+    currentBid?: number;
+    currentAsk?: number;
+    currentSpreadPips?: number;
+  }> {
+    if (!this.adapter) {
+      return { h1: [], m15: [], m5: [] };
+    }
+    
+    // Obter candles de cada timeframe
+    const h1Candles = await this.adapter.getCandleHistory(symbol, "H1", 250);
+    const m15Candles = await this.adapter.getCandleHistory(symbol, "M15", 250);
+    const m5Candles = await this.adapter.getCandleHistory(symbol, "M5", 250);
+    
+    // Obter preço atual
+    let currentBid: number | undefined;
+    let currentAsk: number | undefined;
+    let currentSpreadPips: number | undefined;
+    
+    try {
+      const tick = await this.adapter.getPrice(symbol);
+      currentBid = tick.bid;
+      currentAsk = tick.ask;
+      currentSpreadPips = tick.spread;
+    } catch {
+      // Usar último candle se não houver tick
+      if (m5Candles.length > 0) {
+        currentBid = m5Candles[m5Candles.length - 1].close;
+        currentAsk = currentBid + (this.config.spread || 1) * 0.0001;
+        currentSpreadPips = this.config.spread || 1;
+      }
+    }
+    
+    return {
+      h1: h1Candles,
+      m15: m15Candles,
+      m5: m5Candles,
+      currentBid,
+      currentAsk,
+      currentSpreadPips,
+    };
+  }
+  
+  /**
+   * Trigger strategy analysis manually
+   * 
+   * REFATORAÇÃO 2026-01-14: Chama diretamente o método analyzeWithData
+   * do SMCTradingEngine, que analisa os dados e executa trades
+   */
+  private async triggerStrategyAnalysis(
+    symbol: string,
+    mtfData: {
+      h1: CandleData[];
+      m15: CandleData[];
+      m5: CandleData[];
+      currentBid?: number;
+      currentAsk?: number;
+      currentSpreadPips?: number;
+    }
+  ): Promise<void> {
+    if (!this.engine || !this.adapter) return;
+    
+    // Verificar se temos dados suficientes
+    if (mtfData.h1.length < 50 || mtfData.m15.length < 30 || mtfData.m5.length < 20) {
+      return; // Dados insuficientes para análise
+    }
+    
+    // Converter para formato esperado pelo engine
+    const formattedMtfData = {
+      h1: mtfData.h1.map(c => ({
+        timestamp: c.timestamp,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume || 0,
+      })),
+      m15: mtfData.m15.map(c => ({
+        timestamp: c.timestamp,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume || 0,
+      })),
+      m5: mtfData.m5.map(c => ({
+        timestamp: c.timestamp,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume || 0,
+      })),
+      currentBid: mtfData.currentBid,
+      currentAsk: mtfData.currentAsk,
+      currentSpreadPips: mtfData.currentSpreadPips,
+    };
+    
+    // Chamar análise diretamente no engine
+    await this.engine.analyzeWithData(symbol, formattedMtfData);
+  }
+  
+  /**
+   * Map BacktestStrategyType to StrategyType
+   */
+  private mapStrategyType(backtestType: BacktestStrategyType): StrategyType {
+    switch (backtestType) {
+      case BacktestStrategyType.SMC:
+        return StrategyType.SMC_SWARM;
+      case BacktestStrategyType.HYBRID:
+        return StrategyType.SMC_SWARM; // Fallback para SMC_SWARM
+      case BacktestStrategyType.RSI_VWAP:
+        return StrategyType.RSI_VWAP_REVERSAL;
+      default:
+        return StrategyType.SMC_SWARM;
+    }
+  }
+  
+  /**
+   * Calculate lot size based on risk percentage
+   */
+  private calculateLotSize(): number {
+    // Simplified lot size calculation
+    // In production, this would use proper risk management
+    const riskAmount = this.config.initialBalance * (this.config.riskPercent / 100);
+    const estimatedSLPips = 30; // Estimated average SL
+    const pipValue = 10; // $10 per pip per lot (simplified)
+    
+    const lots = riskAmount / (estimatedSLPips * pipValue);
+    return Math.max(0.01, Math.min(lots, 1)); // Clamp between 0.01 and 1 lot
   }
   
   /**
