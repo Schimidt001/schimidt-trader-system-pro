@@ -344,7 +344,10 @@ export class BatchOptimizer {
   }
   
   /**
-   * Executa um único backtest
+   * Executa um único backtest com parâmetros de estratégia
+   * 
+   * CORREÇÃO: Agora passa os parâmetros de estratégia para o BacktestRunner,
+   * permitindo que o Grid Search teste diferentes configurações.
    */
   private async runSingleBacktest(
     strategy: BacktestStrategyType,
@@ -366,11 +369,49 @@ export class BatchOptimizer {
         riskPercent: params.riskPercentage || 2,
         maxPositions: params.maxOpenTrades || 3,
         maxSpread: params.maxSpreadPips || 3,
-        // Parâmetros adicionais podem ser passados via extensão do BacktestConfig
-        // ou através de um sistema de injeção de parâmetros no BacktestAdapter
       };
       
-      const runner = new BacktestRunner(config);
+      // Converter parâmetros SMC para formato da estratégia
+      const strategyParams = {
+        // Estrutura
+        fractalLeftBars: params.fractalLeftBars,
+        fractalRightBars: params.fractalRightBars,
+        swingH1Lookback: params.swingH1Lookback,
+        structureTimeframe: params.structureTimeframe,
+        // Liquidez
+        sweepBufferPips: params.sweepBufferPips,
+        sweepValidationMinutes: params.sweepValidationMinutes,
+        // Confirmação
+        chochMinPips: params.chochMinPips,
+        chochM15Lookback: params.chochM15Lookback,
+        chochAcceptWickBreak: params.chochAcceptWickBreak,
+        // Order Block
+        orderBlockLookback: params.orderBlockLookback,
+        orderBlockExtensionPips: params.orderBlockExtensionPips,
+        // Entrada
+        entryConfirmationType: params.entryConfirmationType,
+        rejectionWickPercent: params.rejectionWickPercent,
+        // Gestão de Risco
+        riskPercentage: params.riskPercentage,
+        maxOpenTrades: params.maxOpenTrades,
+        stopLossBufferPips: params.stopLossBufferPips,
+        rewardRiskRatio: params.rewardRiskRatio,
+        dailyLossLimitPercent: params.dailyLossLimitPercent,
+        // Spread
+        maxSpreadPips: params.maxSpreadPips,
+        spreadFilterEnabled: params.spreadFilterEnabled,
+        // Trailing
+        trailingEnabled: params.trailingEnabled,
+        trailingTriggerPips: params.trailingTriggerPips,
+        trailingStepPips: params.trailingStepPips,
+      };
+      
+      // Remover valores undefined
+      const cleanParams = Object.fromEntries(
+        Object.entries(strategyParams).filter(([_, v]) => v !== undefined)
+      );
+      
+      const runner = new BacktestRunner(config, cleanParams);
       return await runner.run();
       
     } catch (error) {

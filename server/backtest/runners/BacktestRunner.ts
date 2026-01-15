@@ -21,6 +21,8 @@ import {
   BacktestStrategyType,
 } from "../types/backtest.types";
 import { BacktestAdapter } from "../adapters/BacktestAdapter";
+import { BacktestEngine, BacktestEngineConfig } from "./BacktestEngine";
+import { SMCStrategyConfig } from "../../adapters/ctrader/SMCStrategy";
 
 // ============================================================================
 // BACKTEST RUNNER CLASS
@@ -28,31 +30,43 @@ import { BacktestAdapter } from "../adapters/BacktestAdapter";
 
 export class BacktestRunner {
   private config: BacktestConfig;
+  private strategyParams?: Partial<SMCStrategyConfig>;
   private adapter: BacktestAdapter | null = null;
   
-  constructor(config: BacktestConfig) {
+  constructor(config: BacktestConfig, strategyParams?: Partial<SMCStrategyConfig>) {
     this.config = config;
+    this.strategyParams = strategyParams;
   }
   
   /**
-   * Run the backtest
+   * Run the backtest using the new BacktestEngine
+   * 
+   * CORREÇÃO: Agora usa BacktestEngine que conecta a estratégia SMC ao adapter,
+   * permitindo geração real de trades durante o backtest.
    */
   async run(): Promise<BacktestResult> {
     const startTime = Date.now();
     
     console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[BacktestRunner] 🚀 INICIANDO BACKTEST");
+    console.log("[BacktestRunner] 🚀 INICIANDO BACKTEST COM ENGINE");
     console.log(`[BacktestRunner] Símbolo: ${this.config.symbol}`);
     console.log(`[BacktestRunner] Estratégia: ${this.config.strategy}`);
     console.log(`[BacktestRunner] Período: ${this.config.startDate.toISOString()} - ${this.config.endDate.toISOString()}`);
     console.log(`[BacktestRunner] Saldo Inicial: $${this.config.initialBalance}`);
+    if (this.strategyParams) {
+      console.log(`[BacktestRunner] Parâmetros customizados: ${JSON.stringify(this.strategyParams)}`);
+    }
     console.log("═══════════════════════════════════════════════════════════════");
     
-    // Create adapter
-    this.adapter = new BacktestAdapter(this.config);
+    // Create engine config
+    const engineConfig: BacktestEngineConfig = {
+      ...this.config,
+      strategyParams: this.strategyParams,
+    };
     
-    // Run simulation
-    const { trades, equityCurve, drawdownCurve } = await this.adapter.runSimulation();
+    // Create and run engine
+    const engine = new BacktestEngine(engineConfig);
+    const { trades, equityCurve, drawdownCurve } = await engine.run();
     
     // Calculate metrics
     const metrics = this.calculateMetrics(trades, equityCurve, drawdownCurve);
@@ -304,8 +318,11 @@ export class BacktestRunner {
 // FACTORY FUNCTION
 // ============================================================================
 
-export function createBacktestRunner(config: BacktestConfig): BacktestRunner {
-  return new BacktestRunner(config);
+export function createBacktestRunner(
+  config: BacktestConfig,
+  strategyParams?: Partial<SMCStrategyConfig>
+): BacktestRunner {
+  return new BacktestRunner(config, strategyParams);
 }
 
 // ============================================================================

@@ -127,6 +127,22 @@ const runBacktestSchema = z.object({
   slippage: z.number().min(0).max(5).default(0.5),
   spread: z.number().min(0).max(10).default(1),
   maxSpread: z.number().min(0).max(20).default(3),
+  // Parâmetros de estratégia SMC (opcionais - usa defaults se não fornecidos)
+  strategyParams: z.object({
+    // Estrutura
+    fractalLeftBars: z.number().min(1).max(10).optional(),
+    fractalRightBars: z.number().min(1).max(10).optional(),
+    swingH1Lookback: z.number().min(10).max(100).optional(),
+    // Liquidez
+    sweepBufferPips: z.number().min(0.1).max(10).optional(),
+    sweepValidationMinutes: z.number().min(1).max(60).optional(),
+    // Confirmação
+    chochMinPips: z.number().min(1).max(50).optional(),
+    rejectionWickPercent: z.number().min(10).max(90).optional(),
+    // Gestão
+    stopLossBufferPips: z.number().min(1).max(20).optional(),
+    rewardRiskRatio: z.number().min(1).max(5).optional(),
+  }).optional(),
 });
 
 const downloadDataSchema = z.object({
@@ -347,8 +363,8 @@ export const backtestRouter = router({
         backtestState.currentPhase = "loading_data";
         backtestState.progress = 10;
         
-        // Create runner
-        const runner = new BacktestRunner(config);
+        // Create runner with strategy params
+        const runner = new BacktestRunner(config, input.strategyParams);
         
         backtestState.currentPhase = "simulating";
         backtestState.progress = 30;
