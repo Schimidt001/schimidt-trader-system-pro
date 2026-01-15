@@ -2,6 +2,7 @@
  * BacktestRunner - Executor de Backtests com Cálculo de Métricas
  * 
  * REFATORAÇÃO 2026-01-14: Implementação de Injeção de Dependência
+ * REFATORAÇÃO 2026-01-15: Sincronização MTF Baseada em Timestamp
  * 
  * Orquestra a execução de backtests e calcula todas as métricas
  * de performance solicitadas:
@@ -16,8 +17,13 @@
  * - A estratégia real (SMCStrategy) é usada, não uma cópia
  * - Nenhuma conexão com corretora real é feita
  * 
+ * CORREÇÃO MTF 2026-01-15:
+ * - O BacktestAdapter agora mantém índices independentes por timeframe
+ * - getCandleHistory respeita o alinhamento temporal
+ * - Eliminado Look-ahead Bias na leitura de H1/M15
+ * 
  * @author Schimidt Trader Pro - Backtest Module
- * @version 2.0.0 - Refatorado para DI
+ * @version 2.1.0 - MTF Timestamp Synchronization
  */
 
 import {
@@ -59,11 +65,12 @@ export class BacktestRunner {
     const startTime = Date.now();
     
     console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[BacktestRunner] 🚀 INICIANDO BACKTEST COM INJEÇÃO DE DEPENDÊNCIA");
+    console.log("[BacktestRunner] 🚀 INICIANDO BACKTEST COM SINCRONIZAÇÃO MTF");
     console.log(`[BacktestRunner] Símbolo: ${this.config.symbol}`);
     console.log(`[BacktestRunner] Estratégia: ${this.config.strategy}`);
     console.log(`[BacktestRunner] Período: ${this.config.startDate.toISOString()} - ${this.config.endDate.toISOString()}`);
     console.log(`[BacktestRunner] Saldo Inicial: $${this.config.initialBalance}`);
+    console.log(`[BacktestRunner] Timeframes: ${this.config.timeframes.join(", ")}`);
     console.log("═══════════════════════════════════════════════════════════════");
     
     // 1. Create BacktestAdapter (Mock da corretora)
@@ -76,13 +83,19 @@ export class BacktestRunner {
       this.config.timeframes
     );
     
-    // Validate data was loaded
-    const totalBars = this.adapter.getTotalBars(this.config.symbol, this.config.timeframes[0] || "M5");
+    // Validate data was loaded for all timeframes
+    const primaryTimeframe = this.config.timeframes[0] || "M5";
+    const totalBars = this.adapter.getTotalBars(this.config.symbol, primaryTimeframe);
     if (totalBars === 0) {
       throw new Error(`Nenhum dado carregado para ${this.config.symbol}. Verifique o caminho dos dados.`);
     }
     
-    console.log(`[BacktestRunner] ✅ Dados carregados: ${totalBars} velas`);
+    // Log MTF data availability
+    console.log(`[BacktestRunner] ✅ Dados carregados:`);
+    for (const tf of this.config.timeframes) {
+      const bars = this.adapter.getTotalBars(this.config.symbol, tf);
+      console.log(`[BacktestRunner]    ${tf}: ${bars} velas`);
+    }
     
     // 3. Determine strategy type
     const strategyType = this.mapStrategyType(this.config.strategy);
@@ -115,7 +128,7 @@ export class BacktestRunner {
     // 7. Run simulation with strategy integration
     const { trades, equityCurve, drawdownCurve } = await this.runSimulationWithStrategy();
     
-    // 7. Calculate metrics
+    // 8. Calculate metrics
     const metrics = this.calculateMetrics(trades, equityCurve, drawdownCurve);
     
     const executionTime = Date.now() - startTime;
@@ -129,6 +142,18 @@ export class BacktestRunner {
     console.log(`[BacktestRunner] Drawdown Máximo: ${metrics.maxDrawdownPercent.toFixed(2)}%`);
     console.log(`[BacktestRunner] Profit Factor: ${metrics.profitFactor.toFixed(2)}`);
     console.log("═══════════════════════════════════════════════════════════════");
+    
+    // Validação de sanidade: alertar se 0 trades
+    if (metrics.totalTrades === 0) {
+      console.warn("═══════════════════════════════════════════════════════════════");
+      console.warn("[BacktestRunner] ⚠️ ALERTA: 0 TRADES EXECUTADOS!");
+      console.warn("[BacktestRunner] Possíveis causas:");
+      console.warn("[BacktestRunner]   1. Dados insuficientes para análise");
+      console.warn("[BacktestRunner]   2. Filtros de sessão muito restritivos");
+      console.warn("[BacktestRunner]   3. Spread máximo muito baixo");
+      console.warn("[BacktestRunner]   4. Estratégia não encontrou sinais válidos");
+      console.warn("═══════════════════════════════════════════════════════════════");
+    }
     
     return {
       config: this.config,
@@ -145,8 +170,14 @@ export class BacktestRunner {
   /**
    * Run simulation with strategy integration
    * 
+   * REFATORAÇÃO 2026-01-15: Sincronização MTF baseada em timestamp
+   * 
    * Este método avança as velas e dispara os eventos que a estratégia escuta.
    * A estratégia SMC analisa os dados e gera sinais, que são executados no adapter simulado.
+   * 
+   * O BacktestAdapter agora mantém índices independentes para cada timeframe,
+   * garantindo que ao consultar H1 ou M15, os dados retornados correspondam
+   * ao período correto (sem Look-ahead Bias).
    */
   private async runSimulationWithStrategy(): Promise<{
     trades: BacktestTrade[];
@@ -162,6 +193,7 @@ export class BacktestRunner {
     const totalBars = this.adapter.getTotalBars(symbol, primaryTimeframe);
     
     console.log(`[BacktestRunner] Iniciando simulação com ${totalBars} velas...`);
+    console.log(`[BacktestRunner] Timeframe primário: ${primaryTimeframe}`);
     
     // Warmup period - avançar velas sem trading para popular indicadores
     const warmupBars = Math.min(200, Math.floor(totalBars * 0.1));
@@ -170,6 +202,9 @@ export class BacktestRunner {
     for (let i = 0; i < warmupBars; i++) {
       if (!this.adapter.advanceBar(symbol, primaryTimeframe)) break;
     }
+    
+    // Log de validação MTF após warmup
+    await this.logMTFSyncValidation(symbol, "Após Warmup");
     
     console.log(`[BacktestRunner] ✅ Warmup completo. Iniciando trading...`);
     
@@ -186,7 +221,7 @@ export class BacktestRunner {
     while (this.adapter.advanceBar(symbol, primaryTimeframe)) {
       barCount++;
       
-      // Obter dados MTF para análise
+      // Obter dados MTF para análise (agora sincronizados por timestamp)
       const mtfData = await this.buildMTFData(symbol);
       
       // Chamar análise da estratégia diretamente
@@ -198,6 +233,11 @@ export class BacktestRunner {
         const elapsed = (Date.now() - startTime) / 1000;
         const trades = this.adapter.getClosedTrades().length;
         console.log(`[BacktestRunner] Processadas ${barCount} velas em ${elapsed.toFixed(1)}s | Trades: ${trades}`);
+        
+        // Log de validação MTF periódico (a cada 5000 barras)
+        if (barCount % 5000 === 0) {
+          await this.logMTFSyncValidation(symbol, `Barra ${barCount}`);
+        }
       }
     }
     
@@ -221,7 +261,44 @@ export class BacktestRunner {
   }
   
   /**
+   * Log de validação da sincronização MTF
+   * 
+   * Verifica se os timestamps das últimas velas de cada timeframe
+   * estão corretamente alinhados com o timestamp simulado atual.
+   */
+  private async logMTFSyncValidation(symbol: string, context: string): Promise<void> {
+    if (!this.adapter) return;
+    
+    const currentTimestamp = this.adapter.getCurrentSimulatedTimestamp();
+    const currentDate = new Date(currentTimestamp);
+    
+    console.log(`[BacktestRunner] 📊 Validação MTF (${context}):`);
+    console.log(`[BacktestRunner]    Timestamp Simulado: ${currentDate.toISOString()}`);
+    
+    for (const tf of this.config.timeframes) {
+      const candles = await this.adapter.getCandleHistory(symbol, tf, 1);
+      if (candles.length > 0) {
+        const lastCandle = candles[candles.length - 1];
+        const candleDate = new Date(lastCandle.timestamp);
+        const diff = currentTimestamp - lastCandle.timestamp;
+        const diffMinutes = Math.floor(diff / (60 * 1000));
+        
+        // Verificar se o timestamp da vela é <= timestamp simulado
+        const isValid = lastCandle.timestamp <= currentTimestamp;
+        const status = isValid ? "✅" : "❌ LOOK-AHEAD BIAS!";
+        
+        console.log(`[BacktestRunner]    ${tf}: ${candleDate.toISOString()} (${diffMinutes}min atrás) ${status}`);
+      } else {
+        console.log(`[BacktestRunner]    ${tf}: Sem dados`);
+      }
+    }
+  }
+  
+  /**
    * Build Multi-Timeframe data for strategy analysis
+   * 
+   * REFATORAÇÃO 2026-01-15: Os dados agora são obtidos via getCandleHistory
+   * que respeita o alinhamento temporal implementado no BacktestAdapter.
    */
   private async buildMTFData(symbol: string): Promise<{
     h1: CandleData[];
@@ -235,7 +312,7 @@ export class BacktestRunner {
       return { h1: [], m15: [], m5: [] };
     }
     
-    // Obter candles de cada timeframe
+    // Obter candles de cada timeframe (agora sincronizados por timestamp)
     const h1Candles = await this.adapter.getCandleHistory(symbol, "H1", 250);
     const m15Candles = await this.adapter.getCandleHistory(symbol, "M15", 250);
     const m5Candles = await this.adapter.getCandleHistory(symbol, "M5", 250);

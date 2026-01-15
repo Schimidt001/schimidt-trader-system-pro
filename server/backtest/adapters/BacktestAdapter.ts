@@ -8,8 +8,14 @@
  * IMPORTANTE: Este adapter NÃO altera a lógica de trading dos engines.
  * Ele apenas fornece dados de mercado e simula execução de ordens.
  * 
+ * REFATORAÇÃO 2026-01-15: Sincronização MTF Baseada em Timestamp
+ * - Implementado gerenciamento de índices independentes por timeframe
+ * - Adicionado método getAlignedCandle para sincronização temporal
+ * - Corrigido getCandleHistory para respeitar alinhamento temporal
+ * - Eliminado Look-ahead Bias na leitura de timeframes maiores
+ * 
  * @author Schimidt Trader Pro - Backtest Module
- * @version 1.0.0
+ * @version 2.1.0 - MTF Timestamp Synchronization (Legacy Removed)
  */
 
 import { EventEmitter } from "events";
@@ -43,6 +49,17 @@ import { getPipValue, calculateSpreadPips } from "../../../shared/normalizationU
 
 const CENTS_PER_LOT = 10_000_000; // 1 lote = 10,000,000 cents (cTrader)
 
+// Duração de cada timeframe em milissegundos
+const TIMEFRAME_DURATION_MS: Record<string, number> = {
+  "M1": 60 * 1000,
+  "M5": 5 * 60 * 1000,
+  "M15": 15 * 60 * 1000,
+  "M30": 30 * 60 * 1000,
+  "H1": 60 * 60 * 1000,
+  "H4": 4 * 60 * 60 * 1000,
+  "D1": 24 * 60 * 60 * 1000,
+};
+
 // ============================================================================
 // BACKTEST ADAPTER CLASS
 // ============================================================================
@@ -62,7 +79,26 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
   
   // Market data
   private candleData: Map<string, Map<string, CandleData[]>> = new Map(); // symbol -> timeframe -> candles
-  private currentBarIndex: Map<string, number> = new Map(); // symbol -> current bar index
+  
+  // =========================================================================
+  // REFATORAÇÃO MTF: Índices Independentes por Timeframe
+  // =========================================================================
+  /**
+   * Mapa de índices independentes para cada símbolo e timeframe.
+   * Estrutura: { symbol: { timeframe: currentIndex } }
+   * 
+   * Isso resolve o bug de Look-ahead Bias onde o mesmo índice era usado
+   * para todos os timeframes, causando leitura de dados futuros.
+   */
+  private currentIndices: Map<string, Map<string, number>> = new Map();
+  
+  /**
+   * Timestamp simulado atual (em milissegundos).
+   * O loop principal avança baseado no timeframe menor (M5).
+   * Todos os outros timeframes são sincronizados com este timestamp.
+   */
+  private currentSimulatedTimestamp: number = 0;
+  
   private currentTick: Map<string, PriceTick> = new Map(); // symbol -> current tick
   
   // Configuration
@@ -151,6 +187,20 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
     console.log(`[BacktestAdapter] Unsubscribed from ${symbol}`);
   }
   
+  // =========================================================================
+  // REFATORAÇÃO MTF: getCandleHistory com Alinhamento Temporal
+  // =========================================================================
+  /**
+   * Obtém histórico de candles respeitando o alinhamento temporal.
+   * 
+   * CORREÇÃO CRÍTICA: Agora busca as N velas anteriores ao timestamp
+   * simulado atual, em vez de usar o índice do timeframe primário.
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param timeframe - Timeframe desejado (M5, M15, H1, etc.)
+   * @param count - Quantidade de velas a retornar
+   * @returns Array de velas alinhadas temporalmente
+   */
   async getCandleHistory(symbol: string, timeframe: string, count: number): Promise<CandleData[]> {
     const symbolData = this.candleData.get(symbol);
     if (!symbolData) {
@@ -159,15 +209,155 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
     }
     
     const tfData = symbolData.get(timeframe);
-    if (!tfData) {
+    if (!tfData || tfData.length === 0) {
       console.warn(`[BacktestAdapter] No data for timeframe: ${timeframe}`);
       return [];
     }
     
-    const currentIndex = this.currentBarIndex.get(symbol) || 0;
-    const startIndex = Math.max(0, currentIndex - count);
+    // Obter o índice atual para este timeframe específico
+    const currentIndex = this.getTimeframeIndex(symbol, timeframe);
     
-    return tfData.slice(startIndex, currentIndex + 1);
+    // Retornar as últimas 'count' velas até o índice atual (inclusive)
+    const startIndex = Math.max(0, currentIndex - count + 1);
+    const endIndex = currentIndex + 1;
+    
+    return tfData.slice(startIndex, endIndex);
+  }
+  
+  // =========================================================================
+  // REFATORAÇÃO MTF: getAlignedCandle - Sincronização por Timestamp
+  // =========================================================================
+  /**
+   * Retorna a vela de um timeframe que engloba o timestamp atual.
+   * 
+   * Esta é a função central da sincronização MTF. Ela garante que ao
+   * consultar dados de H1 quando estamos em M5, retornamos a vela H1
+   * que corresponde ao período atual, não uma vela futura.
+   * 
+   * Exemplo: Se o timestamp simulado é 10:15, e pedimos H1:
+   * - Retorna a vela H1 das 10:00 (que cobre 10:00-10:59)
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param timeframe - Timeframe desejado
+   * @param currentTimestamp - Timestamp simulado atual (ms)
+   * @returns A vela alinhada ou null se não encontrada
+   */
+  getAlignedCandle(symbol: string, timeframe: string, currentTimestamp: number): CandleData | null {
+    const symbolData = this.candleData.get(symbol);
+    if (!symbolData) return null;
+    
+    const tfData = symbolData.get(timeframe);
+    if (!tfData || tfData.length === 0) return null;
+    
+    // Obter o índice atual para este timeframe
+    const currentIndex = this.getTimeframeIndex(symbol, timeframe);
+    
+    // Verificar se o índice é válido
+    if (currentIndex < 0 || currentIndex >= tfData.length) {
+      return null;
+    }
+    
+    return tfData[currentIndex];
+  }
+  
+  // =========================================================================
+  // REFATORAÇÃO MTF: Gerenciamento de Índices por Timeframe
+  // =========================================================================
+  /**
+   * Obtém o índice atual para um símbolo e timeframe específico.
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param timeframe - Timeframe
+   * @returns Índice atual ou 0 se não inicializado
+   */
+  private getTimeframeIndex(symbol: string, timeframe: string): number {
+    const symbolIndices = this.currentIndices.get(symbol);
+    if (!symbolIndices) return 0;
+    return symbolIndices.get(timeframe) || 0;
+  }
+  
+  /**
+   * Define o índice atual para um símbolo e timeframe específico.
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param timeframe - Timeframe
+   * @param index - Novo índice
+   */
+  private setTimeframeIndex(symbol: string, timeframe: string, index: number): void {
+    if (!this.currentIndices.has(symbol)) {
+      this.currentIndices.set(symbol, new Map());
+    }
+    this.currentIndices.get(symbol)!.set(timeframe, index);
+  }
+  
+  /**
+   * Inicializa os índices para todos os timeframes de um símbolo.
+   * Todos começam em 0.
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param timeframes - Lista de timeframes carregados
+   */
+  private initializeTimeframeIndices(symbol: string, timeframes: string[]): void {
+    const indices = new Map<string, number>();
+    for (const tf of timeframes) {
+      indices.set(tf, 0);
+    }
+    this.currentIndices.set(symbol, indices);
+    
+    // Inicializar timestamp simulado com o primeiro candle do timeframe primário
+    const primaryTf = timeframes[0] || "M5";
+    const symbolData = this.candleData.get(symbol);
+    if (symbolData) {
+      const primaryData = symbolData.get(primaryTf);
+      if (primaryData && primaryData.length > 0) {
+        this.currentSimulatedTimestamp = primaryData[0].timestamp;
+      }
+    }
+    
+    console.log(`[BacktestAdapter] Initialized indices for ${symbol}: ${timeframes.join(", ")}`);
+  }
+  
+  /**
+   * Sincroniza os índices de todos os timeframes com o timestamp simulado atual.
+   * 
+   * Esta função é chamada após avançar o timeframe primário (M5).
+   * Ela atualiza os índices dos outros timeframes para apontar para
+   * a vela que engloba o timestamp atual.
+   * 
+   * OTIMIZAÇÃO: Não usa Array.find a cada tick. Mantém ponteiros e
+   * apenas incrementa quando necessário.
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param currentTimestamp - Timestamp simulado atual (ms)
+   */
+  private synchronizeTimeframeIndices(symbol: string, currentTimestamp: number): void {
+    const symbolData = this.candleData.get(symbol);
+    if (!symbolData) return;
+    
+    const symbolIndices = this.currentIndices.get(symbol);
+    if (!symbolIndices) return;
+    
+    // Para cada timeframe, avançar o índice se necessário
+    for (const [timeframe, tfData] of symbolData) {
+      const currentIndex = symbolIndices.get(timeframe) || 0;
+      
+      // Verificar se precisamos avançar o índice
+      // Avançamos quando o timestamp da próxima vela for <= timestamp atual
+      let newIndex = currentIndex;
+      
+      while (newIndex + 1 < tfData.length) {
+        const nextCandle = tfData[newIndex + 1];
+        if (nextCandle.timestamp <= currentTimestamp) {
+          newIndex++;
+        } else {
+          break;
+        }
+      }
+      
+      if (newIndex !== currentIndex) {
+        symbolIndices.set(timeframe, newIndex);
+      }
+    }
   }
   
   async getPrice(symbol: string): Promise<PriceTick> {
@@ -386,7 +576,7 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
   /**
    * Load historical data from JSON files
    * 
-   * HOTFIX 2026-01-14: Added detailed logging and error handling
+   * REFATORAÇÃO 2026-01-15: Inicializa índices independentes por timeframe
    */
   async loadHistoricalData(dataPath: string, symbol: string, timeframes: string[]): Promise<void> {
     // Resolve to absolute path to avoid issues in production environments (Railway, etc.)
@@ -419,6 +609,7 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
     }
     
     let totalBarsLoaded = 0;
+    const loadedTimeframes: string[] = [];
     
     for (const tf of timeframes) {
       const fileName = `${symbol}_${tf}.json`;
@@ -484,6 +675,7 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
         
         this.candleData.get(symbol)!.set(tf, normalizedBars);
         totalBarsLoaded += normalizedBars.length;
+        loadedTimeframes.push(tf);
         
         console.log(`[BacktestAdapter] ✅ Carregadas ${normalizedBars.length} velas para ${symbol} ${tf}`);
         
@@ -496,6 +688,7 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
     console.log("═══════════════════════════════════════════════════════════════");
     console.log(`[BacktestAdapter] 📊 RESUMO DO CARREGAMENTO`);
     console.log(`[BacktestAdapter] Total de velas carregadas: ${totalBarsLoaded}`);
+    console.log(`[BacktestAdapter] Timeframes carregados: ${loadedTimeframes.join(", ")}`);
     console.log("═══════════════════════════════════════════════════════════════");
     
     // CRITICAL: Throw error if no data loaded
@@ -505,15 +698,26 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
       throw new Error(errorMsg);
     }
     
-    // Initialize bar index
-    this.currentBarIndex.set(symbol, 0);
+    // REFATORAÇÃO MTF: Inicializar índices independentes para cada timeframe
+    this.initializeTimeframeIndices(symbol, loadedTimeframes);
+    
+    // Índices MTF inicializados - não há mais currentBarIndex global
   }
   
+  // =========================================================================
+  // REFATORAÇÃO MTF: advanceBar com Sincronização de Timeframes
+  // =========================================================================
   /**
-   * Advance simulation by one bar
+   * Avança a simulação por uma barra do timeframe primário.
    * 
-   * REFATORAÇÃO 2026-01-14: Agora emite eventos via EventEmitter E callbacks
-   * Isso permite que a estratégia receba os ticks de preço durante o backtest
+   * REFATORAÇÃO 2026-01-15:
+   * - Avança o timestamp simulado baseado no timeframe primário (M5)
+   * - Sincroniza automaticamente os índices de todos os timeframes
+   * - Emite eventos de tick e bar para a estratégia
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param timeframe - Timeframe primário (geralmente M5)
+   * @returns true se avançou com sucesso, false se chegou ao fim dos dados
    */
   advanceBar(symbol: string, timeframe: string = "M5"): boolean {
     const symbolData = this.candleData.get(symbol);
@@ -522,17 +726,27 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
     const tfData = symbolData.get(timeframe);
     if (!tfData) return false;
     
-    const currentIndex = this.currentBarIndex.get(symbol) || 0;
+    // Obter índice atual do timeframe primário
+    const currentIndex = this.getTimeframeIndex(symbol, timeframe);
     const nextIndex = currentIndex + 1;
     
     if (nextIndex >= tfData.length) {
       return false; // End of data
     }
     
-    this.currentBarIndex.set(symbol, nextIndex);
+    // Avançar índice do timeframe primário
+    this.setTimeframeIndex(symbol, timeframe, nextIndex);
+    
+    // Índices MTF atualizados - sincronização baseada em timestamp
+    
+    // Obter a nova barra e atualizar timestamp simulado
+    const bar = tfData[nextIndex];
+    this.currentSimulatedTimestamp = bar.timestamp;
+    
+    // REFATORAÇÃO MTF: Sincronizar índices de todos os outros timeframes
+    this.synchronizeTimeframeIndices(symbol, this.currentSimulatedTimestamp);
     
     // Update current tick from bar
-    const bar = tfData[nextIndex];
     const spread = this.config.spread || 0.5;
     const pipSize = getPipValue(symbol);
     const spreadPrice = spread * pipSize;
@@ -541,7 +755,7 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
       symbol,
       bid: bar.close,
       ask: bar.close + spreadPrice,
-      timestamp: bar.timestamp, // Already normalized to ms in loadHistoricalData
+      timestamp: bar.timestamp, // Already normalized to ms
       spread,
     };
     
@@ -553,13 +767,13 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
     // Check SL/TP
     this.checkStopLossAndTakeProfit(bar);
     
-    // REFATORAÇÃO 2026-01-14: Emitir tick via callback (para subscribePrice)
+    // Emitir tick via callback (para subscribePrice)
     const callback = this.priceCallbacks.get(symbol);
     if (callback) {
       callback(tick);
     }
     
-    // REFATORAÇÃO 2026-01-14: Emitir tick via EventEmitter (para BrokerEvents.onPriceTick)
+    // Emitir tick via EventEmitter (para BrokerEvents.onPriceTick)
     if (this.eventHandlers.onPriceTick) {
       this.eventHandlers.onPriceTick(tick);
     }
@@ -575,10 +789,104 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
   }
   
   /**
-   * Obtém o índice atual da barra para um símbolo
+   * Obtém o índice atual da barra para um símbolo e timeframe.
+   * 
+   * REFATORAÇÃO 2026-01-15: Agora retorna o índice do timeframe primário (M5)
+   * para manter compatibilidade com código existente.
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param timeframe - Timeframe (opcional, default M5)
+   * @returns Índice atual do timeframe
    */
-  getCurrentBarIndex(symbol: string): number {
-    return this.currentBarIndex.get(symbol) || 0;
+  getCurrentBarIndex(symbol: string, timeframe: string = "M5"): number {
+    return this.getTimeframeIndex(symbol, timeframe);
+  }
+  
+  /**
+   * Obtém o timestamp simulado atual
+   */
+  getCurrentSimulatedTimestamp(): number {
+    return this.currentSimulatedTimestamp;
+  }
+  
+  /**
+   * Alias para getCandleHistory - mantém compatibilidade com estratégias
+   * que usam getBars() em vez de getCandleHistory().
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param timeframe - Timeframe desejado
+   * @param count - Quantidade de velas
+   * @returns Array de velas alinhadas temporalmente
+   */
+  async getBars(symbol: string, timeframe: string, count: number): Promise<CandleData[]> {
+    return this.getCandleHistory(symbol, timeframe, count);
+  }
+  
+  /**
+   * PROVA DE FOGO: Validação de sincronização MTF
+   * 
+   * Verifica se o Close da vela H1 atual é aproximadamente igual ao preço
+   * atual do M5, garantindo que não há Look-ahead Bias.
+   * 
+   * @param symbol - Símbolo do ativo
+   * @returns Objeto com resultado da validação e detalhes
+   */
+  async validateMTFSync(symbol: string): Promise<{
+    isValid: boolean;
+    m5Price: number;
+    h1Close: number;
+    priceDiff: number;
+    priceDiffPercent: number;
+    m5Timestamp: string;
+    h1Timestamp: string;
+    message: string;
+  }> {
+    const m5Candles = await this.getCandleHistory(symbol, "M5", 1);
+    const h1Candles = await this.getCandleHistory(symbol, "H1", 1);
+    
+    if (m5Candles.length === 0 || h1Candles.length === 0) {
+      return {
+        isValid: false,
+        m5Price: 0,
+        h1Close: 0,
+        priceDiff: 0,
+        priceDiffPercent: 0,
+        m5Timestamp: "N/A",
+        h1Timestamp: "N/A",
+        message: "Dados insuficientes para validação",
+      };
+    }
+    
+    const m5Current = m5Candles[m5Candles.length - 1];
+    const h1Current = h1Candles[h1Candles.length - 1];
+    
+    const m5Price = m5Current.close;
+    const h1Close = h1Current.close;
+    
+    const priceDiff = Math.abs(m5Price - h1Close);
+    const priceDiffPercent = (priceDiff / m5Price) * 100;
+    
+    // Tolerância: 2% de diferença (considerando volatilidade dentro da hora)
+    // Se a diferença for maior que 5%, provavelmente há Look-ahead Bias
+    const isValid = priceDiffPercent < 5;
+    
+    // Verificar se o timestamp do H1 é <= timestamp simulado
+    const h1TimestampValid = h1Current.timestamp <= this.currentSimulatedTimestamp;
+    
+    const message = isValid && h1TimestampValid
+      ? `✅ Sincronização MTF válida: M5=${m5Price.toFixed(5)}, H1=${h1Close.toFixed(5)} (diff: ${priceDiffPercent.toFixed(2)}%)`
+      : `❌ ALERTA: Possível Look-ahead Bias! M5=${m5Price.toFixed(5)}, H1=${h1Close.toFixed(5)} (diff: ${priceDiffPercent.toFixed(2)}%)`;
+    
+    return {
+      isValid: isValid && h1TimestampValid,
+      m5Price,
+      h1Close,
+      priceDiff,
+      priceDiffPercent,
+      m5Timestamp: new Date(m5Current.timestamp).toISOString(),
+      h1Timestamp: new Date(h1Current.timestamp).toISOString(),
+      message,
+    };
   }
   
   /**
@@ -777,7 +1085,7 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
     for (const { id, reason, price } of positionsToClose) {
       const position = this.accountState.openPositions.get(id);
       if (position) {
-        this.closePositionInternal(position, price, bar.timestamp * 1000, reason);
+        this.closePositionInternal(position, price, bar.timestamp, reason);
       }
     }
   }
