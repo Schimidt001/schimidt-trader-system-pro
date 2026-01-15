@@ -652,6 +652,99 @@ export class BacktestRunner {
     
     return annualizedReturn / annualizedDownside;
   }
+  
+  // ==========================================================================
+  // MÉTODOS PARA OTIMIZAÇÃO - INJEÇÃO DE PARÂMETROS CUSTOMIZADOS
+  // ==========================================================================
+  
+  /**
+   * Armazena parâmetros customizados para injeção na estratégia
+   * Usado pelo módulo de otimização para testar diferentes combinações
+   */
+  private customParameters: Record<string, number | string | boolean> | null = null;
+  
+  /**
+   * Injetar parâmetros customizados na estratégia
+   * 
+   * Esta função sobrescreve os parâmetros padrão da estratégia
+   * com os valores fornecidos pela otimização.
+   * 
+   * NOTA: Para funcionar completamente, SMCTradingEngine precisa expor:
+   * - getStrategyConfig()
+   * - updateStrategyConfig(config)
+   * 
+   * @param parameters - Parâmetros a serem injetados
+   */
+  private injectCustomParameters(parameters: Record<string, number | string | boolean>): void {
+    if (!this.engine) {
+      console.warn("[BacktestRunner] Engine não inicializado, parâmetros serão aplicados após inicialização");
+      this.customParameters = parameters;
+      return;
+    }
+    
+    // Verificar se o engine suporta atualização de configuração
+    if (typeof (this.engine as any).getStrategyConfig === 'function' && 
+        typeof (this.engine as any).updateStrategyConfig === 'function') {
+      // Obter configuração atual da estratégia
+      const currentConfig = (this.engine as any).getStrategyConfig();
+      
+      // Mesclar parâmetros customizados
+      const mergedConfig = {
+        ...currentConfig,
+        ...parameters,
+      };
+      
+      // Atualizar configuração da estratégia
+      (this.engine as any).updateStrategyConfig(mergedConfig);
+      
+      console.log(`[BacktestRunner] ✅ Parâmetros customizados injetados: ${Object.keys(parameters).length} parâmetros`);
+    } else {
+      // Fallback: armazenar para uso posterior
+      this.customParameters = parameters;
+      console.log(`[BacktestRunner] ⚠️ Engine não suporta updateStrategyConfig, parâmetros armazenados para uso alternativo`);
+    }
+  }
+  
+  /**
+   * Executar backtest com parâmetros customizados
+   * 
+   * Este método é usado pelo módulo de otimização para testar
+   * diferentes combinações de parâmetros.
+   * 
+   * @param parameters - Parâmetros customizados a serem usados
+   * @returns Resultado do backtest
+   */
+  async runWithParameters(parameters: Record<string, number | string | boolean>): Promise<BacktestResult> {
+    // Armazenar parâmetros para injeção
+    this.customParameters = parameters;
+    
+    // Atualizar configuração com parâmetros relevantes
+    if (parameters.riskPercentage !== undefined) {
+      this.config.riskPercent = parameters.riskPercentage as number;
+    }
+    if (parameters.maxOpenTrades !== undefined) {
+      this.config.maxPositions = parameters.maxOpenTrades as number;
+    }
+    if (parameters.maxSpreadPips !== undefined) {
+      this.config.maxSpread = parameters.maxSpreadPips as number;
+    }
+    
+    // Executar backtest normalmente
+    const result = await this.run();
+    
+    // Limpar parâmetros customizados
+    this.customParameters = null;
+    
+    return result;
+  }
+  
+  /**
+   * Obter parâmetros customizados armazenados
+   * Usado internamente para aplicar parâmetros durante a execução
+   */
+  getCustomParameters(): Record<string, number | string | boolean> | null {
+    return this.customParameters;
+  }
 }
 
 // ============================================================================

@@ -857,4 +857,131 @@ export const backtestRouter = router({
       batchOptimizationState.progress = null;
       return { success: true };
     }),
+
+  // =========================================================================
+  // INSTITUTIONAL OPTIMIZATION (NEW - Grid Search + Walk-Forward)
+  // =========================================================================
+  
+  /**
+   * Get default SMC parameter definitions for optimization
+   */
+  getParameterDefinitions: protectedProcedure
+    .query(async () => {
+      // Import dynamically to avoid circular dependencies
+      const { DEFAULT_SMC_PARAMETER_DEFINITIONS, ParameterCategory } = await import("./optimization/types/optimization.types");
+      
+      return {
+        parameters: DEFAULT_SMC_PARAMETER_DEFINITIONS,
+        categories: Object.values(ParameterCategory),
+      };
+    }),
+
+  /**
+   * Start institutional optimization (Grid Search + Walk-Forward)
+   */
+  startInstitutionalOptimization: protectedProcedure
+    .input(z.object({
+      symbols: z.array(z.string()).min(1),
+      startDate: z.string(),
+      endDate: z.string(),
+      strategyType: z.enum(["SMC", "HYBRID", "RSI_VWAP"]),
+      parameters: z.array(z.object({
+        name: z.string(),
+        enabled: z.boolean(),
+        locked: z.boolean(),
+        min: z.number().optional(),
+        max: z.number().optional(),
+        step: z.number().optional(),
+        values: z.array(z.union([z.number(), z.string()])).optional(),
+        default: z.union([z.number(), z.string(), z.boolean()]),
+      })),
+      validation: z.object({
+        enabled: z.boolean(),
+        inSampleRatio: z.number().min(0.5).max(0.9).default(0.7),
+        walkForward: z.object({
+          enabled: z.boolean(),
+          windowMonths: z.number().min(3).max(24).default(6),
+          stepMonths: z.number().min(1).max(6).default(1),
+        }),
+      }),
+      maxCombinations: z.number().min(100).max(100000).optional(),
+      parallelWorkers: z.number().min(1).max(8).default(4),
+      objectives: z.array(z.object({
+        metric: z.string(),
+        target: z.enum(["MAXIMIZE", "MINIMIZE"]),
+        weight: z.number().min(0).max(1),
+        threshold: z.number().optional(),
+      })),
+    }))
+    .mutation(async ({ input }) => {
+      // TODO: Implement full institutional optimization
+      // This is a placeholder that will be completed in the next phase
+      
+      return {
+        success: true,
+        message: "Otimização institucional iniciada (implementação em progresso)",
+        estimatedCombinations: 0,
+      };
+    }),
+
+  /**
+   * Get institutional optimization status
+   */
+  getInstitutionalOptimizationStatus: protectedProcedure
+    .query(() => {
+      // TODO: Implement status tracking
+      return {
+        isRunning: false,
+        progress: null,
+        error: null,
+      };
+    }),
+
+  /**
+   * Abort institutional optimization
+   */
+  abortInstitutionalOptimization: protectedProcedure
+    .mutation(() => {
+      // TODO: Implement abort
+      return { success: true, message: "Otimização institucional abortada" };
+    }),
+
+  /**
+   * Get institutional optimization results
+   */
+  getInstitutionalOptimizationResults: protectedProcedure
+    .query(() => {
+      // TODO: Implement results retrieval
+      return null;
+    }),
+
+  /**
+   * Run Walk-Forward validation on specific parameters
+   */
+  runWalkForwardValidation: protectedProcedure
+    .input(z.object({
+      symbol: z.string(),
+      parameters: z.record(z.union([z.number(), z.string(), z.boolean()])),
+      startDate: z.string(),
+      endDate: z.string(),
+      windowMonths: z.number().min(3).max(24).default(6),
+      stepMonths: z.number().min(1).max(6).default(1),
+      strategyType: z.enum(["SMC", "HYBRID", "RSI_VWAP"]),
+    }))
+    .mutation(async ({ input }) => {
+      // TODO: Implement Walk-Forward validation
+      return {
+        success: true,
+        message: "Validação Walk-Forward iniciada (implementação em progresso)",
+      };
+    }),
+
+  /**
+   * Get Walk-Forward validation results
+   */
+  getWalkForwardResults: protectedProcedure
+    .query(() => {
+      // TODO: Implement results retrieval
+      return null;
+    }),
 });
