@@ -15,7 +15,7 @@
  * - Eliminado Look-ahead Bias na leitura de timeframes maiores
  * 
  * @author Schimidt Trader Pro - Backtest Module
- * @version 2.0.0 - MTF Timestamp Synchronization
+ * @version 2.1.0 - MTF Timestamp Synchronization (Legacy Removed)
  */
 
 import { EventEmitter } from "events";
@@ -98,9 +98,6 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
    * Todos os outros timeframes são sincronizados com este timestamp.
    */
   private currentSimulatedTimestamp: number = 0;
-  
-  // Legacy: mantido para compatibilidade, mas agora usa currentIndices internamente
-  private currentBarIndex: Map<string, number> = new Map();
   
   private currentTick: Map<string, PriceTick> = new Map(); // symbol -> current tick
   
@@ -704,8 +701,7 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
     // REFATORAÇÃO MTF: Inicializar índices independentes para cada timeframe
     this.initializeTimeframeIndices(symbol, loadedTimeframes);
     
-    // Legacy: manter compatibilidade com currentBarIndex
-    this.currentBarIndex.set(symbol, 0);
+    // Índices MTF inicializados - não há mais currentBarIndex global
   }
   
   // =========================================================================
@@ -741,8 +737,7 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
     // Avançar índice do timeframe primário
     this.setTimeframeIndex(symbol, timeframe, nextIndex);
     
-    // Legacy: manter compatibilidade
-    this.currentBarIndex.set(symbol, nextIndex);
+    // Índices MTF atualizados - sincronização baseada em timestamp
     
     // Obter a nova barra e atualizar timestamp simulado
     const bar = tfData[nextIndex];
@@ -794,10 +789,17 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
   }
   
   /**
-   * Obtém o índice atual da barra para um símbolo (legacy)
+   * Obtém o índice atual da barra para um símbolo e timeframe.
+   * 
+   * REFATORAÇÃO 2026-01-15: Agora retorna o índice do timeframe primário (M5)
+   * para manter compatibilidade com código existente.
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param timeframe - Timeframe (opcional, default M5)
+   * @returns Índice atual do timeframe
    */
-  getCurrentBarIndex(symbol: string): number {
-    return this.currentBarIndex.get(symbol) || 0;
+  getCurrentBarIndex(symbol: string, timeframe: string = "M5"): number {
+    return this.getTimeframeIndex(symbol, timeframe);
   }
   
   /**
@@ -805,6 +807,86 @@ export class BacktestAdapter extends EventEmitter implements ITradingAdapter {
    */
   getCurrentSimulatedTimestamp(): number {
     return this.currentSimulatedTimestamp;
+  }
+  
+  /**
+   * Alias para getCandleHistory - mantém compatibilidade com estratégias
+   * que usam getBars() em vez de getCandleHistory().
+   * 
+   * @param symbol - Símbolo do ativo
+   * @param timeframe - Timeframe desejado
+   * @param count - Quantidade de velas
+   * @returns Array de velas alinhadas temporalmente
+   */
+  async getBars(symbol: string, timeframe: string, count: number): Promise<CandleData[]> {
+    return this.getCandleHistory(symbol, timeframe, count);
+  }
+  
+  /**
+   * PROVA DE FOGO: Validação de sincronização MTF
+   * 
+   * Verifica se o Close da vela H1 atual é aproximadamente igual ao preço
+   * atual do M5, garantindo que não há Look-ahead Bias.
+   * 
+   * @param symbol - Símbolo do ativo
+   * @returns Objeto com resultado da validação e detalhes
+   */
+  async validateMTFSync(symbol: string): Promise<{
+    isValid: boolean;
+    m5Price: number;
+    h1Close: number;
+    priceDiff: number;
+    priceDiffPercent: number;
+    m5Timestamp: string;
+    h1Timestamp: string;
+    message: string;
+  }> {
+    const m5Candles = await this.getCandleHistory(symbol, "M5", 1);
+    const h1Candles = await this.getCandleHistory(symbol, "H1", 1);
+    
+    if (m5Candles.length === 0 || h1Candles.length === 0) {
+      return {
+        isValid: false,
+        m5Price: 0,
+        h1Close: 0,
+        priceDiff: 0,
+        priceDiffPercent: 0,
+        m5Timestamp: "N/A",
+        h1Timestamp: "N/A",
+        message: "Dados insuficientes para validação",
+      };
+    }
+    
+    const m5Current = m5Candles[m5Candles.length - 1];
+    const h1Current = h1Candles[h1Candles.length - 1];
+    
+    const m5Price = m5Current.close;
+    const h1Close = h1Current.close;
+    
+    const priceDiff = Math.abs(m5Price - h1Close);
+    const priceDiffPercent = (priceDiff / m5Price) * 100;
+    
+    // Tolerância: 2% de diferença (considerando volatilidade dentro da hora)
+    // Se a diferença for maior que 5%, provavelmente há Look-ahead Bias
+    const isValid = priceDiffPercent < 5;
+    
+    // Verificar se o timestamp do H1 é <= timestamp simulado
+    const h1TimestampValid = h1Current.timestamp <= this.currentSimulatedTimestamp;
+    
+    const message = isValid && h1TimestampValid
+      ? `✅ Sincronização MTF válida: M5=${m5Price.toFixed(5)}, H1=${h1Close.toFixed(5)} (diff: ${priceDiffPercent.toFixed(2)}%)`
+      : `❌ ALERTA: Possível Look-ahead Bias! M5=${m5Price.toFixed(5)}, H1=${h1Close.toFixed(5)} (diff: ${priceDiffPercent.toFixed(2)}%)`;
+    
+    return {
+      isValid: isValid && h1TimestampValid,
+      m5Price,
+      h1Close,
+      priceDiff,
+      priceDiffPercent,
+      m5Timestamp: new Date(m5Current.timestamp).toISOString(),
+      h1Timestamp: new Date(h1Current.timestamp).toISOString(),
+      message,
+    };
   }
   
   /**
