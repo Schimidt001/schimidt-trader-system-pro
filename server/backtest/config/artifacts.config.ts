@@ -9,6 +9,7 @@
  */
 
 import * as path from "path";
+import { configLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // ENVIRONMENT VARIABLES
@@ -244,9 +245,9 @@ export class ArtifactManager {
     for (const dir of Object.values(this.config.directories)) {
       try {
         await fs.mkdir(dir, { recursive: true });
-        console.log(`[ArtifactManager] Diretório criado/verificado: ${dir}`);
+        configLogger.debug(`Diretório criado/verificado: ${dir}`, "ArtifactManager");
       } catch (error) {
-        console.error(`[ArtifactManager] Erro ao criar diretório ${dir}:`, error);
+        configLogger.error(`Erro ao criar diretório ${dir}`, error as Error, "ArtifactManager");
       }
     }
     
@@ -255,10 +256,7 @@ export class ArtifactManager {
       this.startAutoCleanup();
     }
     
-    console.log(`[ArtifactManager] Inicializado com sucesso`);
-    console.log(`[ArtifactManager] Base path: ${this.config.basePath}`);
-    console.log(`[ArtifactManager] TTL padrão: ${this.config.ttl.defaultHours}h`);
-    console.log(`[ArtifactManager] Tamanho máximo: ${this.config.limits.maxTotalSizeBytes / 1024 / 1024}MB`);
+    configLogger.info(`Inicializado - Base: ${this.config.basePath}, TTL: ${this.config.ttl.defaultHours}h, Max: ${this.config.limits.maxTotalSizeBytes / 1024 / 1024}MB`, "ArtifactManager");
   }
   
   /**
@@ -273,7 +271,7 @@ export class ArtifactManager {
       await this.runCleanup();
     }, this.config.cleanup.intervalMs);
     
-    console.log(`[ArtifactManager] Cleanup automático iniciado (intervalo: ${this.config.cleanup.intervalMs / 1000 / 60}min)`);
+    configLogger.debug(`Cleanup automático iniciado (intervalo: ${this.config.cleanup.intervalMs / 1000 / 60}min)`, "ArtifactManager");
   }
   
   /**
@@ -286,7 +284,7 @@ export class ArtifactManager {
     let deletedFiles = 0;
     let freedBytes = 0;
     
-    console.log(`[ArtifactManager] Iniciando cleanup...`);
+    configLogger.debug("Iniciando cleanup...", "ArtifactManager");
     
     const now = Date.now();
     
@@ -311,15 +309,15 @@ export class ArtifactManager {
             await fs.unlink(filePath);
             deletedFiles++;
             freedBytes += stats.size;
-            console.log(`[ArtifactManager] Deletado (TTL): ${filePath}`);
+            configLogger.debug(`Deletado (TTL): ${filePath}`, "ArtifactManager");
           }
         }
       } catch (error) {
-        console.error(`[ArtifactManager] Erro ao processar diretório ${dir}:`, error);
+        configLogger.error(`Erro ao processar diretório ${dir}`, error as Error, "ArtifactManager");
       }
     }
     
-    console.log(`[ArtifactManager] Cleanup concluído: ${deletedFiles} arquivos, ${(freedBytes / 1024 / 1024).toFixed(2)}MB liberados`);
+    configLogger.info(`Cleanup concluído: ${deletedFiles} arquivos, ${(freedBytes / 1024 / 1024).toFixed(2)}MB liberados`, "ArtifactManager");
     
     return { deletedFiles, freedBytes };
   }
@@ -401,7 +399,7 @@ export class ArtifactManager {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
-      console.log(`[ArtifactManager] Cleanup automático parado`);
+      configLogger.debug("Cleanup automático parado", "ArtifactManager");
     }
   }
 }

@@ -13,14 +13,19 @@
  * - Progresso em tempo real
  * 
  * @author Schimidt Trader Pro - Backtest Module
- * @version 2.0.0 - Corrigido alinhamento e paginação
+ * @version 2.1.0
+ * 
+ * CORREÇÃO HANDOVER:
+ * - Substituição de console.log por LabLogger
+ * - Import do ctraderAdapter movido para função que realmente precisa (lazy import)
+ * - Isso evita que o módulo seja carregado no contexto do LAB quando não necessário
  */
 
 import * as fs from "fs";
 import * as path from "path";
-import { ctraderAdapter } from "../../adapters/CTraderAdapter";
 import { CandleData } from "../../adapters/IBrokerAdapter";
 import { HistoricalDataFile, DataCollectorConfig, DataCollectorProgress } from "../types/backtest.types";
+import { labLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // CONSTANTS
@@ -31,6 +36,21 @@ const DEFAULT_TIMEFRAMES = ["M5", "M15", "H1"];
 const DEFAULT_MONTHS_BACK = 6;
 const CANDLES_PER_REQUEST = 1000; // cTrader limit per request
 const REQUEST_DELAY_MS = 2000; // Delay between requests to avoid rate limiting
+
+// ============================================================================
+// LAZY IMPORT HELPER
+// ============================================================================
+
+/**
+ * Obtém o ctraderAdapter de forma lazy para evitar import no top-level
+ * IMPORTANTE: Este import só deve ser feito quando realmente necessário
+ * para evitar que o módulo seja carregado no contexto do LAB
+ */
+function getCTraderAdapter() {
+  // Import dinâmico para evitar carregar no contexto do LAB
+  const { ctraderAdapter } = require("../../adapters/CTraderAdapter");
+  return ctraderAdapter;
+}
 
 // ============================================================================
 // MARKET DATA COLLECTOR CLASS
@@ -89,10 +109,7 @@ export class MarketDataCollector {
     this.globalStartDate.setMonth(this.globalStartDate.getMonth() - this.config.monthsBack);
     this.globalStartDate.setUTCHours(0, 0, 0, 0);
     
-    console.log(`[MarketDataCollector] Período global definido:`);
-    console.log(`[MarketDataCollector]   Início: ${this.globalStartDate.toISOString()}`);
-    console.log(`[MarketDataCollector]   Fim: ${this.globalEndDate.toISOString()}`);
-    console.log(`[MarketDataCollector]   Duração: ${this.config.monthsBack} meses`);
+    labLogger.info(`Período global: ${this.globalStartDate.toISOString()} - ${this.globalEndDate.toISOString()} (${this.config.monthsBack} meses)`, "MarketDataCollector");
   }
   
   /**
@@ -109,20 +126,18 @@ export class MarketDataCollector {
     const filesCreated: string[] = [];
     const errors: string[] = [];
     
-    console.log("\n[MarketDataCollector] ========================================");
-    console.log("[MarketDataCollector] INICIANDO DOWNLOAD DE DADOS HISTÓRICOS");
-    console.log("[MarketDataCollector] ========================================");
-    console.log(`[MarketDataCollector] Símbolos: ${this.config.symbols.join(", ")}`);
-    console.log(`[MarketDataCollector] Timeframes: ${this.config.timeframes.join(", ")}`);
-    console.log(`[MarketDataCollector] Período: ${this.config.monthsBack} meses`);
-    console.log(`[MarketDataCollector] De: ${this.globalStartDate?.toISOString()}`);
-    console.log(`[MarketDataCollector] Até: ${this.globalEndDate?.toISOString()}`);
-    console.log("[MarketDataCollector] ========================================\n");
+    // Log de início da operação
+    labLogger.startOperation("DOWNLOAD DE DADOS HISTÓRICOS", {
+      símbolos: this.config.symbols.join(", "),
+      timeframes: this.config.timeframes.join(", "),
+      período: `${this.config.monthsBack} meses`,
+    });
     
-    // Check connection
+    // Check connection - lazy import do ctraderAdapter
+    const ctraderAdapter = getCTraderAdapter();
     if (!ctraderAdapter.isConnected()) {
       const error = "cTrader não está conectado. Por favor, conecte primeiro no Dashboard.";
-      console.error(`[MarketDataCollector] ${error}`);
+      labLogger.error(error, undefined, "MarketDataCollector");
       return { success: false, filesCreated: [], errors: [error] };
     }
     
@@ -137,23 +152,22 @@ export class MarketDataCollector {
         this.updateProgress();
         
         try {
-          console.log(`\n[MarketDataCollector] >>> Baixando ${symbol} ${timeframe}...`);
-          
           const candles = await this.downloadSymbolTimeframe(symbol, timeframe);
           
           if (candles.length > 0) {
             const filePath = await this.saveToFile(symbol, timeframe, candles);
             filesCreated.push(filePath);
-            console.log(`[MarketDataCollector] ✓ Salvo ${candles.length} candles em ${filePath}`);
+            // Log agregado de progresso
+            labLogger.progress(completedTasks + 1, totalTasks, `${symbol} ${timeframe}: ${candles.length} candles salvos`, "MarketDataCollector");
           } else {
             const warning = `Nenhum candle baixado para ${symbol} ${timeframe}`;
-            console.warn(`[MarketDataCollector] ⚠ ${warning}`);
+            labLogger.aggregate("download_warnings", warning);
             errors.push(warning);
           }
           
         } catch (error) {
           const errorMsg = `Erro ao baixar ${symbol} ${timeframe}: ${(error as Error).message}`;
-          console.error(`[MarketDataCollector] ✗ ${errorMsg}`);
+          labLogger.aggregate("download_errors", errorMsg);
           errors.push(errorMsg);
           this.progress.errors.push(errorMsg);
         }
@@ -167,11 +181,17 @@ export class MarketDataCollector {
       }
     }
     
-    console.log("\n[MarketDataCollector] ========================================");
-    console.log("[MarketDataCollector] DOWNLOAD CONCLUÍDO");
-    console.log(`[MarketDataCollector] Arquivos criados: ${filesCreated.length}`);
-    console.log(`[MarketDataCollector] Erros: ${errors.length}`);
-    console.log("[MarketDataCollector] ========================================\n");
+    // Flush logs agregados
+    if (errors.length > 0) {
+      labLogger.flushAggregated("download_errors", "MarketDataCollector");
+      labLogger.flushAggregated("download_warnings", "MarketDataCollector");
+    }
+    
+    // Log de fim da operação
+    labLogger.endOperation("DOWNLOAD DE DADOS HISTÓRICOS", errors.length === 0, {
+      arquivos: filesCreated.length,
+      erros: errors.length,
+    });
     
     return {
       success: errors.length === 0,
@@ -187,7 +207,6 @@ export class MarketDataCollector {
    * para buscar dados do passado para o presente, garantindo cobertura completa.
    */
   async downloadSymbolTimeframe(symbol: string, timeframe: string): Promise<CandleData[]> {
-    const allCandles: CandleData[] = [];
     const candleMap = new Map<number, CandleData>(); // Para evitar duplicatas
     
     if (!this.globalStartDate || !this.globalEndDate) {
@@ -202,24 +221,25 @@ export class MarketDataCollector {
     const totalMs = endTimestamp - startTimestamp;
     const estimatedCandles = Math.ceil(totalMs / timeframeMs);
     
-    console.log(`[MarketDataCollector] ${symbol} ${timeframe}: Estimativa de ${estimatedCandles} candles`);
-    
     // Dividir o período em chunks para paginação
     // Cada chunk terá no máximo CANDLES_PER_REQUEST candles
     const chunkDurationMs = CANDLES_PER_REQUEST * timeframeMs;
     const numChunks = Math.ceil(totalMs / chunkDurationMs);
     
-    console.log(`[MarketDataCollector] ${symbol} ${timeframe}: Dividido em ${numChunks} requisições`);
+    // Log inicial (apenas um por símbolo/timeframe)
+    labLogger.debug(`${symbol} ${timeframe}: Estimativa de ${estimatedCandles} candles em ${numChunks} requisições`, "MarketDataCollector");
+    
+    // Lazy import do ctraderAdapter
+    const ctraderAdapter = getCTraderAdapter();
     
     let currentStart = startTimestamp;
     let chunkIndex = 0;
+    let chunkErrors = 0;
     
     while (currentStart < endTimestamp) {
       const currentEnd = Math.min(currentStart + chunkDurationMs, endTimestamp);
       
       try {
-        console.log(`[MarketDataCollector] ${symbol} ${timeframe}: Chunk ${chunkIndex + 1}/${numChunks} - ${new Date(currentStart).toISOString().split('T')[0]} a ${new Date(currentEnd).toISOString().split('T')[0]}`);
-        
         // Usar o novo método getCandleHistoryRange para buscar período específico
         const batch = await ctraderAdapter.getCandleHistoryRange(
           symbol,
@@ -238,10 +258,6 @@ export class MarketDataCollector {
               candleMap.set(candle.timestamp, candle);
             }
           }
-          
-          console.log(`[MarketDataCollector] ${symbol} ${timeframe}: Recebidos ${batch.length} candles, total único: ${candleMap.size}`);
-        } else {
-          console.log(`[MarketDataCollector] ${symbol} ${timeframe}: Nenhum candle no chunk ${chunkIndex + 1}`);
         }
         
         // Atualizar progresso
@@ -249,7 +265,9 @@ export class MarketDataCollector {
         this.updateProgress();
         
       } catch (error) {
-        console.error(`[MarketDataCollector] ${symbol} ${timeframe}: Erro no chunk ${chunkIndex + 1}: ${(error as Error).message}`);
+        chunkErrors++;
+        // Agregar erros em vez de logar cada um
+        labLogger.aggregate("chunk_errors", `${symbol} ${timeframe} chunk ${chunkIndex + 1}: ${(error as Error).message}`);
         // Continuar para o próximo chunk mesmo com erro
       }
       
@@ -263,17 +281,14 @@ export class MarketDataCollector {
       }
     }
     
+    // Flush erros de chunk se houver
+    if (chunkErrors > 0) {
+      labLogger.flushAggregated("chunk_errors", "MarketDataCollector");
+    }
+    
     // Converter mapa para array e ordenar por timestamp
     const sortedCandles = Array.from(candleMap.values())
       .sort((a, b) => a.timestamp - b.timestamp);
-    
-    console.log(`[MarketDataCollector] ${symbol} ${timeframe}: Total final: ${sortedCandles.length} candles`);
-    
-    if (sortedCandles.length > 0) {
-      const firstCandle = sortedCandles[0];
-      const lastCandle = sortedCandles[sortedCandles.length - 1];
-      console.log(`[MarketDataCollector] ${symbol} ${timeframe}: Período coberto: ${new Date(firstCandle.timestamp * 1000).toISOString()} a ${new Date(lastCandle.timestamp * 1000).toISOString()}`);
-    }
     
     return sortedCandles;
   }
@@ -371,7 +386,7 @@ export class MarketDataCollector {
       const content = fs.readFileSync(filePath, "utf-8");
       return JSON.parse(content) as HistoricalDataFile;
     } catch (error) {
-      console.error(`[MarketDataCollector] Error loading ${filePath}:`, error);
+      labLogger.error(`Erro ao carregar ${filePath}`, error as Error, "MarketDataCollector");
       return null;
     }
   }

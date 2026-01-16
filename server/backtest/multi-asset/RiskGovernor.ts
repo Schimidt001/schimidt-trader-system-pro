@@ -11,10 +11,13 @@
  * - Limite de risco por trade
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0
+ * 
+ * CORREÇÃO HANDOVER: Substituição de console.log por LabLogger
  */
 
 import { Ledger, OpenPosition } from "./Ledger";
+import { multiAssetLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // TYPES
@@ -98,10 +101,7 @@ export class RiskGovernor {
     this.dayStartEquity = ledger.getEquity();
     this.currentDay = this.getDateString(Date.now());
     
-    console.log(`[RiskGovernor] Inicializado com limites:`);
-    console.log(`[RiskGovernor]   Max posições: ${config.maxTotalPositions}`);
-    console.log(`[RiskGovernor]   Max por símbolo: ${config.maxPositionsPerSymbol}`);
-    console.log(`[RiskGovernor]   Max DD diário: ${config.maxDailyDrawdown}%`);
+    multiAssetLogger.debug(`Inicializado - Max posições: ${config.maxTotalPositions}, Max por símbolo: ${config.maxPositionsPerSymbol}, Max DD diário: ${config.maxDailyDrawdown}%`, "RiskGovernor");
   }
   
   /**
@@ -375,7 +375,7 @@ export class RiskGovernor {
     if (newDay !== this.currentDay) {
       this.currentDay = newDay;
       this.dayStartEquity = this.ledger.getEquity();
-      console.log(`[RiskGovernor] Novo dia: ${newDay}, equity inicial: $${this.dayStartEquity.toFixed(2)}`);
+      multiAssetLogger.debug(`Novo dia: ${newDay}, equity inicial: $${this.dayStartEquity.toFixed(2)}`, "RiskGovernor");
     }
   }
   
@@ -391,7 +391,7 @@ export class RiskGovernor {
    */
   private recordViolation(timestamp: number, type: string, message: string): void {
     this.violations.push({ timestamp, type, message });
-    console.warn(`[RiskGovernor] VIOLAÇÃO: ${type} - ${message}`);
+    multiAssetLogger.warn(`VIOLAÇÃO: ${type} - ${message}`, "RiskGovernor");
   }
   
   /**
@@ -406,7 +406,7 @@ export class RiskGovernor {
    */
   resetDailyState(): void {
     this.dayStartEquity = this.ledger.getEquity();
-    console.log(`[RiskGovernor] Estado diário resetado`);
+    multiAssetLogger.debug("Estado diário resetado", "RiskGovernor");
   }
   
   /**
@@ -416,7 +416,7 @@ export class RiskGovernor {
     this.dayStartEquity = this.ledger.getEquity();
     this.currentDay = this.getDateString(Date.now());
     this.violations = [];
-    console.log(`[RiskGovernor] Resetado`);
+    multiAssetLogger.debug("RiskGovernor resetado", "RiskGovernor");
   }
 }
 
@@ -443,9 +443,9 @@ export const DEFAULT_RISK_GOVERNOR_CONFIG: RiskGovernorConfig = {
   maxRiskPerTrade: 2,
   maxTotalExposure: 100,
   correlationGroups: [
-    ["EURUSD", "GBPUSD", "AUDUSD", "NZDUSD"], // USD pairs
-    ["EURJPY", "GBPJPY", "USDJPY", "AUDJPY"], // JPY pairs
-    ["XAUUSD", "XAGUSD"], // Metals
+    ["EURUSD", "GBPUSD", "AUDUSD"], // Majors correlacionados
+    ["USDJPY", "EURJPY", "GBPJPY"], // Pares JPY
+    ["XAUUSD", "XAGUSD"], // Metais
   ],
 };
 

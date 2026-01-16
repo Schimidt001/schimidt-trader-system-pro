@@ -16,7 +16,11 @@
  * 6. Ao final, retorna os campeões de cada categoria
  * 
  * @author Schimidt Trader Pro - Backtest Module
- * @version 2.0.0
+ * @version 2.1.0
+ * 
+ * CORREÇÃO HANDOVER: Substituição de console.log por LabLogger
+ * - Logs removidos de loops
+ * - Apenas logs de start, finish, progress agregado e erro real
  */
 
 import {
@@ -34,6 +38,7 @@ import {
 import { BacktestConfig, BacktestStrategyType, BacktestResult } from "../types/backtest.types";
 import { BacktestRunner } from "./BacktestRunner";
 import { randomUUID } from "crypto";
+import { optimizationLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // CONSTANTS
@@ -107,35 +112,42 @@ export class BatchOptimizer {
     this.topByMinDrawdown = [];
     this.topByWinRate = [];
     
-    console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[BatchOptimizer] 🚀 INICIANDO OTIMIZAÇÃO EM LOTES");
-    console.log(`[BatchOptimizer] Símbolo: ${this.config.symbol}`);
-    console.log(`[BatchOptimizer] Estratégias: ${this.config.strategies.join(", ")}`);
-    console.log(`[BatchOptimizer] Tamanho do Lote: ${this.config.batchSize}`);
-    console.log(`[BatchOptimizer] Top Results: ${this.config.topResultsToKeep}`);
-    console.log("═══════════════════════════════════════════════════════════════");
+    // Log de início da operação
+    optimizationLogger.startOperation("OTIMIZAÇÃO EM LOTES", {
+      symbol: this.config.symbol,
+      strategies: this.config.strategies.join(", "),
+      batchSize: this.config.batchSize,
+      topResults: this.config.topResultsToKeep,
+    });
     
     // Gerar todas as combinações
     const combinations = this.generateAllCombinations();
     this.totalCombinations = combinations.length;
     
-    console.log(`[BatchOptimizer] Total de combinações geradas: ${this.totalCombinations}`);
+    optimizationLogger.info(`Total de combinações geradas: ${this.totalCombinations}`, "BatchOptimizer");
     
     // Dividir em lotes
     const batches = this.splitIntoBatches(combinations);
     const totalBatches = batches.length;
     
-    console.log(`[BatchOptimizer] Total de lotes: ${totalBatches}`);
+    optimizationLogger.info(`Total de lotes: ${totalBatches}`, "BatchOptimizer");
     
     // Processar cada lote
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       if (this.aborted) {
-        console.log("[BatchOptimizer] ⛔ Otimização abortada pelo usuário");
+        optimizationLogger.warn("Otimização abortada pelo usuário", "BatchOptimizer");
         break;
       }
       
       const batch = batches[batchIndex];
-      console.log(`[BatchOptimizer] 📦 Processando Lote ${batchIndex + 1}/${totalBatches} (${batch.length} combinações)`);
+      
+      // Log de progresso por lote (não por combinação individual)
+      optimizationLogger.progress(
+        batchIndex + 1,
+        totalBatches,
+        `Processando lote ${batchIndex + 1}/${totalBatches} (${batch.length} combinações)`,
+        "BatchOptimizer"
+      );
       
       await this.processBatch(batch, batchIndex, totalBatches);
       
@@ -151,25 +163,29 @@ export class BatchOptimizer {
     const rankings = this.buildFinalRankings();
     const overallBest = this.findOverallBest();
     
-    console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[BatchOptimizer] ✅ OTIMIZAÇÃO CONCLUÍDA");
-    console.log(`[BatchOptimizer] Combinações testadas: ${this.completedCombinations}/${this.totalCombinations}`);
-    console.log(`[BatchOptimizer] Tempo total: ${(executionTime / 1000).toFixed(1)}s`);
-    console.log(`[BatchOptimizer] Erros: ${this.errors.length}`);
+    // Log de fim da operação
+    optimizationLogger.endOperation("OTIMIZAÇÃO EM LOTES", this.completedCombinations > 0, {
+      combinações: `${this.completedCombinations}/${this.totalCombinations}`,
+      tempo: `${(executionTime / 1000).toFixed(1)}s`,
+      erros: this.errors.length,
+      melhor: overallBest 
+        ? `${overallBest.strategy} - Score: ${overallBest.compositeScore.toFixed(2)}`
+        : "N/A",
+    });
     
-    if (overallBest) {
-      console.log(`[BatchOptimizer] 🥇 Melhor Geral: ${overallBest.strategy} - Score: ${overallBest.compositeScore.toFixed(2)}`);
-    }
-    
-    // Log dos campeões por categoria
-    for (const ranking of rankings) {
-      if (ranking.topResults.length > 0) {
-        const best = ranking.topResults[0];
-        console.log(`[BatchOptimizer] ${ranking.icon} ${ranking.label}: ${best.strategy} - ${this.getCategoryValue(best, ranking.category)}`);
+    // Log dos campeões por categoria (resumo final)
+    if (rankings.length > 0) {
+      const summaryParts: string[] = [];
+      for (const ranking of rankings) {
+        if (ranking.topResults.length > 0) {
+          const best = ranking.topResults[0];
+          summaryParts.push(`${ranking.icon} ${ranking.label}: ${best.strategy} - ${this.getCategoryValue(best, ranking.category)}`);
+        }
+      }
+      if (summaryParts.length > 0) {
+        optimizationLogger.info(`Campeões por categoria: ${summaryParts.join(" | ")}`, "BatchOptimizer");
       }
     }
-    
-    console.log("═══════════════════════════════════════════════════════════════");
     
     return {
       config: this.config,
@@ -311,6 +327,8 @@ export class BatchOptimizer {
     batchIndex: number,
     totalBatches: number
   ): Promise<void> {
+    let batchErrors = 0;
+    
     for (let i = 0; i < batch.length; i++) {
       if (this.aborted) break;
       
@@ -335,11 +353,18 @@ export class BatchOptimizer {
       } catch (error) {
         const errorMsg = `${combo.strategy} - ${(error as Error).message}`;
         this.errors.push(errorMsg);
-        console.error(`[BatchOptimizer] ✗ Erro: ${errorMsg}`);
+        batchErrors++;
+        // Agregar erros em vez de logar cada um
+        optimizationLogger.aggregate("batch_errors", errorMsg);
       }
       
       this.completedCombinations++;
       this.combinationTimes.push(Date.now() - comboStartTime);
+    }
+    
+    // Flush erros agregados do lote se houver
+    if (batchErrors > 0) {
+      optimizationLogger.flushAggregated("batch_errors", "BatchOptimizer");
     }
   }
   

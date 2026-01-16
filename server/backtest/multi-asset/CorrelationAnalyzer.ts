@@ -10,8 +10,12 @@
  * - Análise de diversificação
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0
+ * 
+ * CORREÇÃO HANDOVER: Substituição de console.log por LabLogger
  */
+
+import { multiAssetLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // TYPES
@@ -75,7 +79,7 @@ export class CorrelationAnalyzer {
   
   constructor(config: CorrelationAnalyzerConfig) {
     this.config = config;
-    console.log(`[CorrelationAnalyzer] Inicializado com período: ${config.period}`);
+    multiAssetLogger.debug(`Inicializado com período: ${config.period}`, "CorrelationAnalyzer");
   }
   
   /**
@@ -380,7 +384,7 @@ export class CorrelationAnalyzer {
   reset(): void {
     this.returnsHistory.clear();
     this.matrixHistory = [];
-    console.log(`[CorrelationAnalyzer] Resetado`);
+    multiAssetLogger.debug("CorrelationAnalyzer resetado", "CorrelationAnalyzer");
   }
 }
 

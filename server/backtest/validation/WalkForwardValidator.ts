@@ -20,6 +20,7 @@ import {
 } from "./types/validation.types";
 import { BacktestMetrics, BacktestResult, BacktestConfig, BacktestStrategyType } from "../types/backtest.types";
 import { BacktestRunner } from "../runners/BacktestRunner";
+import { validationLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // WALK-FORWARD VALIDATOR CLASS
@@ -37,11 +38,11 @@ export class WalkForwardValidator {
    * Executar Walk-Forward completo
    */
   async validate(): Promise<WalkForwardResult> {
-    console.log(`[WalkForward] Iniciando validação para ${this.config.symbol}...`);
+    validationLogger.info(`Iniciando validação para ${this.config.symbol}...`, "WalkForward");
     
     // 1. Criar janelas
     const windows = this.createWindows();
-    console.log(`[WalkForward] ${windows.length} janelas criadas`);
+    validationLogger.debug(`${windows.length} janelas criadas`, "WalkForward");
     
     if (windows.length === 0) {
       throw new Error("Período insuficiente para criar janelas Walk-Forward");
@@ -63,7 +64,7 @@ export class WalkForwardValidator {
         const result = await this.processWindowWithProgress(window, i, windows.length);
         windowResults.push(result);
         
-        console.log(`[WalkForward] Janela ${window.windowNumber}/${windows.length} concluída`);
+        validationLogger.debug(`Janela ${window.windowNumber}/${windows.length} concluída`, "WalkForward");
       }
     }
     
@@ -75,7 +76,7 @@ export class WalkForwardValidator {
     const confidence = this.calculateConfidence(windowResults);
     const warnings = this.generateWarnings(windowResults, aggregated);
     
-    console.log(`[WalkForward] ✅ Validação concluída. Robusto: ${isRobust}, Confiança: ${confidence.toFixed(1)}%`);
+    validationLogger.info(`✅ Validação concluída. Robusto: ${isRobust}, Confiança: ${confidence.toFixed(1)}%`, "WalkForward");
     
     return {
       symbol: this.config.symbol,

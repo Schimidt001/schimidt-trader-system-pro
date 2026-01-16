@@ -11,7 +11,9 @@
  * - PortfolioMetricsCalculator para métricas de portfólio
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0
+ * 
+ * CORREÇÃO HANDOVER: Substituição de console.log por LabLogger
  */
 
 import { GlobalClock, createGlobalClock } from "./GlobalClock";
@@ -22,6 +24,7 @@ import { PortfolioMetricsCalculator, createPortfolioMetricsCalculator, DEFAULT_P
 import { BacktestTrade, BacktestConfig, BacktestStrategyType } from "../types/backtest.types";
 import { CandleData, PriceTick } from "../../adapters/IBrokerAdapter";
 import { IsolatedBacktestRunner, createIsolatedRunner } from "../runners/IsolatedBacktestRunner";
+import { multiAssetLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // TYPES
@@ -136,7 +139,7 @@ export class MultiAssetOrchestrator {
       this.clock.registerSymbol(symbol);
     }
     
-    console.log(`[MultiAssetOrchestrator] Inicializado com ${config.symbols.length} símbolos`);
+    multiAssetLogger.info(`Inicializado com ${config.symbols.length} símbolos`, "MultiAssetOrchestrator");
   }
   
   /**
@@ -160,12 +163,12 @@ export class MultiAssetOrchestrator {
     const startTime = Date.now();
     const seed = this.config.seed || Date.now() % 2147483647;
     
-    console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[MultiAssetOrchestrator] 🚀 INICIANDO BACKTEST MULTI-ASSET");
-    console.log(`[MultiAssetOrchestrator] Símbolos: ${this.config.symbols.join(", ")}`);
-    console.log(`[MultiAssetOrchestrator] Período: ${this.config.startDate.toISOString()} - ${this.config.endDate.toISOString()}`);
-    console.log(`[MultiAssetOrchestrator] Seed: ${seed}`);
-    console.log("═══════════════════════════════════════════════════════════════");
+    // Log de início da operação
+    multiAssetLogger.startOperation("BACKTEST MULTI-ASSET", {
+      símbolos: this.config.symbols.join(", "),
+      período: `${this.config.startDate.toISOString().split("T")[0]} - ${this.config.endDate.toISOString().split("T")[0]}`,
+      seed,
+    });
     
     this.isAborted = false;
     
@@ -215,7 +218,13 @@ export class MultiAssetOrchestrator {
           this.correlationAnalyzer.addReturn(symbol, trade.profit);
         }
         
-        console.log(`[MultiAssetOrchestrator] ${symbol}: ${result.trades.length} trades, PnL: $${result.metrics.netProfit.toFixed(2)}`);
+        // Log de progresso agregado por símbolo
+        multiAssetLogger.progress(
+          i + 1,
+          this.config.symbols.length,
+          `${symbol}: ${result.trades.length} trades, PnL: $${result.metrics.netProfit.toFixed(2)}`,
+          "MultiAssetOrchestrator"
+        );
       }
       
       if (this.isAborted) {
@@ -312,20 +321,20 @@ export class MultiAssetOrchestrator {
       
       this.reportProgress("ANALYZING", undefined, 100, "Concluído!");
       
-      console.log("═══════════════════════════════════════════════════════════════");
-      console.log("[MultiAssetOrchestrator] ✅ BACKTEST MULTI-ASSET CONCLUÍDO");
-      console.log(`[MultiAssetOrchestrator] Tempo: ${executionTime.toFixed(2)}s`);
-      console.log(`[MultiAssetOrchestrator] Trades totais: ${validatedTrades.length}`);
-      console.log(`[MultiAssetOrchestrator] Retorno total: ${portfolioMetrics.totalReturn.toFixed(2)}%`);
-      console.log(`[MultiAssetOrchestrator] Sharpe Ratio: ${portfolioMetrics.sharpeRatio.toFixed(2)}`);
-      console.log(`[MultiAssetOrchestrator] Max Drawdown: ${portfolioMetrics.maxDrawdown.toFixed(2)}%`);
-      console.log("═══════════════════════════════════════════════════════════════");
+      // Log de fim da operação
+      multiAssetLogger.endOperation("BACKTEST MULTI-ASSET", true, {
+        tempo: `${executionTime.toFixed(2)}s`,
+        trades: validatedTrades.length,
+        retorno: `${portfolioMetrics.totalReturn.toFixed(2)}%`,
+        sharpe: portfolioMetrics.sharpeRatio.toFixed(2),
+        maxDD: `${portfolioMetrics.maxDrawdown.toFixed(2)}%`,
+      });
       
       return result;
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[MultiAssetOrchestrator] ❌ Erro: ${errorMessage}`);
+      multiAssetLogger.error(errorMessage, error instanceof Error ? error : undefined, "MultiAssetOrchestrator");
       throw error;
     }
   }
@@ -419,7 +428,7 @@ export class MultiAssetOrchestrator {
     this.correlationAnalyzer.reset();
     this.isAborted = false;
     
-    console.log(`[MultiAssetOrchestrator] Resetado`);
+    multiAssetLogger.debug("Orquestrador resetado", "MultiAssetOrchestrator");
   }
 }
 

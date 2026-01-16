@@ -17,6 +17,7 @@
  */
 
 import { BacktestTrade } from "../types/backtest.types";
+import { multiAssetLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // TYPES
@@ -101,7 +102,7 @@ export class PortfolioMetricsCalculator {
     equityCurve: { timestamp: number; equity: number }[],
     initialBalance: number
   ): PortfolioMetrics {
-    console.log(`[PortfolioMetrics] Calculando métricas para ${trades.length} trades...`);
+    multiAssetLogger.debug(`Calculando métricas para ${trades.length} trades...`, "PortfolioMetrics");
     
     // Calcular retornos diários
     const dailyReturns = this.calculateDailyReturns(equityCurve);

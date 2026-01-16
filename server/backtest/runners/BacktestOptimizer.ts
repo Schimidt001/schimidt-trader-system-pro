@@ -6,7 +6,11 @@
  * retorna um ranking ordenado por lucro líquido.
  * 
  * @author Schimidt Trader Pro - Backtest Module
- * @version 1.0.0
+ * @version 1.1.0
+ * 
+ * CORREÇÃO HANDOVER: Substituição de console.log por LabLogger
+ * - Logs removidos de loops
+ * - Apenas logs de start, finish, progress agregado e erro real
  */
 
 import {
@@ -16,6 +20,7 @@ import {
   BacktestStrategyType,
 } from "../types/backtest.types";
 import { BacktestRunner } from "./BacktestRunner";
+import { optimizationLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // TYPES
@@ -214,25 +219,26 @@ export class BacktestOptimizer {
     const startTime = Date.now();
     this.aborted = false;
     
-    console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[BacktestOptimizer] 🚀 INICIANDO OTIMIZAÇÃO");
-    console.log(`[BacktestOptimizer] Símbolo: ${this.config.symbol}`);
-    console.log(`[BacktestOptimizer] Estratégias: ${this.config.strategies.join(", ")}`);
-    console.log(`[BacktestOptimizer] Risco: ${this.config.riskRange.min}% - ${this.config.riskRange.max}% (step ${this.config.riskRange.step}%)`);
-    console.log("═══════════════════════════════════════════════════════════════");
+    // Log de início da operação
+    optimizationLogger.startOperation("OTIMIZAÇÃO DE PARÂMETROS", {
+      symbol: this.config.symbol,
+      strategies: this.config.strategies.join(", "),
+      riskRange: `${this.config.riskRange.min}% - ${this.config.riskRange.max}%`,
+    });
     
     const combinations = this.generateCombinations();
     const totalCombinations = combinations.length;
     
-    console.log(`[BacktestOptimizer] Total de combinações: ${totalCombinations}`);
+    optimizationLogger.info(`Total de combinações a testar: ${totalCombinations}`, "BacktestOptimizer");
     
     const results: OptimizationResultItem[] = [];
     let completedCombinations = 0;
+    let errorCount = 0;
     const combinationTimes: number[] = [];
     
     for (const combo of combinations) {
       if (this.aborted) {
-        console.log("[BacktestOptimizer] ⛔ Otimização abortada pelo usuário");
+        optimizationLogger.warn("Otimização abortada pelo usuário", "BacktestOptimizer");
         break;
       }
       
@@ -301,21 +307,30 @@ export class BacktestOptimizer {
           compositeScore,
         });
         
-        console.log(
-          `[BacktestOptimizer] ✓ ${combo.strategy} (${combo.riskPercent}%) | ` +
-          `Lucro: $${backtestResult.metrics.netProfit.toFixed(2)} | ` +
-          `DD: ${backtestResult.metrics.maxDrawdownPercent.toFixed(1)}% | ` +
-          `Score: ${compositeScore.toFixed(1)}`
+        // Log de progresso agregado (a cada 10% ou a cada 100 combinações)
+        optimizationLogger.progress(
+          completedCombinations + 1,
+          totalCombinations,
+          `Processando ${combo.strategy} (${combo.riskPercent}%)`,
+          "BacktestOptimizer"
         );
         
       } catch (error) {
-        console.error(
-          `[BacktestOptimizer] ✗ ${combo.strategy} (${combo.riskPercent}%): ${(error as Error).message}`
+        errorCount++;
+        // Log de erro real (não em loop, apenas agregado)
+        optimizationLogger.aggregate(
+          "optimization_errors",
+          `Erro em ${combo.strategy} (${combo.riskPercent}%): ${(error as Error).message}`
         );
       }
       
       completedCombinations++;
       combinationTimes.push(Date.now() - comboStartTime);
+    }
+    
+    // Flush erros agregados
+    if (errorCount > 0) {
+      optimizationLogger.flushAggregated("optimization_errors", "BacktestOptimizer");
     }
     
     // Sort by composite score (descending)
@@ -328,14 +343,15 @@ export class BacktestOptimizer {
     
     const executionTime = Date.now() - startTime;
     
-    console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[BacktestOptimizer] ✅ OTIMIZAÇÃO CONCLUÍDA");
-    console.log(`[BacktestOptimizer] Combinações testadas: ${completedCombinations}/${totalCombinations}`);
-    console.log(`[BacktestOptimizer] Tempo total: ${(executionTime / 1000).toFixed(1)}s`);
-    if (results.length > 0) {
-      console.log(`[BacktestOptimizer] 🥇 Melhor: ${results[0].strategy} (${results[0].riskPercent}%) - $${results[0].netProfit.toFixed(2)}`);
-    }
-    console.log("═══════════════════════════════════════════════════════════════");
+    // Log de fim da operação
+    optimizationLogger.endOperation("OTIMIZAÇÃO DE PARÂMETROS", results.length > 0, {
+      combinações: `${completedCombinations}/${totalCombinations}`,
+      tempo: `${(executionTime / 1000).toFixed(1)}s`,
+      erros: errorCount,
+      melhor: results.length > 0 
+        ? `${results[0].strategy} (${results[0].riskPercent}%) - $${results[0].netProfit.toFixed(2)}`
+        : "N/A",
+    });
     
     return {
       config: this.config,

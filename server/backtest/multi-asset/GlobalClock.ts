@@ -9,8 +9,12 @@
  * - Manter consistência temporal entre ativos
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0
+ * 
+ * CORREÇÃO HANDOVER: Substituição de console.log por LabLogger
  */
+
+import { multiAssetLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // TYPES
@@ -66,7 +70,7 @@ export class GlobalClock {
     this.endTimestamp = endTimestamp;
     this.currentTimestamp = startTimestamp;
     
-    console.log(`[GlobalClock] Inicializado: ${new Date(startTimestamp).toISOString()} - ${new Date(endTimestamp).toISOString()}`);
+    multiAssetLogger.debug(`Inicializado: ${new Date(startTimestamp).toISOString()} - ${new Date(endTimestamp).toISOString()}`, "GlobalClock");
   }
   
   /**
@@ -75,7 +79,7 @@ export class GlobalClock {
   registerSymbol(symbol: string): void {
     this.symbols.add(symbol);
     this.symbolTimestamps.set(symbol, this.currentTimestamp);
-    console.log(`[GlobalClock] Símbolo registrado: ${symbol}`);
+    multiAssetLogger.debug(`Símbolo registrado: ${symbol}`, "GlobalClock");
   }
   
   /**
@@ -147,12 +151,12 @@ export class GlobalClock {
   async advanceTo(timestamp: number): Promise<boolean> {
     // Validar timestamp
     if (timestamp < this.currentTimestamp) {
-      console.warn(`[GlobalClock] Tentativa de voltar no tempo: ${timestamp} < ${this.currentTimestamp}`);
+      multiAssetLogger.warn(`Tentativa de voltar no tempo: ${timestamp} < ${this.currentTimestamp}`, "GlobalClock");
       return false;
     }
     
     if (timestamp > this.endTimestamp) {
-      console.log(`[GlobalClock] Fim do período atingido`);
+      multiAssetLogger.debug("Fim do período atingido", "GlobalClock");
       this.isRunning = false;
       return false;
     }
@@ -202,7 +206,7 @@ export class GlobalClock {
   start(): void {
     this.isRunning = true;
     this.isPaused = false;
-    console.log(`[GlobalClock] Iniciado`);
+    multiAssetLogger.debug("Relógio iniciado", "GlobalClock");
   }
   
   /**
@@ -210,7 +214,7 @@ export class GlobalClock {
    */
   pause(): void {
     this.isPaused = true;
-    console.log(`[GlobalClock] Pausado`);
+    multiAssetLogger.debug("Relógio pausado", "GlobalClock");
   }
   
   /**
@@ -218,7 +222,7 @@ export class GlobalClock {
    */
   resume(): void {
     this.isPaused = false;
-    console.log(`[GlobalClock] Retomado`);
+    multiAssetLogger.debug("Relógio retomado", "GlobalClock");
   }
   
   /**
@@ -226,7 +230,7 @@ export class GlobalClock {
    */
   stop(): void {
     this.isRunning = false;
-    console.log(`[GlobalClock] Parado`);
+    multiAssetLogger.debug("Relógio parado", "GlobalClock");
   }
   
   /**
@@ -242,7 +246,7 @@ export class GlobalClock {
       this.symbolTimestamps.set(symbol, this.startTimestamp);
     }
     
-    console.log(`[GlobalClock] Resetado`);
+    multiAssetLogger.debug("Relógio resetado", "GlobalClock");
   }
   
   /**

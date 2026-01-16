@@ -22,6 +22,7 @@
 
 import { CandleData } from "../../adapters/IBrokerAdapter";
 import { BacktestTrade, BacktestMetrics } from "../types/backtest.types";
+import { validationLogger } from "../utils/LabLogger";
 import {
   MarketRegimeType,
   RegimeDetectionConfig,
@@ -98,7 +99,7 @@ export class RegimeDetector {
    * usa apenas dados até aquele momento (sem look-ahead).
    */
   detectRegimes(candles: CandleData[]): RegimePeriod[] {
-    console.log(`[RegimeDetector] Detectando regimes para ${candles.length} candles...`);
+    validationLogger.info(`Detectando regimes para ${candles.length} candles...`, "RegimeDetector");
     
     const regimes: RegimePeriod[] = [];
     let currentRegime: MarketRegimeType | null = null;
@@ -177,7 +178,7 @@ export class RegimeDetector {
       });
     }
     
-    console.log(`[RegimeDetector] ${regimes.length} regimes detectados`);
+    validationLogger.info(`${regimes.length} regimes detectados`, "RegimeDetector");
     
     return regimes;
   }
@@ -337,7 +338,7 @@ export class RegimeDetector {
     trades: BacktestTrade[],
     regimes: RegimePeriod[]
   ): TradeWithRegime[] {
-    console.log(`[RegimeDetector] Associando ${trades.length} trades a regimes...`);
+    validationLogger.debug(`Associando ${trades.length} trades a regimes...`, "RegimeDetector");
     
     return trades.map(trade => {
       // Encontrar regime vigente no momento da entrada
@@ -359,7 +360,7 @@ export class RegimeDetector {
    * Analisar performance por regime
    */
   analyzePerformanceByRegime(tradesWithRegime: TradeWithRegime[]): RegimePerformance[] {
-    console.log(`[RegimeDetector] Analisando performance por regime...`);
+    validationLogger.debug("Analisando performance por regime...", "RegimeDetector");
     
     // Agrupar trades por regime
     const tradesByRegime = new Map<MarketRegimeType, TradeWithRegime[]>();
@@ -426,7 +427,7 @@ export class RegimeDetector {
     candles: CandleData[],
     trades: BacktestTrade[]
   ): Promise<RegimeDetectionResult> {
-    console.log(`[RegimeDetector] Iniciando análise completa...`);
+    validationLogger.info("Iniciando análise completa...", "RegimeDetector");
     
     // 1. Detectar regimes
     const regimes = this.detectRegimes(candles);
@@ -444,9 +445,7 @@ export class RegimeDetector {
     const regimeDistribution = this.calculateRegimeDistribution(regimes);
     const dominantRegime = this.findDominantRegime(performanceByRegime);
     
-    console.log(`[RegimeDetector] ✅ Análise concluída`);
-    console.log(`[RegimeDetector] Regime dominante: ${dominantRegime}`);
-    console.log(`[RegimeDetector] Warnings: ${warnings.length}`);
+    validationLogger.info(`✅ Análise concluída - Regime dominante: ${dominantRegime}, Warnings: ${warnings.length}`, "RegimeDetector");
     
     return {
       regimes,

@@ -16,6 +16,7 @@
 
 import { SeededRNG, createSeededRNG } from "../utils/SeededRNG";
 import { BacktestTrade, BacktestMetrics } from "../types/backtest.types";
+import { validationLogger } from "../utils/LabLogger";
 import {
   MonteCarloConfig,
   MonteCarloSimulation,
@@ -57,7 +58,7 @@ export class MonteCarloSimulator {
     // Criar RNG seedado para determinismo
     this.rng = createSeededRNG(config.seed, "xorshift128");
     
-    console.log(`[MonteCarlo] Inicializado com seed: ${config.seed}`);
+    validationLogger.debug(`Inicializado com seed: ${config.seed}`, "MonteCarlo");
   }
   
   /**
@@ -73,9 +74,7 @@ export class MonteCarloSimulator {
   async simulate(trades: BacktestTrade[]): Promise<MonteCarloResult> {
     const startTime = Date.now();
     
-    console.log(`[MonteCarlo] Iniciando ${this.config.simulations} simulações...`);
-    console.log(`[MonteCarlo] Trades originais: ${trades.length}`);
-    console.log(`[MonteCarlo] Método: ${this.config.method}`);
+    validationLogger.info(`Iniciando ${this.config.simulations} simulações (${trades.length} trades, método: ${this.config.method})`, "MonteCarlo");
     
     if (trades.length < 10) {
       throw new Error("Mínimo de 10 trades necessários para Monte Carlo");
@@ -150,9 +149,7 @@ export class MonteCarloSimulator {
     
     const executionTime = (Date.now() - startTime) / 1000;
     
-    console.log(`[MonteCarlo] ✅ Simulação concluída em ${executionTime.toFixed(1)}s`);
-    console.log(`[MonteCarlo] Probabilidade de ruína: ${ruinProbability.toFixed(2)}%`);
-    console.log(`[MonteCarlo] IC ${this.config.confidenceLevel}% Equity: [${equityCI.lower.toFixed(2)}, ${equityCI.upper.toFixed(2)}]`);
+    validationLogger.info(`✅ Simulação concluída em ${executionTime.toFixed(1)}s - Ruína: ${ruinProbability.toFixed(2)}%, IC ${this.config.confidenceLevel}%: [${equityCI.lower.toFixed(2)}, ${equityCI.upper.toFixed(2)}]`, "MonteCarlo");
     
     return {
       seed: this.config.seed,

@@ -10,10 +10,13 @@
  * - Métricas de portfólio em tempo real
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0
+ * 
+ * CORREÇÃO HANDOVER: Substituição de console.log por LabLogger
  */
 
 import { BacktestTrade } from "../types/backtest.types";
+import { multiAssetLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // TYPES
@@ -105,7 +108,7 @@ export class Ledger {
       description: "Saldo inicial",
     });
     
-    console.log(`[Ledger] Inicializado com saldo: $${config.initialBalance}`);
+    multiAssetLogger.debug(`Inicializado com saldo: $${config.initialBalance}`, "Ledger");
   }
   
   /**
@@ -198,7 +201,7 @@ export class Ledger {
     
     // Verificar margem disponível
     if (!this.canOpenPosition(requiredMargin)) {
-      console.warn(`[Ledger] Margem insuficiente para abrir posição em ${symbol}`);
+      multiAssetLogger.warn(`Margem insuficiente para abrir posição em ${symbol}`, "Ledger");
       return null;
     }
     
@@ -227,7 +230,7 @@ export class Ledger {
       timestamp,
     });
     
-    console.log(`[Ledger] Posição aberta: ${positionId} - ${direction} ${size} ${symbol} @ ${entryPrice}`);
+    multiAssetLogger.debug(`Posição aberta: ${positionId} - ${direction} ${size} ${symbol} @ ${entryPrice}`, "Ledger");
     
     return position;
   }
@@ -269,7 +272,7 @@ export class Ledger {
   ): BacktestTrade | null {
     const position = this.positions.get(positionId);
     if (!position) {
-      console.warn(`[Ledger] Posição não encontrada: ${positionId}`);
+      multiAssetLogger.warn(`Posição não encontrada: ${positionId}`, "Ledger");
       return null;
     }
     
@@ -322,7 +325,7 @@ export class Ledger {
       });
     }
     
-    console.log(`[Ledger] Posição fechada: ${positionId} - PnL: $${netPnL.toFixed(2)}`);
+    multiAssetLogger.debug(`Posição fechada: ${positionId} - PnL: $${netPnL.toFixed(2)}`, "Ledger");
     
     return trade;
   }
@@ -482,7 +485,7 @@ export class Ledger {
       description: "Saldo inicial (reset)",
     });
     
-    console.log(`[Ledger] Resetado`);
+    multiAssetLogger.debug("Ledger resetado", "Ledger");
   }
 }
 

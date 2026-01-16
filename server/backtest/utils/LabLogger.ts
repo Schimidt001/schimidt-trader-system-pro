@@ -284,6 +284,18 @@ export const multiAssetLogger = new LabLogger({
   progressLogInterval: 500,
 });
 
+/** Logger para o módulo de configuração */
+export const configLogger = new LabLogger({
+  prefix: "[Config]",
+  progressLogInterval: 100,
+});
+
+/** Logger para o módulo de dados */
+export const dataLogger = new LabLogger({
+  prefix: "[Data]",
+  progressLogInterval: 500,
+});
+
 /** Logger genérico para o laboratório */
 export const labLogger = new LabLogger({
   prefix: "[Lab]",
@@ -301,6 +313,8 @@ export function setGlobalLogLevel(level: LogLevel): void {
   backtestLogger.setConfig({ level });
   validationLogger.setConfig({ level });
   multiAssetLogger.setConfig({ level });
+  configLogger.setConfig({ level });
+  dataLogger.setConfig({ level });
   labLogger.setConfig({ level });
 }
 
@@ -312,6 +326,8 @@ export function disableProgressLogs(): void {
   backtestLogger.setConfig({ enableProgressLogs: false });
   validationLogger.setConfig({ enableProgressLogs: false });
   multiAssetLogger.setConfig({ enableProgressLogs: false });
+  configLogger.setConfig({ enableProgressLogs: false });
+  dataLogger.setConfig({ enableProgressLogs: false });
 }
 
 /**
@@ -331,4 +347,6 @@ export function enableVerboseMode(): void {
   backtestLogger.setConfig({ enableProgressLogs: true });
   validationLogger.setConfig({ enableProgressLogs: true });
   multiAssetLogger.setConfig({ enableProgressLogs: true });
+  configLogger.setConfig({ enableProgressLogs: true });
+  dataLogger.setConfig({ enableProgressLogs: true });
 }

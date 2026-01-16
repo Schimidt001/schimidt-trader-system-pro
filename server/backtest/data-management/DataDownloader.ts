@@ -14,6 +14,7 @@
 import axios from "axios";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { dataLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // INTERFACES
@@ -113,7 +114,7 @@ export class DataDownloader {
    * Download automático de dados históricos
    */
   async downloadHistoricalData(config: DownloadConfig): Promise<DownloadResult> {
-    console.log(`[DataDownloader] Iniciando download de ${config.symbols.length} símbolos...`);
+    dataLogger.info(`Iniciando download de ${config.symbols.length} símbolos...`, "DataDownloader");
     
     const filesCreated: string[] = [];
     const errors: string[] = [];
@@ -124,7 +125,7 @@ export class DataDownloader {
     for (const symbol of config.symbols) {
       for (const timeframe of config.timeframes) {
         try {
-          console.log(`[DataDownloader] Baixando ${symbol} ${timeframe}...`);
+          dataLogger.debug(`Baixando ${symbol} ${timeframe}...`, "DataDownloader");
           
           // Aplicar rate limiting
           await this.applyRateLimit(config.source);
@@ -141,7 +142,7 @@ export class DataDownloader {
               break;
             case "manual":
               // Para fonte manual, não faz download - assume que os arquivos já existem
-              console.log(`[DataDownloader] Fonte manual - pulando download de ${symbol} ${timeframe}`);
+              dataLogger.debug(`Fonte manual - pulando download de ${symbol} ${timeframe}`, "DataDownloader");
               continue;
             default:
               throw new Error(`Fonte de dados desconhecida: ${config.source.name}`);
@@ -179,11 +180,11 @@ export class DataDownloader {
           await fs.writeFile(filePath, JSON.stringify(fileContent, null, 2));
           filesCreated.push(filePath);
           
-          console.log(`[DataDownloader] ✅ ${symbol} ${timeframe}: ${candles.length} velas salvas`);
+          dataLogger.info(`✅ ${symbol} ${timeframe}: ${candles.length} velas salvas`, "DataDownloader");
           
         } catch (error) {
           const errorMsg = `Erro ao baixar ${symbol} ${timeframe}: ${(error as Error).message}`;
-          console.error(`[DataDownloader] ❌ ${errorMsg}`);
+          dataLogger.error(errorMsg, undefined, "DataDownloader");
           errors.push(errorMsg);
         }
       }
@@ -191,7 +192,7 @@ export class DataDownloader {
     
     const success = errors.length === 0;
     
-    console.log(`[DataDownloader] Download concluído. Arquivos: ${filesCreated.length}, Erros: ${errors.length}`);
+    dataLogger.info(`Download concluído. Arquivos: ${filesCreated.length}, Erros: ${errors.length}`, "DataDownloader");
     
     return {
       success,

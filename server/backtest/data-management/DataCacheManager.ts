@@ -11,6 +11,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { DataDownloader, DownloadConfig, DownloadResult } from "./DataDownloader";
+import { dataLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // INTERFACES
@@ -98,12 +99,12 @@ export class DataCacheManager {
     const cachedFiles = await this.checkCache(config);
     
     if (cachedFiles.allPresent) {
-      console.log("[DataCache] ✅ Todos os dados encontrados no cache");
+      dataLogger.debug("✅ Todos os dados encontrados no cache", "DataCache");
       return cachedFiles.files;
     }
     
     // Baixar dados faltantes
-    console.log(`[DataCache] 📥 Baixando ${cachedFiles.missing.length} arquivos faltantes...`);
+    dataLogger.info(`📥 Baixando ${cachedFiles.missing.length} arquivos faltantes...`, "DataCache");
     
     // Criar config apenas para arquivos faltantes
     const missingSymbols = new Set<string>();
@@ -156,7 +157,7 @@ export class DataCacheManager {
           if (isValid) {
             files.push(filePath);
           } else {
-            console.log(`[DataCache] Cache expirado para ${fileName}`);
+            dataLogger.debug(`Cache expirado para ${fileName}`, "DataCache");
             missing.push(fileName);
           }
         } else {
@@ -263,7 +264,7 @@ export class DataCacheManager {
           });
         } catch {
           // Ignorar arquivos inválidos
-          console.warn(`[DataCache] Arquivo inválido ignorado: ${entry}`);
+          dataLogger.warn(`Arquivo inválido ignorado: ${entry}`, "DataCache");
         }
       }
     } catch {
@@ -297,7 +298,7 @@ export class DataCacheManager {
             await fs.unlink(filePath);
             deleted++;
             freedBytes += stats.size;
-            console.log(`[DataCache] Arquivo expirado removido: ${entry}`);
+            dataLogger.debug(`Arquivo expirado removido: ${entry}`, "DataCache");
           }
         } catch {
           // Ignorar erros de arquivos individuais
