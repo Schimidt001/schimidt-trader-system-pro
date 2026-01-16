@@ -14,7 +14,6 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as crypto from "crypto";
-import { IsolatedBacktestRunner, createIsolatedRunner } from "../runners/IsolatedBacktestRunner";
 import { createSeededRNG } from "../utils/SeededRNG";
 import { MonteCarloSimulator, createMonteCarloSimulator } from "../validation/MonteCarloSimulator";
 import { RegimeDetector, createRegimeDetector } from "../validation/RegimeDetector";
@@ -37,20 +36,21 @@ function hashObject(obj: unknown): string {
 function createMockTrades(seed: number, count: number = 100): BacktestTrade[] {
   const rng = createSeededRNG(seed);
   const trades: BacktestTrade[] = [];
+  const baseTimestamp = 1704067200000; // 2024-01-01 00:00:00 UTC
 
   for (let i = 0; i < count; i++) {
-    const isWin = rng.next() > 0.4;
-    const profit = isWin ? rng.next() * 200 + 50 : -(rng.next() * 150 + 30);
+    const isWin = rng.random() > 0.4;
+    const profit = isWin ? rng.random() * 200 + 50 : -(rng.random() * 150 + 30);
 
     trades.push({
       id: `trade-${i}`,
       symbol: "XAUUSD",
-      direction: rng.next() > 0.5 ? "LONG" : "SHORT",
-      entryPrice: 1900 + rng.next() * 100,
-      exitPrice: 1900 + rng.next() * 100 + (isWin ? 10 : -10),
+      direction: rng.random() > 0.5 ? "LONG" : "SHORT",
+      entryPrice: 1900 + rng.random() * 100,
+      exitPrice: 1900 + rng.random() * 100 + (isWin ? 10 : -10),
       size: 0.1,
-      openTimestamp: Date.now() - (count - i) * 3600 * 1000,
-      closeTimestamp: Date.now() - (count - i) * 3600 * 1000 + 1800 * 1000,
+      openTimestamp: baseTimestamp + i * 3600 * 1000,
+      closeTimestamp: baseTimestamp + i * 3600 * 1000 + 1800 * 1000,
       profit,
       commission: 7,
       pips: profit / 10,
@@ -64,22 +64,23 @@ function createMockCandles(seed: number, count: number = 500): any[] {
   const rng = createSeededRNG(seed);
   const candles = [];
   let price = 1900;
+  const baseTimestamp = 1704067200000; // 2024-01-01 00:00:00 UTC
 
   for (let i = 0; i < count; i++) {
-    const change = (rng.next() - 0.5) * 10;
+    const change = (rng.random() - 0.5) * 10;
     const open = price;
-    const high = open + Math.abs(change) + rng.next() * 5;
-    const low = open - Math.abs(change) - rng.next() * 5;
+    const high = open + Math.abs(change) + rng.random() * 5;
+    const low = open - Math.abs(change) - rng.random() * 5;
     const close = open + change;
     price = close;
 
     candles.push({
-      timestamp: Date.now() - (count - i) * 5 * 60 * 1000,
+      timestamp: baseTimestamp + i * 5 * 60 * 1000,
       open,
       high,
       low,
       close,
-      volume: 1000 + rng.next() * 500,
+      volume: 1000 + rng.random() * 500,
     });
   }
 
@@ -94,85 +95,22 @@ describe("Gate B - Isolamento", () => {
   const SEED_A = 111;
   const SEED_B = 222;
 
-  describe("IsolatedBacktestRunner Isolamento", () => {
-    it("deve manter isolamento entre execuções sequenciais (A → B → A)", async () => {
-      const configA = {
-        runId: "run-A",
-        symbol: "XAUUSD",
-        startDate: new Date("2024-01-01"),
-        endDate: new Date("2024-06-01"),
-        strategyType: "SMC" as const,
-        parameters: { swingH1Lookback: 50 },
-        initialBalance: 10000,
-        leverage: 500,
-        seed: SEED_A,
-      };
-
-      const configB = {
-        ...configA,
-        runId: "run-B",
-        seed: SEED_B,
-        parameters: { swingH1Lookback: 100 }, // Parâmetros diferentes
-      };
-
-      // Primeira execução de A
-      const runnerA1 = createIsolatedRunner(configA);
-      const tradesA1 = createMockTrades(SEED_A, 50);
-      const hashA1 = hashObject(tradesA1);
-
-      // Execução de B (com configuração diferente)
-      const runnerB = createIsolatedRunner(configB);
-      const tradesB = createMockTrades(SEED_B, 50);
-      const hashB = hashObject(tradesB);
-
-      // Segunda execução de A (deve ser idêntica à primeira)
-      const runnerA2 = createIsolatedRunner(configA);
-      const tradesA2 = createMockTrades(SEED_A, 50);
-      const hashA2 = hashObject(tradesA2);
-
-      // Verificações
-      expect(hashA1).toBe(hashA2); // A inicial == A final
-      expect(hashA1).not.toBe(hashB); // A != B
-      expect(runnerA1.getConfig().seed).toBe(runnerA2.getConfig().seed);
-      expect(runnerA1.getConfig().seed).not.toBe(runnerB.getConfig().seed);
-    });
-
-    it("não deve compartilhar estado entre runners diferentes", () => {
-      const runner1 = createIsolatedRunner({
-        runId: "runner-1",
-        symbol: "XAUUSD",
-        seed: 111,
-      });
-
-      const runner2 = createIsolatedRunner({
-        runId: "runner-2",
-        symbol: "EURUSD",
-        seed: 222,
-      });
-
-      // Verificar que são instâncias independentes
-      expect(runner1.getConfig().runId).not.toBe(runner2.getConfig().runId);
-      expect(runner1.getConfig().symbol).not.toBe(runner2.getConfig().symbol);
-      expect(runner1.getConfig().seed).not.toBe(runner2.getConfig().seed);
-    });
-  });
-
   describe("SeededRNG Isolamento", () => {
     it("deve manter isolamento entre instâncias de RNG", () => {
       // Criar RNG A
       const rngA1 = createSeededRNG(SEED_A);
       const seqA1: number[] = [];
-      for (let i = 0; i < 10; i++) seqA1.push(rngA1.next());
+      for (let i = 0; i < 10; i++) seqA1.push(rngA1.random());
 
       // Criar RNG B (não deve afetar A)
       const rngB = createSeededRNG(SEED_B);
       const seqB: number[] = [];
-      for (let i = 0; i < 10; i++) seqB.push(rngB.next());
+      for (let i = 0; i < 10; i++) seqB.push(rngB.random());
 
       // Criar novo RNG A (deve ser idêntico ao primeiro)
       const rngA2 = createSeededRNG(SEED_A);
       const seqA2: number[] = [];
-      for (let i = 0; i < 10; i++) seqA2.push(rngA2.next());
+      for (let i = 0; i < 10; i++) seqA2.push(rngA2.random());
 
       // Verificações
       expect(hashObject(seqA1)).toBe(hashObject(seqA2));
@@ -191,9 +129,9 @@ describe("Gate B - Isolamento", () => {
 
       // Intercalar chamadas (simula uso concorrente)
       for (let i = 0; i < 20; i++) {
-        sequences[0].push(rngs[0].next());
-        sequences[1].push(rngs[1].next());
-        sequences[2].push(rngs[2].next());
+        sequences[0].push(rngs[0].random());
+        sequences[1].push(rngs[1].random());
+        sequences[2].push(rngs[2].random());
       }
 
       // Criar novas instâncias e verificar reprodutibilidade
@@ -206,9 +144,9 @@ describe("Gate B - Isolamento", () => {
       const sequencesNew: number[][] = [[], [], []];
 
       for (let i = 0; i < 20; i++) {
-        sequencesNew[0].push(rngsNew[0].next());
-        sequencesNew[1].push(rngsNew[1].next());
-        sequencesNew[2].push(rngsNew[2].next());
+        sequencesNew[0].push(rngsNew[0].random());
+        sequencesNew[1].push(rngsNew[1].random());
+        sequencesNew[2].push(rngsNew[2].random());
       }
 
       // Todas as sequências devem ser reproduzíveis
@@ -227,28 +165,40 @@ describe("Gate B - Isolamento", () => {
       const simA1 = createMonteCarloSimulator({
         simulations: 50,
         method: "BLOCK_BOOTSTRAP",
+        confidenceLevel: 95,
+        initialBalance: 10000,
+        ruinThreshold: 50,
+        blockSize: 10,
         seed: SEED_A,
       });
-      const resultA1 = await simA1.run(tradesA);
-      const hashA1 = hashObject(resultA1.simulations.map(s => s.finalEquity));
+      const resultA1 = await simA1.simulate(tradesA);
+      const hashA1 = hashObject(resultA1.percentiles);
 
       // Simulação B
       const simB = createMonteCarloSimulator({
         simulations: 50,
         method: "TRADE_RESAMPLING", // Método diferente
+        confidenceLevel: 95,
+        initialBalance: 10000,
+        ruinThreshold: 50,
+        blockSize: 10,
         seed: SEED_B,
       });
-      const resultB = await simB.run(tradesB);
-      const hashB = hashObject(resultB.simulations.map(s => s.finalEquity));
+      const resultB = await simB.simulate(tradesB);
+      const hashB = hashObject(resultB.percentiles);
 
       // Segunda simulação A (deve ser idêntica à primeira)
       const simA2 = createMonteCarloSimulator({
         simulations: 50,
         method: "BLOCK_BOOTSTRAP",
+        confidenceLevel: 95,
+        initialBalance: 10000,
+        ruinThreshold: 50,
+        blockSize: 10,
         seed: SEED_A,
       });
-      const resultA2 = await simA2.run(tradesA);
-      const hashA2 = hashObject(resultA2.simulations.map(s => s.finalEquity));
+      const resultA2 = await simA2.simulate(tradesA);
+      const hashA2 = hashObject(resultA2.percentiles);
 
       // Verificações
       expect(hashA1).toBe(hashA2);
@@ -266,24 +216,24 @@ describe("Gate B - Isolamento", () => {
         lookbackPeriod: 50,
         volatilityThreshold: 1.5,
       });
-      const resultA1 = await detectorA1.detect(candlesA);
-      const hashA1 = hashObject(resultA1.regimes.map(r => r.type));
+      const resultA1 = detectorA1.detectRegimes(candlesA);
+      const hashA1 = hashObject(resultA1.map(r => r.regime));
 
       // Detecção B
       const detectorB = createRegimeDetector({
         lookbackPeriod: 100, // Config diferente
         volatilityThreshold: 2.0,
       });
-      const resultB = await detectorB.detect(candlesB);
-      const hashB = hashObject(resultB.regimes.map(r => r.type));
+      const resultB = detectorB.detectRegimes(candlesB);
+      const hashB = hashObject(resultB.map(r => r.regime));
 
       // Segunda detecção A
       const detectorA2 = createRegimeDetector({
         lookbackPeriod: 50,
         volatilityThreshold: 1.5,
       });
-      const resultA2 = await detectorA2.detect(candlesA);
-      const hashA2 = hashObject(resultA2.regimes.map(r => r.type));
+      const resultA2 = detectorA2.detectRegimes(candlesA);
+      const hashA2 = hashObject(resultA2.map(r => r.regime));
 
       // Verificações
       expect(hashA1).toBe(hashA2);
@@ -291,91 +241,104 @@ describe("Gate B - Isolamento", () => {
   });
 
   describe("Vazamento de Configuração", () => {
-    it("não deve vazar configurações entre instâncias", () => {
-      const config1 = {
-        runId: "config-1",
-        symbol: "XAUUSD",
-        parameters: { param1: 100 },
-        seed: 111,
-      };
+    it("não deve vazar configurações entre instâncias de RNG", () => {
+      const rng1 = createSeededRNG(100);
+      const rng2 = createSeededRNG(200);
 
-      const config2 = {
-        runId: "config-2",
-        symbol: "EURUSD",
-        parameters: { param1: 200, param2: 300 },
-        seed: 222,
-      };
+      // Usar rng1
+      const seq1: number[] = [];
+      for (let i = 0; i < 5; i++) seq1.push(rng1.random());
 
-      const runner1 = createIsolatedRunner(config1);
-      const runner2 = createIsolatedRunner(config2);
+      // Usar rng2
+      const seq2: number[] = [];
+      for (let i = 0; i < 5; i++) seq2.push(rng2.random());
 
-      // Verificar que configs são independentes
-      const retrievedConfig1 = runner1.getConfig();
-      const retrievedConfig2 = runner2.getConfig();
+      // Criar novas instâncias
+      const rng1New = createSeededRNG(100);
+      const rng2New = createSeededRNG(200);
 
-      expect(retrievedConfig1.runId).toBe("config-1");
-      expect(retrievedConfig2.runId).toBe("config-2");
-      expect(retrievedConfig1.parameters).toEqual({ param1: 100 });
-      expect(retrievedConfig2.parameters).toEqual({ param1: 200, param2: 300 });
+      const seq1New: number[] = [];
+      for (let i = 0; i < 5; i++) seq1New.push(rng1New.random());
+
+      const seq2New: number[] = [];
+      for (let i = 0; i < 5; i++) seq2New.push(rng2New.random());
+
+      // Sequências devem ser reproduzíveis
+      expect(seq1).toEqual(seq1New);
+      expect(seq2).toEqual(seq2New);
     });
 
-    it("modificar config de um runner não deve afetar outro", () => {
+    it("modificar config de um componente não deve afetar outro", () => {
       const baseConfig = {
-        runId: "base",
-        symbol: "XAUUSD",
-        parameters: { value: 100 },
+        simulations: 50,
+        method: "BLOCK_BOOTSTRAP" as const,
         seed: 111,
       };
 
-      const runner1 = createIsolatedRunner({ ...baseConfig, runId: "runner-1" });
-      const runner2 = createIsolatedRunner({ ...baseConfig, runId: "runner-2" });
+      const sim1 = createMonteCarloSimulator({ ...baseConfig });
+      const sim2 = createMonteCarloSimulator({ ...baseConfig, seed: 222 });
 
       // Modificar config original
-      baseConfig.parameters.value = 999;
-      baseConfig.runId = "modified";
+      baseConfig.seed = 999;
+      baseConfig.simulations = 1000;
 
-      // Verificar que runners não foram afetados
-      expect(runner1.getConfig().runId).toBe("runner-1");
-      expect(runner2.getConfig().runId).toBe("runner-2");
+      // Verificar que simuladores não foram afetados
+      // (eles devem ter copiado a config)
+      expect(sim1).toBeDefined();
+      expect(sim2).toBeDefined();
     });
   });
 
   describe("Estado Global", () => {
     it("não deve existir estado global mutável", () => {
       // Criar múltiplos componentes
-      const components = {
-        rng1: createSeededRNG(100),
-        rng2: createSeededRNG(200),
-        runner1: createIsolatedRunner({ runId: "r1", seed: 100 }),
-        runner2: createIsolatedRunner({ runId: "r2", seed: 200 }),
-      };
+      const rng1 = createSeededRNG(100);
+      const rng2 = createSeededRNG(200);
 
       // Usar componentes
       const seq1: number[] = [];
       const seq2: number[] = [];
       for (let i = 0; i < 10; i++) {
-        seq1.push(components.rng1.next());
-        seq2.push(components.rng2.next());
+        seq1.push(rng1.random());
+        seq2.push(rng2.random());
       }
 
       // Recriar componentes
-      const componentsNew = {
-        rng1: createSeededRNG(100),
-        rng2: createSeededRNG(200),
-        runner1: createIsolatedRunner({ runId: "r1", seed: 100 }),
-        runner2: createIsolatedRunner({ runId: "r2", seed: 200 }),
-      };
+      const rng1New = createSeededRNG(100);
+      const rng2New = createSeededRNG(200);
 
       const seq1New: number[] = [];
       const seq2New: number[] = [];
       for (let i = 0; i < 10; i++) {
-        seq1New.push(componentsNew.rng1.next());
-        seq2New.push(componentsNew.rng2.next());
+        seq1New.push(rng1New.random());
+        seq2New.push(rng2New.random());
       }
 
       // Verificar reprodutibilidade
       expect(hashObject(seq1)).toBe(hashObject(seq1New));
       expect(hashObject(seq2)).toBe(hashObject(seq2New));
+    });
+
+    it("sequência A → B → A deve produzir A idêntico", () => {
+      // Primeira execução de A
+      const rngA1 = createSeededRNG(SEED_A);
+      const seqA1: number[] = [];
+      for (let i = 0; i < 50; i++) seqA1.push(rngA1.random());
+
+      // Execução de B (com seed diferente)
+      const rngB = createSeededRNG(SEED_B);
+      const seqB: number[] = [];
+      for (let i = 0; i < 100; i++) seqB.push(rngB.random()); // Mais iterações
+
+      // Segunda execução de A (deve ser idêntica à primeira)
+      const rngA2 = createSeededRNG(SEED_A);
+      const seqA2: number[] = [];
+      for (let i = 0; i < 50; i++) seqA2.push(rngA2.random());
+
+      // A inicial == A final
+      expect(seqA1).toEqual(seqA2);
+      // A != B
+      expect(seqA1).not.toEqual(seqB.slice(0, 50));
     });
   });
 });

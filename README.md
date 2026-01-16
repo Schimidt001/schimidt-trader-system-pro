@@ -519,6 +519,98 @@ pnpm db:push
 mysql -u user -p database -e "SHOW TABLES;"
 ```
 
+## 🧪 Laboratório de Backtest Institucional Plus
+
+O sistema inclui um **Laboratório de Backtest Institucional Plus** completo para validação e otimização de estratégias.
+
+### Funcionalidades
+
+- **Otimização Grid Search** - Busca exaustiva de parâmetros com split IS/OOS
+- **Walk-Forward Optimization** - Validação temporal com janelas deslizantes
+- **Monte Carlo Simulation** - Análise de robustez estocástica (1000+ simulações)
+- **Regime Detection** - Detecção de regimes de mercado sem look-ahead
+- **Multi-Asset Backtest** - Portfólio com RiskGovernor e Ledger global
+- **Determinismo** - Resultados 100% reproduzíveis com SeededRNG
+
+### Como Usar
+
+#### Via UI
+
+1. Acesse o **Laboratório de Backtest** no menu lateral
+2. Configure os parâmetros de otimização
+3. Selecione o período e símbolo
+4. Inicie a otimização
+5. Visualize resultados com gráficos interativos
+
+#### Via API
+
+```typescript
+// Iniciar otimização
+const result = await trpc.institutional.startOptimization.mutate({
+  symbol: "XAUUSD",
+  startDate: "2024-01-01",
+  endDate: "2024-06-30",
+  parameterRanges: {
+    stopLoss: { min: 10, max: 50, step: 5 },
+    takeProfit: { min: 20, max: 100, step: 10 },
+  },
+  enableWFO: true,
+  wfoWindowMonths: 6,
+  wfoStepMonths: 1,
+});
+
+// Verificar status
+const status = await trpc.institutional.getOptimizationStatus.query({
+  runId: result.runId,
+});
+
+// Obter resultados
+const results = await trpc.institutional.getOptimizationResults.query({
+  runId: result.runId,
+});
+```
+
+### Documentação Detalhada
+
+- **Runbook Operacional**: [RUNBOOK.md](./RUNBOOK.md)
+- **Checklist de Implementação**: [CHECKLIST_IMPLEMENTACAO.md](./CHECKLIST_IMPLEMENTACAO.md)
+- **Documentação Técnica**: [server/backtest/runners/README.md](./server/backtest/runners/README.md)
+- **Multi-Asset**: [server/backtest/multi-asset/README.md](./server/backtest/multi-asset/README.md)
+
+### Configuração de Artefatos
+
+Variáveis de ambiente para configuração de artefatos:
+
+```env
+# Diretório base para artefatos
+BACKTEST_ARTIFACTS_PATH=/tmp/backtest-artifacts
+
+# TTL em horas (padrão: 168 = 7 dias)
+BACKTEST_ARTIFACTS_TTL_HOURS=168
+
+# Tamanho máximo em MB (padrão: 5120 = 5GB)
+BACKTEST_ARTIFACTS_MAX_SIZE_MB=5120
+
+# Habilitar cleanup automático
+BACKTEST_ARTIFACTS_AUTO_CLEANUP=true
+
+# Intervalo de cleanup em horas
+BACKTEST_ARTIFACTS_CLEANUP_INTERVAL_HOURS=6
+```
+
+### Executar Testes
+
+```bash
+# Executar todos os Gates de CI
+npx vitest run server/backtest/__tests__/
+
+# Executar com coverage
+npx vitest run --coverage server/backtest/__tests__/
+
+# Executar validação E2E
+npx tsx server/backtest/__tests__/e2e-validation.ts
+```
+
 ## 📝 Licença
 
 Propriedade de **Schimidt Trading Systems**. Todos os direitos reservados.
