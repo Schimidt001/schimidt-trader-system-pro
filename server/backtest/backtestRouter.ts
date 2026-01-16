@@ -130,8 +130,9 @@ const runBacktestSchema = z.object({
 });
 
 const downloadDataSchema = z.object({
-  symbols: z.array(z.string()).min(1).default(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
-  timeframes: z.array(z.string()).min(1).default(["M5", "H1", "H4"]),
+  symbols: z.array(z.string()).min(1).default(["XAUUSD"]),
+  // Timeframes obrigatórios para estratégia SMC: M5 (execução), M15 (confirmação), H1 (contexto)
+  timeframes: z.array(z.string()).min(1).default(["M5", "M15", "H1"]),
   monthsBack: z.number().min(1).max(24).default(6),
 });
 

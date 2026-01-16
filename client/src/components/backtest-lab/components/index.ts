@@ -11,3 +11,4 @@ export { ParametersTab } from "./ParametersTab";
 export { OptimizationResultsView } from "./OptimizationResultsView";
 export { WalkForwardResultsView } from "./WalkForwardResultsView";
 export { DatasetSelector } from "./DatasetSelector";
+export { DataDownloadManager } from "./DataDownloadManager";

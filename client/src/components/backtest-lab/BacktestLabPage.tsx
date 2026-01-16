@@ -50,6 +50,7 @@ import { ParametersTab, ParameterConfig } from "./components/ParametersTab";
 import { OptimizationResultsView } from "./components/OptimizationResultsView";
 import { WalkForwardResultsView } from "./components/WalkForwardResultsView";
 import { DatasetSelector } from "./components/DatasetSelector";
+import { DataDownloadManager } from "./components/DataDownloadManager";
 import { MonteCarloChart } from "./MonteCarloChart";
 import { RegimeAnalysisChart } from "./RegimeAnalysisChart";
 import { MultiAssetDashboard } from "./MultiAssetDashboard";
@@ -356,7 +357,11 @@ export function BacktestLabPage() {
 
       {/* Main Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="data" disabled={isAnyRunning}>
+            <Database className="w-4 h-4 mr-2" />
+            Dados
+          </TabsTrigger>
           <TabsTrigger value="config" disabled={isAnyRunning}>
             <Settings className="w-4 h-4 mr-2" />
             Configuração
@@ -375,10 +380,15 @@ export function BacktestLabPage() {
           </TabsTrigger>
         </TabsList>
 
+        {/* Data Tab - Gestão de Dados Históricos */}
+        <TabsContent value="data" className="space-y-4">
+          <DataDownloadManager />
+        </TabsContent>
+
         {/* Configuration Tab */}
         <TabsContent value="config" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Dataset Selector (WP-B) */}
+            {/* Dataset Selector (WP-B) - Agora com validação de dados */}
             <DatasetSelector
               selectedSymbols={selectedSymbols}
               onSymbolsChange={setSelectedSymbols}

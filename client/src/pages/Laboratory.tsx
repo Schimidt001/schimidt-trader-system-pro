@@ -164,7 +164,9 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export default function Laboratory() {
   const { user, loading: authLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState<"single" | "optimize" | "institutional">("single");
+  // UNIFICAÇÃO: Laboratório Institucional Plus é o único laboratório oficial
+  // Abas antigas (single, optimize) estão deprecated e ocultas
+  const [activeTab, setActiveTab] = useState<"single" | "optimize" | "institutional">("institutional");
   
   // Single Backtest Form state
   const [singleFormData, setSingleFormData] = useState<SingleBacktestFormData>({
@@ -431,48 +433,25 @@ export default function Laboratory() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       <div className="container mx-auto p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-              <FlaskConical className="w-8 h-8 text-cyan-400" />
-              Laboratório
-            </h1>
-            <p className="text-slate-400 mt-1">
-              Teste e otimize suas estratégias com dados históricos reais
-            </p>
-          </div>
-          
-          {/* Data Status Badge */}
-          <Badge
-            variant={availableDataQuery.data?.summary.totalFiles ? "default" : "secondary"}
-            className={`px-3 py-1.5 ${
-              availableDataQuery.data?.summary.totalFiles
-                ? "bg-green-500/20 text-green-400 border-green-500/30"
-                : "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
-            }`}
-          >
-            <Database className="w-4 h-4 mr-1.5" />
-            {availableDataQuery.data?.summary.totalFiles
-              ? `${availableDataQuery.data.summary.totalCandles.toLocaleString()} candles disponíveis`
-              : "Sem dados históricos"}
-          </Badge>
-        </div>
+        {/* Header removido - o BacktestLabPage tem seu próprio header */}
         
-        {/* Main Tabs */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "single" | "optimize" | "institutional")}>
-          <TabsList className="bg-slate-800">
-            <TabsTrigger value="single" className="gap-2">
-              <Play className="w-4 h-4" />
-              Simulação Única
-            </TabsTrigger>
-            <TabsTrigger value="optimize" className="gap-2">
-              <Zap className="w-4 h-4" />
-              Otimização em Lotes
-            </TabsTrigger>
+        {/* 
+          UNIFICAÇÃO DO LABORATÓRIO
+          ========================
+          O Laboratório Institucional Plus é o único laboratório oficial.
+          As abas antigas (Simulação Única e Otimização em Lotes) estão deprecated.
+          
+          Motivos:
+          - Funções críticas não podem estar espalhadas em múltiplas abas
+          - O Laboratório Plus possui todas as funcionalidades necessárias
+          - Download de dados, configuração e visualização estão unificados
+        */}
+        <Tabs value="institutional" onValueChange={() => {}}>
+          {/* TabsList oculta - apenas Institucional Plus visível */}
+          <TabsList className="bg-slate-800 hidden">
             <TabsTrigger value="institutional" className="gap-2">
               <Building2 className="w-4 h-4" />
-              Institucional Plus
+              Laboratório Institucional
             </TabsTrigger>
           </TabsList>
           
@@ -871,9 +850,9 @@ export default function Laboratory() {
           </TabsContent>
           
           {/* =============================================================== */}
-          {/* INSTITUTIONAL BACKTEST LAB TAB */}
+          {/* LABORATÓRIO INSTITUCIONAL PLUS - ÚNICO LABORATÓRIO OFICIAL */}
           {/* =============================================================== */}
-          <TabsContent value="institutional" className="mt-6">
+          <TabsContent value="institutional" className="mt-0">
             <BacktestLabPage />
           </TabsContent>
         </Tabs>
