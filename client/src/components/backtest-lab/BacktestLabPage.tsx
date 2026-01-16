@@ -720,25 +720,25 @@ export function BacktestLabPage() {
 
         {/* Results Tab */}
         <TabsContent value="results">
-          {activePipeline === "montecarlo" && lab.monteCarlo.result && (
+          {activePipeline === "montecarlo" && lab.monteCarlo.result ? (
             <MonteCarloChart 
               result={lab.monteCarlo.result as any} 
               initialBalance={10000} 
             />
-          )}
+          ) : null}
 
-          {activePipeline === "regime" && lab.regimeDetection.result && (
+          {activePipeline === "regime" && lab.regimeDetection.result ? (
             <RegimeAnalysisChart 
               result={lab.regimeDetection.result as any} 
             />
-          )}
+          ) : null}
 
-          {activePipeline === "multiasset" && lab.multiAsset.result && (
+          {activePipeline === "multiasset" && lab.multiAsset.result ? (
             <MultiAssetDashboard 
               result={lab.multiAsset.result as any} 
               initialBalance={10000} 
             />
-          )}
+          ) : null}
 
           {(activePipeline === "optimization" || activePipeline === "walkforward") && (
             <Card>

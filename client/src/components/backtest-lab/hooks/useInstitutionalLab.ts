@@ -139,37 +139,51 @@ export function useInstitutionalLab() {
     try {
       const status = await utils.institutional.getOptimizationStatus.fetch();
       
+      // Determinar o status baseado no estado atual
+      let newStatus: PipelineStatus = "IDLE";
+      if (status.isRunning) {
+        newStatus = "RUNNING";
+      } else if (status.error) {
+        newStatus = "ERROR";
+      }
+      
       setOptimizationState(prev => ({
         ...prev,
-        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : (status.result ? "COMPLETED" : prev.status)),
+        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : prev.status),
         progress: status.progress ? {
           percentComplete: status.progress.percentComplete,
-          currentPhase: status.progress.phase,
-          message: status.progress.statusMessage,
+          currentPhase: status.progress.phase || "RUNNING",
+          message: status.progress.statusMessage || "Processando...",
           estimatedTimeRemaining: status.progress.estimatedTimeRemaining,
           elapsedTime: status.progress.elapsedTime,
         } : prev.progress,
         error: status.error ? { code: "OPTIMIZATION_ERROR", message: status.error } : null,
       }));
 
-      // Se completou ou erro, buscar resultados e parar polling
+      // Se completou ou erro, buscar resultados separadamente e parar polling
       if (!status.isRunning) {
         if (optimizationPollRef.current) {
           clearInterval(optimizationPollRef.current);
           optimizationPollRef.current = null;
         }
 
-        if (status.result) {
-          setOptimizationState(prev => ({
-            ...prev,
-            status: "COMPLETED",
-            finishedAt: new Date(),
-            result: status.result,
-          }));
+        // Buscar resultados separadamente
+        try {
+          const result = await utils.institutional.getOptimizationResults.fetch();
+          if (result) {
+            setOptimizationState(prev => ({
+              ...prev,
+              status: "COMPLETED",
+              finishedAt: new Date(),
+              result: result,
+            }));
+          }
+        } catch (resultError) {
+          console.error("Erro ao buscar resultados da otimizacao:", resultError);
         }
       }
     } catch (error) {
-      console.error("Erro ao buscar status da otimização:", error);
+      console.error("Erro ao buscar status da otimizacao:", error);
     }
   }, [utils]);
 
@@ -179,11 +193,11 @@ export function useInstitutionalLab() {
       
       setWalkForwardState(prev => ({
         ...prev,
-        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : (status.result ? "COMPLETED" : prev.status)),
+        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : prev.status),
         progress: status.progress ? {
           percentComplete: status.progress.percentComplete,
-          currentPhase: status.progress.phase,
-          message: status.progress.message,
+          currentPhase: status.progress.phase || "RUNNING",
+          message: status.progress.statusMessage || "Processando...",
         } : prev.progress,
         error: status.error ? { code: "WALKFORWARD_ERROR", message: status.error } : null,
       }));
@@ -194,13 +208,18 @@ export function useInstitutionalLab() {
           walkForwardPollRef.current = null;
         }
 
-        if (status.result) {
-          setWalkForwardState(prev => ({
-            ...prev,
-            status: "COMPLETED",
-            finishedAt: new Date(),
-            result: status.result,
-          }));
+        try {
+          const result = await utils.institutional.getWalkForwardResults.fetch();
+          if (result) {
+            setWalkForwardState(prev => ({
+              ...prev,
+              status: "COMPLETED",
+              finishedAt: new Date(),
+              result: result,
+            }));
+          }
+        } catch (resultError) {
+          console.error("Erro ao buscar resultados do Walk-Forward:", resultError);
         }
       }
     } catch (error) {
@@ -214,11 +233,11 @@ export function useInstitutionalLab() {
       
       setMonteCarloState(prev => ({
         ...prev,
-        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : (status.result ? "COMPLETED" : prev.status)),
+        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : prev.status),
         progress: status.progress ? {
           percentComplete: status.progress.percentComplete,
-          currentPhase: status.progress.phase,
-          message: status.progress.message,
+          currentPhase: status.progress.phase || "RUNNING",
+          message: status.progress.statusMessage || "Processando...",
         } : prev.progress,
         error: status.error ? { code: "MONTECARLO_ERROR", message: status.error } : null,
       }));
@@ -229,13 +248,18 @@ export function useInstitutionalLab() {
           monteCarloPollRef.current = null;
         }
 
-        if (status.result) {
-          setMonteCarloState(prev => ({
-            ...prev,
-            status: "COMPLETED",
-            finishedAt: new Date(),
-            result: status.result,
-          }));
+        try {
+          const result = await utils.institutional.getMonteCarloResults.fetch();
+          if (result) {
+            setMonteCarloState(prev => ({
+              ...prev,
+              status: "COMPLETED",
+              finishedAt: new Date(),
+              result: result,
+            }));
+          }
+        } catch (resultError) {
+          console.error("Erro ao buscar resultados do Monte Carlo:", resultError);
         }
       }
     } catch (error) {
@@ -249,11 +273,11 @@ export function useInstitutionalLab() {
       
       setRegimeDetectionState(prev => ({
         ...prev,
-        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : (status.result ? "COMPLETED" : prev.status)),
+        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : prev.status),
         progress: status.progress ? {
           percentComplete: status.progress.percentComplete,
-          currentPhase: status.progress.phase,
-          message: status.progress.message,
+          currentPhase: status.progress.phase || "RUNNING",
+          message: status.progress.statusMessage || "Processando...",
         } : prev.progress,
         error: status.error ? { code: "REGIME_ERROR", message: status.error } : null,
       }));
@@ -264,17 +288,22 @@ export function useInstitutionalLab() {
           regimeDetectionPollRef.current = null;
         }
 
-        if (status.result) {
-          setRegimeDetectionState(prev => ({
-            ...prev,
-            status: "COMPLETED",
-            finishedAt: new Date(),
-            result: status.result,
-          }));
+        try {
+          const result = await utils.institutional.getRegimeDetectionResults.fetch();
+          if (result) {
+            setRegimeDetectionState(prev => ({
+              ...prev,
+              status: "COMPLETED",
+              finishedAt: new Date(),
+              result: result,
+            }));
+          }
+        } catch (resultError) {
+          console.error("Erro ao buscar resultados da deteccao de regimes:", resultError);
         }
       }
     } catch (error) {
-      console.error("Erro ao buscar status da detecção de regimes:", error);
+      console.error("Erro ao buscar status da deteccao de regimes:", error);
     }
   }, [utils]);
 
@@ -284,11 +313,11 @@ export function useInstitutionalLab() {
       
       setMultiAssetState(prev => ({
         ...prev,
-        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : (status.result ? "COMPLETED" : prev.status)),
+        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : prev.status),
         progress: status.progress ? {
           percentComplete: status.progress.percentComplete,
-          currentPhase: status.progress.phase,
-          message: status.progress.message,
+          currentPhase: status.progress.phase || "RUNNING",
+          message: status.progress.message || "Processando...",
         } : prev.progress,
         error: status.error ? { code: "MULTIASSET_ERROR", message: status.error } : null,
       }));
@@ -299,13 +328,18 @@ export function useInstitutionalLab() {
           multiAssetPollRef.current = null;
         }
 
-        if (status.result) {
-          setMultiAssetState(prev => ({
-            ...prev,
-            status: "COMPLETED",
-            finishedAt: new Date(),
-            result: status.result,
-          }));
+        try {
+          const result = await utils.institutional.getMultiAssetResults.fetch();
+          if (result) {
+            setMultiAssetState(prev => ({
+              ...prev,
+              status: "COMPLETED",
+              finishedAt: new Date(),
+              result: result,
+            }));
+          }
+        } catch (resultError) {
+          console.error("Erro ao buscar resultados do Multi-Asset:", resultError);
         }
       }
     } catch (error) {
@@ -679,7 +713,18 @@ export function useInstitutionalLab() {
     });
 
     try {
-      const result = await runIsolatedBacktestMutation.mutateAsync(config);
+      // Mapear strategyType para strategy conforme esperado pelo backend
+      const mutationConfig = {
+        symbol: config.symbol,
+        strategy: config.strategyType,
+        startDate: config.startDate,
+        endDate: config.endDate,
+        parameters: config.parameters,
+        initialBalance: config.initialBalance,
+        leverage: config.leverage,
+        seed: config.seed,
+      };
+      const result = await runIsolatedBacktestMutation.mutateAsync(mutationConfig);
       
       setIsolatedBacktestState(prev => ({
         ...prev,

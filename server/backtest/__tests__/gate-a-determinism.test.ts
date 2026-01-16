@@ -80,19 +80,31 @@ function createMockTrades(seed: number, count: number = 100): BacktestTrade[] {
   for (let i = 0; i < count; i++) {
     const isWin = rng.random() > 0.4; // 60% win rate
     const profit = isWin ? rng.random() * 200 + 50 : -(rng.random() * 150 + 30);
+    const entryPrice = 1900 + rng.random() * 100;
+    const exitPrice = entryPrice + (isWin ? 10 : -10);
+    const entryTime = baseTimestamp + i * 3600 * 1000;
+    const exitTime = entryTime + 1800 * 1000;
+    const commission = 7;
 
     trades.push({
       id: `trade-${i}`,
       symbol: "XAUUSD",
-      direction: rng.random() > 0.5 ? "LONG" : "SHORT",
-      entryPrice: 1900 + rng.random() * 100,
-      exitPrice: 1900 + rng.random() * 100 + (isWin ? 10 : -10),
-      size: 0.1,
-      openTimestamp: baseTimestamp + i * 3600 * 1000,
-      closeTimestamp: baseTimestamp + i * 3600 * 1000 + 1800 * 1000,
+      strategy: "SMC" as any,
+      side: rng.random() > 0.5 ? "BUY" as any : "SELL" as any,
+      entryPrice,
+      exitPrice,
+      volume: 0.1,
+      entryTime,
+      exitTime,
       profit,
-      commission: 7,
-      pips: profit / 10,
+      profitPips: profit / 10,
+      commission,
+      swap: 0,
+      netProfit: profit - commission,
+      maxDrawdown: 0,
+      maxRunup: 0,
+      holdingPeriod: exitTime - entryTime,
+      exitReason: isWin ? "TP" as any : "SL" as any,
     });
   }
 
@@ -190,29 +202,27 @@ describe("Gate A - Determinismo", () => {
   });
 
   describe("MonteCarloSimulator Determinismo", () => {
-    it("deve produzir simulações idênticas com mesmo seed", async () => {
+    it("deve produzir simulacoes identicas com mesmo seed", async () => {
       const trades = createMockTrades(FIXED_SEED, 100);
       const hashes: string[] = [];
 
       for (let run = 0; run < NUM_RUNS; run++) {
         const simulator = createMonteCarloSimulator({
-          simulations: 100,
-          method: "BLOCK_BOOTSTRAP",
+          originalTrades: trades,
+          numSimulations: 100,
           confidenceLevel: 95,
           initialBalance: 10000,
-          ruinThreshold: 50,
-          blockSize: 10,
           seed: FIXED_SEED,
         });
 
         const result = await simulator.simulate(trades);
         
-        // Hash dos resultados críticos (usando a estrutura real de retorno)
+        // Hash dos resultados criticos (usando a estrutura real de retorno)
         const criticalData = {
-          equityCI: result.equityCI,
-          drawdownCI: result.drawdownCI,
+          finalBalance: result.finalBalance,
+          maxDrawdown: result.maxDrawdown,
           ruinProbability: result.ruinProbability,
-          percentiles: result.percentiles,
+          confidenceInterval: result.confidenceInterval,
         };
 
         hashes.push(hashObject(criticalData));
@@ -227,30 +237,26 @@ describe("Gate A - Determinismo", () => {
       const trades = createMockTrades(FIXED_SEED, 100);
 
       const simulator1 = createMonteCarloSimulator({
-        simulations: 50,
-        method: "BLOCK_BOOTSTRAP",
+        originalTrades: trades,
+        numSimulations: 50,
         confidenceLevel: 95,
         initialBalance: 10000,
-        ruinThreshold: 50,
-        blockSize: 10,
         seed: 111,
       });
 
       const simulator2 = createMonteCarloSimulator({
-        simulations: 50,
-        method: "BLOCK_BOOTSTRAP",
+        originalTrades: trades,
+        numSimulations: 50,
         confidenceLevel: 95,
         initialBalance: 10000,
-        ruinThreshold: 50,
-        blockSize: 10,
         seed: 222,
       });
 
       const result1 = await simulator1.simulate(trades);
       const result2 = await simulator2.simulate(trades);
 
-      const hash1 = hashObject(result1.percentiles);
-      const hash2 = hashObject(result2.percentiles);
+      const hash1 = hashObject(result1.finalBalance);
+      const hash2 = hashObject(result2.finalBalance);
 
       expect(hash1).not.toBe(hash2);
     });

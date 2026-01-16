@@ -47,19 +47,31 @@ function createMockTrades(seed: number, count: number, symbol: string = "XAUUSD"
   for (let i = 0; i < count; i++) {
     const isWin = rng.random() > 0.4;
     const profit = isWin ? rng.random() * 200 + 50 : -(rng.random() * 150 + 30);
+    const entryPrice = 1900 + rng.random() * 100;
+    const exitPrice = entryPrice + (isWin ? 10 : -10);
+    const entryTime = baseTimestamp + i * 3600 * 1000;
+    const exitTime = entryTime + 1800 * 1000;
+    const commission = 7;
 
     trades.push({
       id: `trade-${i}`,
       symbol,
-      direction: rng.random() > 0.5 ? "LONG" : "SHORT",
-      entryPrice: 1900 + rng.random() * 100,
-      exitPrice: 1900 + rng.random() * 100 + (isWin ? 10 : -10),
-      size: 0.1,
-      openTimestamp: baseTimestamp + i * 3600 * 1000,
-      closeTimestamp: baseTimestamp + i * 3600 * 1000 + 1800 * 1000,
+      strategy: "SMC" as any,
+      side: rng.random() > 0.5 ? "BUY" as any : "SELL" as any,
+      entryPrice,
+      exitPrice,
+      volume: 0.1,
+      entryTime,
+      exitTime,
       profit,
-      commission: 7,
-      pips: profit / 10,
+      profitPips: profit / 10,
+      commission,
+      swap: 0,
+      netProfit: profit - commission,
+      maxDrawdown: 0,
+      maxRunup: 0,
+      holdingPeriod: exitTime - entryTime,
+      exitReason: isWin ? "TP" as any : "SL" as any,
     });
   }
 
@@ -239,28 +251,24 @@ async function runScenario3_MonteCarlo(): Promise<{
   const SEED_DIFFERENT = 67890;
   const trades = createMockTrades(SEED_FIXED, 200, "XAUUSD");
 
-  // Simulação com seed fixo
-  console.log(`\n--- Simulação com Seed Fixo: ${SEED_FIXED} ---`);
+  // Simulacao com seed fixo
+  console.log(`\n--- Simulacao com Seed Fixo: ${SEED_FIXED} ---`);
   const sim1 = createMonteCarloSimulator({
-    simulations: 1000,
-    method: "BLOCK_BOOTSTRAP",
+    originalTrades: trades,
+    numSimulations: 1000,
     confidenceLevel: 95,
     initialBalance: 10000,
-    ruinThreshold: 50,
-    blockSize: 10,
     seed: SEED_FIXED,
   });
   const result1 = await sim1.simulate(trades);
 
-  // Simulação com seed diferente
-  console.log(`\n--- Simulação com Seed Diferente: ${SEED_DIFFERENT} ---`);
+  // Simulacao com seed diferente
+  console.log(`\n--- Simulacao com Seed Diferente: ${SEED_DIFFERENT} ---`);
   const sim2 = createMonteCarloSimulator({
-    simulations: 1000,
-    method: "BLOCK_BOOTSTRAP",
+    originalTrades: trades,
+    numSimulations: 1000,
     confidenceLevel: 95,
     initialBalance: 10000,
-    ruinThreshold: 50,
-    blockSize: 10,
     seed: SEED_DIFFERENT,
   });
   const result2 = await sim2.simulate(trades);
@@ -268,31 +276,31 @@ async function runScenario3_MonteCarlo(): Promise<{
   const results = {
     seedFixed: {
       seed: SEED_FIXED,
-      simulations: result1.simulations,
-      equityCI: result1.equityCI,
-      ruinProbability: result1.ruinProbability.toFixed(2) + "%",
-      percentiles: result1.percentiles,
-      hash: hashObject(result1.percentiles),
+      numSimulations: result1.numSimulations,
+      finalBalance: result1.finalBalance,
+      ruinProbability: JSON.stringify(result1.ruinProbability),
+      confidenceInterval: result1.confidenceInterval,
+      hash: hashObject(result1.finalBalance),
     },
     seedDifferent: {
       seed: SEED_DIFFERENT,
-      simulations: result2.simulations,
-      equityCI: result2.equityCI,
-      ruinProbability: result2.ruinProbability.toFixed(2) + "%",
-      percentiles: result2.percentiles,
-      hash: hashObject(result2.percentiles),
+      numSimulations: result2.numSimulations,
+      finalBalance: result2.finalBalance,
+      ruinProbability: JSON.stringify(result2.ruinProbability),
+      confidenceInterval: result2.confidenceInterval,
+      hash: hashObject(result2.finalBalance),
     },
-    determinismProof: hashObject(result1.percentiles) !== hashObject(result2.percentiles),
+    determinismProof: hashObject(result1.finalBalance) !== hashObject(result2.finalBalance),
   };
 
   console.log(`\nResultados Seed Fixo (${SEED_FIXED}):`);
-  console.log(`  IC 95% Equity: [$${result1.equityCI.lower.toFixed(2)}, $${result1.equityCI.upper.toFixed(2)}]`);
-  console.log(`  Probabilidade de Ruína: ${results.seedFixed.ruinProbability}`);
+  console.log(`  IC 95%: [${result1.confidenceInterval.lower.toFixed(2)}, ${result1.confidenceInterval.upper.toFixed(2)}]`);
+  console.log(`  Probabilidade de Ruina: ${results.seedFixed.ruinProbability}`);
   console.log(`  Hash: ${results.seedFixed.hash}`);
 
   console.log(`\nResultados Seed Diferente (${SEED_DIFFERENT}):`);
-  console.log(`  IC 95% Equity: [$${result2.equityCI.lower.toFixed(2)}, $${result2.equityCI.upper.toFixed(2)}]`);
-  console.log(`  Probabilidade de Ruína: ${results.seedDifferent.ruinProbability}`);
+  console.log(`  IC 95%: [${result2.confidenceInterval.lower.toFixed(2)}, ${result2.confidenceInterval.upper.toFixed(2)}]`);
+  console.log(`  Probabilidade de Ruina: ${results.seedDifferent.ruinProbability}`);
   console.log(`  Hash: ${results.seedDifferent.hash}`);
 
   console.log(`\nProva de Determinismo: Seeds diferentes produzem hashes diferentes = ${results.determinismProof}`);
@@ -379,7 +387,9 @@ async function runScenario5_MultiAsset(): Promise<{
     maxPositionsPerSymbol: 1,
     maxTotalExposure: 50,
     maxDailyDrawdown: 5,
-    correlationThreshold: 0.8,
+    maxCorrelatedExposure: 30,
+    maxRiskPerTrade: 2,
+    correlationGroups: [["XAUUSD", "EURUSD"], ["GBPUSD", "USDJPY"]],
   }, ledger);
 
   const rng = createSeededRNG(SEED);

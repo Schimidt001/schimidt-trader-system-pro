@@ -1,0 +1,186 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "description": "Dataset de validação para detecção de regimes de mercado",
+    "author": "Schimidt Trader Pro - Backtest Lab",
+    "created": "2026-01-16",
+    "purpose": "Validar algoritmos de detecção de regimes com cenários conhecidos"
+  },
+  "regimeTypes": {
+    "TRENDING_UP": "Mercado em tendência de alta com momentum positivo",
+    "TRENDING_DOWN": "Mercado em tendência de baixa com momentum negativo",
+    "RANGING": "Mercado lateral/consolidação com baixa volatilidade",
+    "HIGH_VOLATILITY": "Mercado com alta volatilidade e movimentos bruscos",
+    "BREAKOUT": "Rompimento de níveis importantes com aumento de volume"
+  },
+  "scenarios": [
+    {
+      "id": "scenario_trending_up_strong",
+      "name": "Tendência de Alta Forte",
+      "expectedRegime": "TRENDING_UP",
+      "description": "Mercado em forte tendência de alta com topos e fundos ascendentes",
+      "characteristics": {
+        "avgReturn": 0.15,
+        "volatility": 0.8,
+        "trendStrength": 0.85,
+        "adx": 35
+      },
+      "candles": [
+        {"timestamp": 1704067200000, "open": 2000.00, "high": 2005.50, "low": 1998.00, "close": 2004.00, "volume": 1200},
+        {"timestamp": 1704067500000, "open": 2004.00, "high": 2010.00, "low": 2002.50, "close": 2008.50, "volume": 1350},
+        {"timestamp": 1704067800000, "open": 2008.50, "high": 2015.00, "low": 2007.00, "close": 2013.00, "volume": 1500},
+        {"timestamp": 1704068100000, "open": 2013.00, "high": 2018.50, "low": 2011.50, "close": 2017.00, "volume": 1420},
+        {"timestamp": 1704068400000, "open": 2017.00, "high": 2023.00, "low": 2015.00, "close": 2021.50, "volume": 1600},
+        {"timestamp": 1704068700000, "open": 2021.50, "high": 2028.00, "low": 2020.00, "close": 2026.00, "volume": 1750},
+        {"timestamp": 1704069000000, "open": 2026.00, "high": 2032.50, "low": 2024.50, "close": 2030.50, "volume": 1680},
+        {"timestamp": 1704069300000, "open": 2030.50, "high": 2037.00, "low": 2029.00, "close": 2035.00, "volume": 1820},
+        {"timestamp": 1704069600000, "open": 2035.00, "high": 2041.50, "low": 2033.50, "close": 2039.50, "volume": 1900},
+        {"timestamp": 1704069900000, "open": 2039.50, "high": 2046.00, "low": 2038.00, "close": 2044.00, "volume": 2050}
+      ]
+    },
+    {
+      "id": "scenario_trending_down_strong",
+      "name": "Tendência de Baixa Forte",
+      "expectedRegime": "TRENDING_DOWN",
+      "description": "Mercado em forte tendência de baixa com topos e fundos descendentes",
+      "characteristics": {
+        "avgReturn": -0.18,
+        "volatility": 0.9,
+        "trendStrength": 0.82,
+        "adx": 38
+      },
+      "candles": [
+        {"timestamp": 1704067200000, "open": 2100.00, "high": 2102.00, "low": 2092.00, "close": 2094.00, "volume": 1400},
+        {"timestamp": 1704067500000, "open": 2094.00, "high": 2096.00, "low": 2085.00, "close": 2087.00, "volume": 1550},
+        {"timestamp": 1704067800000, "open": 2087.00, "high": 2089.50, "low": 2078.00, "close": 2080.00, "volume": 1700},
+        {"timestamp": 1704068100000, "open": 2080.00, "high": 2082.00, "low": 2071.00, "close": 2073.00, "volume": 1620},
+        {"timestamp": 1704068400000, "open": 2073.00, "high": 2075.50, "low": 2064.00, "close": 2066.00, "volume": 1800},
+        {"timestamp": 1704068700000, "open": 2066.00, "high": 2068.00, "low": 2057.00, "close": 2059.00, "volume": 1950},
+        {"timestamp": 1704069000000, "open": 2059.00, "high": 2061.50, "low": 2050.00, "close": 2052.00, "volume": 1880},
+        {"timestamp": 1704069300000, "open": 2052.00, "high": 2054.00, "low": 2043.00, "close": 2045.00, "volume": 2020},
+        {"timestamp": 1704069600000, "open": 2045.00, "high": 2047.50, "low": 2036.00, "close": 2038.00, "volume": 2100},
+        {"timestamp": 1704069900000, "open": 2038.00, "high": 2040.00, "low": 2029.00, "close": 2031.00, "volume": 2250}
+      ]
+    },
+    {
+      "id": "scenario_ranging_tight",
+      "name": "Consolidação Lateral Apertada",
+      "expectedRegime": "RANGING",
+      "description": "Mercado em consolidação com range apertado e baixa volatilidade",
+      "characteristics": {
+        "avgReturn": 0.01,
+        "volatility": 0.25,
+        "trendStrength": 0.15,
+        "adx": 12
+      },
+      "candles": [
+        {"timestamp": 1704067200000, "open": 2050.00, "high": 2053.00, "low": 2048.00, "close": 2051.50, "volume": 800},
+        {"timestamp": 1704067500000, "open": 2051.50, "high": 2054.00, "low": 2049.00, "close": 2050.00, "volume": 750},
+        {"timestamp": 1704067800000, "open": 2050.00, "high": 2052.50, "low": 2047.50, "close": 2049.00, "volume": 720},
+        {"timestamp": 1704068100000, "open": 2049.00, "high": 2053.50, "low": 2048.50, "close": 2052.00, "volume": 780},
+        {"timestamp": 1704068400000, "open": 2052.00, "high": 2054.50, "low": 2049.50, "close": 2050.50, "volume": 810},
+        {"timestamp": 1704068700000, "open": 2050.50, "high": 2053.00, "low": 2048.00, "close": 2051.00, "volume": 760},
+        {"timestamp": 1704069000000, "open": 2051.00, "high": 2054.00, "low": 2049.00, "close": 2052.50, "volume": 790},
+        {"timestamp": 1704069300000, "open": 2052.50, "high": 2055.00, "low": 2050.00, "close": 2051.50, "volume": 830},
+        {"timestamp": 1704069600000, "open": 2051.50, "high": 2053.50, "low": 2048.50, "close": 2050.00, "volume": 770},
+        {"timestamp": 1704069900000, "open": 2050.00, "high": 2053.00, "low": 2047.50, "close": 2051.00, "volume": 800}
+      ]
+    },
+    {
+      "id": "scenario_high_volatility",
+      "name": "Alta Volatilidade",
+      "expectedRegime": "HIGH_VOLATILITY",
+      "description": "Mercado com movimentos bruscos e alta volatilidade, típico de eventos de notícias",
+      "characteristics": {
+        "avgReturn": 0.02,
+        "volatility": 2.5,
+        "trendStrength": 0.25,
+        "adx": 28
+      },
+      "candles": [
+        {"timestamp": 1704067200000, "open": 2050.00, "high": 2070.00, "low": 2040.00, "close": 2065.00, "volume": 3500},
+        {"timestamp": 1704067500000, "open": 2065.00, "high": 2080.00, "low": 2045.00, "close": 2048.00, "volume": 4200},
+        {"timestamp": 1704067800000, "open": 2048.00, "high": 2075.00, "low": 2035.00, "close": 2072.00, "volume": 3800},
+        {"timestamp": 1704068100000, "open": 2072.00, "high": 2090.00, "low": 2055.00, "close": 2058.00, "volume": 4100},
+        {"timestamp": 1704068400000, "open": 2058.00, "high": 2085.00, "low": 2040.00, "close": 2082.00, "volume": 4500},
+        {"timestamp": 1704068700000, "open": 2082.00, "high": 2095.00, "low": 2060.00, "close": 2063.00, "volume": 4000},
+        {"timestamp": 1704069000000, "open": 2063.00, "high": 2088.00, "low": 2045.00, "close": 2085.00, "volume": 3900},
+        {"timestamp": 1704069300000, "open": 2085.00, "high": 2100.00, "low": 2065.00, "close": 2068.00, "volume": 4300},
+        {"timestamp": 1704069600000, "open": 2068.00, "high": 2092.00, "low": 2050.00, "close": 2088.00, "volume": 4600},
+        {"timestamp": 1704069900000, "open": 2088.00, "high": 2105.00, "low": 2070.00, "close": 2075.00, "volume": 4800}
+      ]
+    },
+    {
+      "id": "scenario_breakout_bullish",
+      "name": "Rompimento de Alta",
+      "expectedRegime": "BREAKOUT",
+      "description": "Rompimento de resistência com aumento significativo de volume",
+      "characteristics": {
+        "avgReturn": 0.35,
+        "volatility": 1.2,
+        "trendStrength": 0.75,
+        "adx": 45
+      },
+      "candles": [
+        {"timestamp": 1704067200000, "open": 2050.00, "high": 2053.00, "low": 2048.00, "close": 2051.00, "volume": 900},
+        {"timestamp": 1704067500000, "open": 2051.00, "high": 2054.00, "low": 2049.00, "close": 2052.50, "volume": 950},
+        {"timestamp": 1704067800000, "open": 2052.50, "high": 2055.00, "low": 2050.00, "close": 2054.00, "volume": 1000},
+        {"timestamp": 1704068100000, "open": 2054.00, "high": 2056.00, "low": 2052.00, "close": 2055.50, "volume": 1100},
+        {"timestamp": 1704068400000, "open": 2055.50, "high": 2070.00, "low": 2055.00, "close": 2068.00, "volume": 3500},
+        {"timestamp": 1704068700000, "open": 2068.00, "high": 2082.00, "low": 2066.00, "close": 2080.00, "volume": 4200},
+        {"timestamp": 1704069000000, "open": 2080.00, "high": 2095.00, "low": 2078.00, "close": 2092.00, "volume": 4800},
+        {"timestamp": 1704069300000, "open": 2092.00, "high": 2105.00, "low": 2090.00, "close": 2102.00, "volume": 5100},
+        {"timestamp": 1704069600000, "open": 2102.00, "high": 2115.00, "low": 2100.00, "close": 2112.00, "volume": 5500},
+        {"timestamp": 1704069900000, "open": 2112.00, "high": 2125.00, "low": 2110.00, "close": 2122.00, "volume": 5800}
+      ]
+    },
+    {
+      "id": "scenario_mixed_regime_transition",
+      "name": "Transição de Regime",
+      "expectedRegime": "MIXED",
+      "description": "Transição de consolidação para tendência de alta",
+      "characteristics": {
+        "avgReturn": 0.08,
+        "volatility": 0.6,
+        "trendStrength": 0.45,
+        "adx": 22
+      },
+      "candles": [
+        {"timestamp": 1704067200000, "open": 2050.00, "high": 2053.00, "low": 2048.00, "close": 2051.00, "volume": 800},
+        {"timestamp": 1704067500000, "open": 2051.00, "high": 2054.00, "low": 2049.00, "close": 2050.50, "volume": 780},
+        {"timestamp": 1704067800000, "open": 2050.50, "high": 2053.50, "low": 2048.50, "close": 2052.00, "volume": 820},
+        {"timestamp": 1704068100000, "open": 2052.00, "high": 2055.00, "low": 2050.00, "close": 2054.50, "volume": 900},
+        {"timestamp": 1704068400000, "open": 2054.50, "high": 2058.00, "low": 2053.00, "close": 2057.00, "volume": 1100},
+        {"timestamp": 1704068700000, "open": 2057.00, "high": 2062.00, "low": 2055.50, "close": 2060.50, "volume": 1350},
+        {"timestamp": 1704069000000, "open": 2060.50, "high": 2066.00, "low": 2059.00, "close": 2064.00, "volume": 1500},
+        {"timestamp": 1704069300000, "open": 2064.00, "high": 2070.00, "low": 2062.50, "close": 2068.00, "volume": 1650},
+        {"timestamp": 1704069600000, "open": 2068.00, "high": 2074.00, "low": 2066.00, "close": 2072.00, "volume": 1800},
+        {"timestamp": 1704069900000, "open": 2072.00, "high": 2078.00, "low": 2070.00, "close": 2076.00, "volume": 1950}
+      ]
+    }
+  ],
+  "validationRules": {
+    "trendingUp": {
+      "minTrendStrength": 0.6,
+      "minAdx": 25,
+      "minAvgReturn": 0.05
+    },
+    "trendingDown": {
+      "minTrendStrength": 0.6,
+      "minAdx": 25,
+      "maxAvgReturn": -0.05
+    },
+    "ranging": {
+      "maxTrendStrength": 0.3,
+      "maxAdx": 20,
+      "maxVolatility": 0.5
+    },
+    "highVolatility": {
+      "minVolatility": 1.5
+    },
+    "breakout": {
+      "minVolumeIncrease": 2.0,
+      "minPriceChange": 0.02
+    }
+  }
+}

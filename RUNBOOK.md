@@ -145,3 +145,62 @@ Não é possível "retomar" uma execução falha. Cada execução é atômica. P
 2.  Inicie uma **nova execução** com os mesmos parâmetros. Um novo `runId` será gerado.
 
 ---
+
+
+## 7. Migração e Rollback do Banco de Dados
+
+### Arquivos de Migração
+
+O laboratório de backtest utiliza as seguintes tabelas no banco de dados:
+
+| Tabela | Descrição |
+| :--- | :--- |
+| `backtest_runs` | Armazena informações sobre cada execução de backtest/otimização |
+| `optimization_results` | Armazena os resultados de cada combinação de parâmetros testada |
+| `walk_forward_validations` | Armazena os resultados de cada janela de validação Walk-Forward |
+| `market_regimes` | Armazena os regimes de mercado detectados para cada símbolo |
+
+### Aplicar Migração
+
+Para criar as tabelas do laboratório, execute a migração:
+
+```bash
+# Via Drizzle CLI
+npx drizzle-kit push:mysql
+
+# Ou manualmente
+mysql -u <user> -p <database> < drizzle/0010_add_backtest_lab_tables.sql
+```
+
+### Executar Rollback
+
+**ATENÇÃO:** O rollback é destrutivo e irá remover TODOS os dados das tabelas do laboratório.
+
+```bash
+# 1. Faça backup do banco de dados
+mysqldump -u <user> -p <database> > backup_before_rollback.sql
+
+# 2. Execute em staging primeiro
+mysql -u <user> -p <staging_database> < drizzle/0010_rollback_backtest_lab_tables.sql
+
+# 3. Verifique se as tabelas foram removidas
+mysql -u <user> -p <staging_database> -e "SHOW TABLES LIKE 'backtest_%';"
+
+# 4. Se tudo estiver OK, execute em produção
+mysql -u <user> -p <production_database> < drizzle/0010_rollback_backtest_lab_tables.sql
+```
+
+### Verificação Pós-Rollback
+
+Execute as queries abaixo para confirmar que as tabelas foram removidas:
+
+```sql
+SHOW TABLES LIKE 'backtest_%';
+SHOW TABLES LIKE 'walk_forward_%';
+SHOW TABLES LIKE 'optimization_%';
+SHOW TABLES LIKE 'market_regimes';
+```
+
+Todas as queries acima devem retornar resultados vazios.
+
+---

@@ -27,6 +27,9 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
+// Componente do Laboratorio Institucional
+import { BacktestLabPage } from "@/components/backtest-lab";
+
 // UI Components
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -66,6 +69,7 @@ import {
   Shield,
   FlaskConical,
   Award,
+  Building2,
 } from "lucide-react";
 
 // ============================================================================
@@ -160,7 +164,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export default function Laboratory() {
   const { user, loading: authLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState<"single" | "optimize">("single");
+  const [activeTab, setActiveTab] = useState<"single" | "optimize" | "institutional">("single");
   
   // Single Backtest Form state
   const [singleFormData, setSingleFormData] = useState<SingleBacktestFormData>({
@@ -456,7 +460,7 @@ export default function Laboratory() {
         </div>
         
         {/* Main Tabs */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "single" | "optimize")}>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "single" | "optimize" | "institutional")}>
           <TabsList className="bg-slate-800">
             <TabsTrigger value="single" className="gap-2">
               <Play className="w-4 h-4" />
@@ -465,6 +469,10 @@ export default function Laboratory() {
             <TabsTrigger value="optimize" className="gap-2">
               <Zap className="w-4 h-4" />
               Otimização em Lotes
+            </TabsTrigger>
+            <TabsTrigger value="institutional" className="gap-2">
+              <Building2 className="w-4 h-4" />
+              Institucional Plus
             </TabsTrigger>
           </TabsList>
           
@@ -860,6 +868,13 @@ export default function Laboratory() {
                 )}
               </div>
             </div>
+          </TabsContent>
+          
+          {/* =============================================================== */}
+          {/* INSTITUTIONAL BACKTEST LAB TAB */}
+          {/* =============================================================== */}
+          <TabsContent value="institutional" className="mt-6">
+            <BacktestLabPage />
           </TabsContent>
         </Tabs>
       </div>
