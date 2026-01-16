@@ -141,7 +141,21 @@ export class LabLogger {
         ? ` (${state.suppressedCount} logs suprimidos)` 
         : "";
       
-      this[level](`${message}${suppressedInfo}`, context);
+      // Chamar o método correto baseado no nível
+      switch (level) {
+        case "debug":
+          this.debug(`${message}${suppressedInfo}`, context);
+          break;
+        case "info":
+          this.info(`${message}${suppressedInfo}`, context);
+          break;
+        case "warn":
+          this.warn(`${message}${suppressedInfo}`, context);
+          break;
+        case "error":
+          this.error(`${message}${suppressedInfo}`, undefined, context);
+          break;
+      }
       
       // Reset state
       this.throttleStates.set(key, { lastLogTime: now, suppressedCount: 0 });
