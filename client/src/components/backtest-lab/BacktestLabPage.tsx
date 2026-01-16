@@ -4,15 +4,17 @@
  * Esta página integra todos os componentes do laboratório:
  * - Seleção de símbolos e período
  * - Configuração de parâmetros para otimização
- * - Execução de Grid Search
- * - Validação Walk-Forward
+ * - Execução de Grid Search com validação Walk-Forward
+ * - Simulação Monte Carlo
+ * - Detecção de Regimes
+ * - Backtest Multi-Asset
  * - Visualização de resultados
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 2.0.0 - Integração completa Frontend-Backend
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,22 +35,23 @@ import {
   Target,
   Layers,
   RefreshCw,
+  Activity,
+  PieChart,
+  Shield,
+  Dice5,
 } from "lucide-react";
+
+// Hooks e componentes do laboratório
+import { useInstitutionalLab } from "./hooks/useInstitutionalLab";
+import { PipelineStatusCard } from "./components/PipelineStatusCard";
+import { ErrorDisplay } from "./components/ErrorDisplay";
+import { MonteCarloChart } from "./MonteCarloChart";
+import { RegimeAnalysisChart } from "./RegimeAnalysisChart";
+import { MultiAssetDashboard } from "./MultiAssetDashboard";
 
 // ============================================================================
 // TYPES
 // ============================================================================
-
-interface OptimizationProgress {
-  phase: string;
-  currentCombination: number;
-  totalCombinations: number;
-  percentComplete: number;
-  estimatedTimeRemaining: number;
-  elapsedTime: number;
-  currentSymbol?: string;
-  statusMessage: string;
-}
 
 interface OptimizationResult {
   combinationId: string;
@@ -77,178 +80,293 @@ interface OptimizationResult {
 }
 
 // ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const AVAILABLE_SYMBOLS = [
+  "XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD",
+  "USDCAD", "NZDUSD", "USDCHF", "EURJPY", "GBPJPY",
+];
+
+const STRATEGY_TYPES = ["SMC", "HYBRID", "RSI_VWAP"] as const;
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
 export function BacktestLabPage() {
-  // State
+  // Hook de integração com o backend
+  const lab = useInstitutionalLab();
+
+  // Estado da UI
   const [activeTab, setActiveTab] = useState("config");
-  const [isRunning, setIsRunning] = useState(false);
-  const [progress, setProgress] = useState<OptimizationProgress | null>(null);
-  const [results, setResults] = useState<OptimizationResult[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  
+  const [activePipeline, setActivePipeline] = useState<"optimization" | "walkforward" | "montecarlo" | "regime" | "multiasset">("optimization");
+
   // Configuration state
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(["XAUUSD"]);
   const [startDate, setStartDate] = useState("2024-01-01");
   const [endDate, setEndDate] = useState("2025-01-01");
-  const [strategyType, setStrategyType] = useState("SMC");
+  const [strategyType, setStrategyType] = useState<"SMC" | "HYBRID" | "RSI_VWAP">("SMC");
   const [validationEnabled, setValidationEnabled] = useState(true);
   const [inSampleRatio, setInSampleRatio] = useState(0.7);
   const [walkForwardEnabled, setWalkForwardEnabled] = useState(true);
   const [windowMonths, setWindowMonths] = useState(6);
   const [stepMonths, setStepMonths] = useState(1);
-  
-  // Available symbols
-  const availableSymbols = [
-    "XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD",
-    "USDCAD", "NZDUSD", "USDCHF", "EURJPY", "GBPJPY",
-  ];
-  
+  const [seed, setSeed] = useState<number | undefined>(undefined);
+
+  // Monte Carlo specific
+  const [mcSimulations, setMcSimulations] = useState(1000);
+  const [mcMethod, setMcMethod] = useState<"BLOCK_BOOTSTRAP" | "TRADE_RESAMPLING" | "RANDOMIZE_ORDER">("BLOCK_BOOTSTRAP");
+
+  // Multi-Asset specific
+  const [maxTotalPositions, setMaxTotalPositions] = useState(10);
+  const [maxPositionsPerSymbol, setMaxPositionsPerSymbol] = useState(3);
+  const [maxDailyDrawdown, setMaxDailyDrawdown] = useState(5);
+
   // =========================================================================
   // HANDLERS
   // =========================================================================
-  
-  const handleStartOptimization = async () => {
-    setIsRunning(true);
-    setError(null);
+
+  const handleStartOptimization = useCallback(async () => {
     setActiveTab("progress");
     
-    // TODO: Integrate with tRPC mutation
-    // For now, simulate progress
-    simulateProgress();
-  };
-  
-  const handleAbortOptimization = () => {
-    setIsRunning(false);
-    setProgress(null);
-    // TODO: Call abort mutation
-  };
-  
-  const simulateProgress = () => {
-    // Simulation for development
-    let current = 0;
-    const total = 100;
+    // Construir parâmetros default (simplificado para demo)
+    const defaultParameters = [
+      {
+        name: "swingH1Lookback",
+        label: "Swing H1 Lookback",
+        category: "STRUCTURE" as const,
+        type: "number" as const,
+        default: 50,
+        min: 30,
+        max: 100,
+        step: 10,
+        enabled: true,
+        locked: false,
+      },
+      {
+        name: "sweepBufferPips",
+        label: "Sweep Buffer (pips)",
+        category: "ENTRY" as const,
+        type: "number" as const,
+        default: 1.5,
+        min: 0.5,
+        max: 3.0,
+        step: 0.5,
+        enabled: true,
+        locked: false,
+      },
+    ];
+
+    await lab.startOptimization({
+      symbols: selectedSymbols,
+      startDate,
+      endDate,
+      strategyType,
+      parameters: defaultParameters,
+      validation: {
+        enabled: validationEnabled,
+        inSampleRatio,
+        walkForward: {
+          enabled: walkForwardEnabled,
+          windowMonths,
+          stepMonths,
+        },
+      },
+      objectives: [
+        { metric: "sharpeRatio", target: "MAXIMIZE", weight: 0.4 },
+        { metric: "profitFactor", target: "MAXIMIZE", weight: 0.3 },
+        { metric: "maxDrawdownPercent", target: "MINIMIZE", weight: 0.3 },
+      ],
+      seed,
+    });
+  }, [lab, selectedSymbols, startDate, endDate, strategyType, validationEnabled, inSampleRatio, walkForwardEnabled, windowMonths, stepMonths, seed]);
+
+  const handleStartWalkForward = useCallback(async () => {
+    setActiveTab("progress");
     
-    const interval = setInterval(() => {
-      current++;
-      setProgress({
-        phase: "TESTING",
-        currentCombination: current,
-        totalCombinations: total,
-        percentComplete: (current / total) * 100,
-        estimatedTimeRemaining: (total - current) * 2,
-        elapsedTime: current * 2,
-        currentSymbol: selectedSymbols[0],
-        statusMessage: `Testando combinação ${current}/${total}`,
-      });
-      
-      if (current >= total) {
-        clearInterval(interval);
-        setIsRunning(false);
-        setProgress(null);
-        setActiveTab("results");
-        
-        // Generate mock results
-        setResults(generateMockResults());
-      }
-    }, 100);
-  };
-  
-  const generateMockResults = (): OptimizationResult[] => {
-    return Array.from({ length: 10 }, (_, i) => ({
-      combinationId: `combo-${i + 1}`,
-      parameters: {
-        swingH1Lookback: 50 + i * 5,
-        sweepBufferPips: 1.0 + i * 0.2,
-        riskPercentage: 2.0,
-      },
-      robustnessScore: 85 - i * 5,
-      degradationPercent: 5 + i * 3,
-      isRecommended: i < 3,
-      rank: i + 1,
-      inSampleMetrics: {
-        netProfit: 5000 - i * 300,
-        totalTrades: 150 - i * 10,
-        winRate: 65 - i * 2,
-        sharpeRatio: 2.5 - i * 0.2,
-        maxDrawdownPercent: 8 + i * 1,
-        profitFactor: 2.2 - i * 0.1,
-      },
-      outSampleMetrics: {
-        netProfit: 3500 - i * 250,
-        totalTrades: 50 - i * 3,
-        winRate: 60 - i * 2,
-        sharpeRatio: 2.0 - i * 0.2,
-        maxDrawdownPercent: 10 + i * 1.5,
-        profitFactor: 1.8 - i * 0.1,
-      },
-      warnings: i > 5 ? ["Alta degradação out-of-sample"] : [],
-    }));
-  };
-  
+    await lab.runWalkForward({
+      symbol: selectedSymbols[0] || "XAUUSD",
+      parameters: { swingH1Lookback: 50, sweepBufferPips: 1.5 },
+      startDate,
+      endDate,
+      windowMonths,
+      stepMonths,
+      strategyType,
+    });
+  }, [lab, selectedSymbols, startDate, endDate, windowMonths, stepMonths, strategyType]);
+
+  const handleStartMonteCarlo = useCallback(async () => {
+    setActiveTab("progress");
+    
+    // Usar trades do resultado de otimização se disponível
+    const trades = (lab.optimization.result as any)?.topResults?.[0]?.trades || [];
+    
+    await lab.runMonteCarlo({
+      trades,
+      simulations: mcSimulations,
+      method: mcMethod,
+      seed,
+    });
+  }, [lab, mcSimulations, mcMethod, seed]);
+
+  const handleStartRegimeDetection = useCallback(async () => {
+    setActiveTab("progress");
+    
+    await lab.runRegimeDetection({
+      symbol: selectedSymbols[0] || "XAUUSD",
+      startDate,
+      endDate,
+    });
+  }, [lab, selectedSymbols, startDate, endDate]);
+
+  const handleStartMultiAsset = useCallback(async () => {
+    setActiveTab("progress");
+    
+    await lab.runMultiAsset({
+      symbols: selectedSymbols,
+      strategy: strategyType,
+      startDate,
+      endDate,
+      parameters: { swingH1Lookback: 50, sweepBufferPips: 1.5 },
+      maxTotalPositions,
+      maxPositionsPerSymbol,
+      maxDailyDrawdown,
+      seed,
+    });
+  }, [lab, selectedSymbols, strategyType, startDate, endDate, maxTotalPositions, maxPositionsPerSymbol, maxDailyDrawdown, seed]);
+
+  // =========================================================================
+  // DERIVED STATE
+  // =========================================================================
+
+  const isAnyRunning = 
+    lab.optimization.status === "RUNNING" ||
+    lab.walkForward.status === "RUNNING" ||
+    lab.monteCarlo.status === "RUNNING" ||
+    lab.regimeDetection.status === "RUNNING" ||
+    lab.multiAsset.status === "RUNNING";
+
+  const currentPipelineState = {
+    optimization: lab.optimization,
+    walkforward: lab.walkForward,
+    montecarlo: lab.monteCarlo,
+    regime: lab.regimeDetection,
+    multiasset: lab.multiAsset,
+  }[activePipeline];
+
   // =========================================================================
   // RENDER
   // =========================================================================
-  
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            Laboratório de Backtest
+            Laboratório de Backtest Institucional
           </h1>
           <p className="text-muted-foreground">
-            Otimização institucional com validação Walk-Forward
+            Otimização, validação e análise com padrão institucional
           </p>
         </div>
         
         <div className="flex items-center gap-2">
-          {isRunning ? (
-            <Button variant="destructive" onClick={handleAbortOptimization}>
-              <Square className="w-4 h-4 mr-2" />
-              Abortar
-            </Button>
-          ) : (
-            <Button onClick={handleStartOptimization} disabled={selectedSymbols.length === 0}>
-              <Play className="w-4 h-4 mr-2" />
-              Iniciar Otimização
-            </Button>
+          {seed !== undefined && (
+            <Badge variant="outline" className="mr-2">
+              Seed: {seed}
+            </Badge>
           )}
         </div>
       </div>
-      
-      {/* Error Alert */}
-      {error && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Erro</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+
+      {/* Pipeline Selector */}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant={activePipeline === "optimization" ? "default" : "outline"}
+          onClick={() => setActivePipeline("optimization")}
+          size="sm"
+        >
+          <Target className="w-4 h-4 mr-2" />
+          Otimização
+        </Button>
+        <Button
+          variant={activePipeline === "walkforward" ? "default" : "outline"}
+          onClick={() => setActivePipeline("walkforward")}
+          size="sm"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Walk-Forward
+        </Button>
+        <Button
+          variant={activePipeline === "montecarlo" ? "default" : "outline"}
+          onClick={() => setActivePipeline("montecarlo")}
+          size="sm"
+        >
+          <Dice5 className="w-4 h-4 mr-2" />
+          Monte Carlo
+        </Button>
+        <Button
+          variant={activePipeline === "regime" ? "default" : "outline"}
+          onClick={() => setActivePipeline("regime")}
+          size="sm"
+        >
+          <Activity className="w-4 h-4 mr-2" />
+          Regimes
+        </Button>
+        <Button
+          variant={activePipeline === "multiasset" ? "default" : "outline"}
+          onClick={() => setActivePipeline("multiasset")}
+          size="sm"
+        >
+          <Layers className="w-4 h-4 mr-2" />
+          Multi-Asset
+        </Button>
+      </div>
+
+      {/* Error Display */}
+      {currentPipelineState.error && (
+        <ErrorDisplay 
+          error={currentPipelineState.error}
+          onRetry={() => {
+            if (activePipeline === "optimization") handleStartOptimization();
+            else if (activePipeline === "walkforward") handleStartWalkForward();
+            else if (activePipeline === "montecarlo") handleStartMonteCarlo();
+            else if (activePipeline === "regime") handleStartRegimeDetection();
+            else if (activePipeline === "multiasset") handleStartMultiAsset();
+          }}
+          onDismiss={() => {
+            if (activePipeline === "optimization") lab.resetOptimization();
+            else if (activePipeline === "walkforward") lab.resetWalkForward();
+            else if (activePipeline === "montecarlo") lab.resetMonteCarlo();
+            else if (activePipeline === "regime") lab.resetRegimeDetection();
+            else if (activePipeline === "multiasset") lab.resetMultiAsset();
+          }}
+        />
       )}
-      
+
       {/* Main Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="config" disabled={isRunning}>
+          <TabsTrigger value="config" disabled={isAnyRunning}>
             <Settings className="w-4 h-4 mr-2" />
             Configuração
           </TabsTrigger>
-          <TabsTrigger value="parameters" disabled={isRunning}>
+          <TabsTrigger value="parameters" disabled={isAnyRunning}>
             <Layers className="w-4 h-4 mr-2" />
             Parâmetros
           </TabsTrigger>
           <TabsTrigger value="progress">
-            <RefreshCw className={`w-4 h-4 mr-2 ${isRunning ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-4 h-4 mr-2 ${isAnyRunning ? "animate-spin" : ""}`} />
             Progresso
           </TabsTrigger>
-          <TabsTrigger value="results" disabled={results.length === 0}>
+          <TabsTrigger value="results" disabled={!currentPipelineState.result}>
             <BarChart3 className="w-4 h-4 mr-2" />
             Resultados
           </TabsTrigger>
         </TabsList>
-        
+
         {/* Configuration Tab */}
         <TabsContent value="config" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -260,12 +378,12 @@ export function BacktestLabPage() {
                   Símbolos
                 </CardTitle>
                 <CardDescription>
-                  Selecione os símbolos para otimização
+                  Selecione os símbolos para análise
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
-                  {availableSymbols.map((symbol) => (
+                  {AVAILABLE_SYMBOLS.map((symbol) => (
                     <Badge
                       key={symbol}
                       variant={selectedSymbols.includes(symbol) ? "default" : "outline"}
@@ -284,7 +402,7 @@ export function BacktestLabPage() {
                 </div>
               </CardContent>
             </Card>
-            
+
             {/* Period Selection */}
             <Card>
               <CardHeader>
@@ -319,7 +437,7 @@ export function BacktestLabPage() {
                 </div>
               </CardContent>
             </Card>
-            
+
             {/* Validation Settings */}
             <Card>
               <CardHeader>
@@ -341,7 +459,7 @@ export function BacktestLabPage() {
                     className="w-4 h-4"
                   />
                 </div>
-                
+
                 {validationEnabled && (
                   <>
                     <div>
@@ -357,7 +475,7 @@ export function BacktestLabPage() {
                         className="w-full mt-1"
                       />
                     </div>
-                    
+
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">Walk-Forward</span>
                       <input
@@ -367,7 +485,7 @@ export function BacktestLabPage() {
                         className="w-4 h-4"
                       />
                     </div>
-                    
+
                     {walkForwardEnabled && (
                       <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -398,7 +516,7 @@ export function BacktestLabPage() {
                 )}
               </CardContent>
             </Card>
-            
+
             {/* Strategy Selection */}
             <Card>
               <CardHeader>
@@ -410,9 +528,9 @@ export function BacktestLabPage() {
                   Selecione a estratégia a otimizar
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
                 <div className="flex flex-wrap gap-2">
-                  {["SMC", "HYBRID", "RSI_VWAP"].map((strategy) => (
+                  {STRATEGY_TYPES.map((strategy) => (
                     <Badge
                       key={strategy}
                       variant={strategyType === strategy ? "default" : "outline"}
@@ -423,11 +541,129 @@ export function BacktestLabPage() {
                     </Badge>
                   ))}
                 </div>
+
+                {/* Seed for determinism */}
+                <div>
+                  <label className="text-sm font-medium">Seed (opcional, para reprodutibilidade)</label>
+                  <input
+                    type="number"
+                    value={seed || ""}
+                    onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : undefined)}
+                    placeholder="Deixe vazio para aleatório"
+                    className="w-full mt-1 px-3 py-2 border rounded-md"
+                  />
+                </div>
               </CardContent>
             </Card>
+
+            {/* Multi-Asset Settings (conditional) */}
+            {activePipeline === "multiasset" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="w-5 h-5" />
+                    Limites de Risco (Multi-Asset)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium">Max Posições Totais</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={maxTotalPositions}
+                      onChange={(e) => setMaxTotalPositions(parseInt(e.target.value))}
+                      className="w-full mt-1 px-3 py-2 border rounded-md"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Max Posições por Símbolo</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={maxPositionsPerSymbol}
+                      onChange={(e) => setMaxPositionsPerSymbol(parseInt(e.target.value))}
+                      className="w-full mt-1 px-3 py-2 border rounded-md"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Max Drawdown Diário (%)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={maxDailyDrawdown}
+                      onChange={(e) => setMaxDailyDrawdown(parseInt(e.target.value))}
+                      className="w-full mt-1 px-3 py-2 border rounded-md"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Monte Carlo Settings (conditional) */}
+            {activePipeline === "montecarlo" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Dice5 className="w-5 h-5" />
+                    Configurações Monte Carlo
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium">Número de Simulações</label>
+                    <input
+                      type="number"
+                      min="100"
+                      max="10000"
+                      step="100"
+                      value={mcSimulations}
+                      onChange={(e) => setMcSimulations(parseInt(e.target.value))}
+                      className="w-full mt-1 px-3 py-2 border rounded-md"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Método</label>
+                    <select
+                      value={mcMethod}
+                      onChange={(e) => setMcMethod(e.target.value as any)}
+                      className="w-full mt-1 px-3 py-2 border rounded-md"
+                    >
+                      <option value="BLOCK_BOOTSTRAP">Block Bootstrap</option>
+                      <option value="TRADE_RESAMPLING">Trade Resampling</option>
+                      <option value="RANDOMIZE_ORDER">Randomize Order</option>
+                    </select>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Start Button */}
+          <div className="flex justify-end">
+            <Button
+              size="lg"
+              onClick={() => {
+                if (activePipeline === "optimization") handleStartOptimization();
+                else if (activePipeline === "walkforward") handleStartWalkForward();
+                else if (activePipeline === "montecarlo") handleStartMonteCarlo();
+                else if (activePipeline === "regime") handleStartRegimeDetection();
+                else if (activePipeline === "multiasset") handleStartMultiAsset();
+              }}
+              disabled={isAnyRunning || selectedSymbols.length === 0}
+            >
+              <Play className="w-4 h-4 mr-2" />
+              Iniciar {activePipeline === "optimization" ? "Otimização" : 
+                       activePipeline === "walkforward" ? "Walk-Forward" :
+                       activePipeline === "montecarlo" ? "Monte Carlo" :
+                       activePipeline === "regime" ? "Detecção de Regimes" : "Multi-Asset"}
+            </Button>
           </div>
         </TabsContent>
-        
+
         {/* Parameters Tab */}
         <TabsContent value="parameters">
           <Card>
@@ -438,171 +674,95 @@ export function BacktestLabPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground">
-                Configuração de parâmetros será implementada na próxima fase.
-              </p>
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Em desenvolvimento</AlertTitle>
+                <AlertDescription>
+                  A configuração detalhada de parâmetros será implementada na próxima fase.
+                  Por enquanto, parâmetros default são utilizados.
+                </AlertDescription>
+              </Alert>
             </CardContent>
           </Card>
         </TabsContent>
-        
+
         {/* Progress Tab */}
         <TabsContent value="progress">
-          <Card>
-            <CardHeader>
-              <CardTitle>Progresso da Otimização</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {progress ? (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>{progress.statusMessage}</span>
-                      <span>{progress.percentComplete.toFixed(1)}%</span>
-                    </div>
-                    <Progress value={progress.percentComplete} />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="text-center p-4 bg-muted rounded-lg">
-                      <div className="text-2xl font-bold">{progress.currentCombination}</div>
-                      <div className="text-sm text-muted-foreground">Combinação Atual</div>
-                    </div>
-                    <div className="text-center p-4 bg-muted rounded-lg">
-                      <div className="text-2xl font-bold">{progress.totalCombinations}</div>
-                      <div className="text-sm text-muted-foreground">Total</div>
-                    </div>
-                    <div className="text-center p-4 bg-muted rounded-lg">
-                      <div className="text-2xl font-bold">{Math.round(progress.elapsedTime)}s</div>
-                      <div className="text-sm text-muted-foreground">Tempo Decorrido</div>
-                    </div>
-                    <div className="text-center p-4 bg-muted rounded-lg">
-                      <div className="text-2xl font-bold">{Math.round(progress.estimatedTimeRemaining)}s</div>
-                      <div className="text-sm text-muted-foreground">Tempo Restante</div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  {isRunning ? (
-                    <p>Iniciando otimização...</p>
-                  ) : (
-                    <p>Nenhuma otimização em execução</p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <PipelineStatusCard
+            title={
+              activePipeline === "optimization" ? "Otimização Institucional" :
+              activePipeline === "walkforward" ? "Validação Walk-Forward" :
+              activePipeline === "montecarlo" ? "Simulação Monte Carlo" :
+              activePipeline === "regime" ? "Detecção de Regimes" : "Backtest Multi-Asset"
+            }
+            description={`Pipeline: ${activePipeline}`}
+            state={currentPipelineState}
+            onAbort={() => {
+              if (activePipeline === "optimization") lab.abortOptimization();
+              else if (activePipeline === "multiasset") lab.abortMultiAsset();
+            }}
+            onReset={() => {
+              if (activePipeline === "optimization") lab.resetOptimization();
+              else if (activePipeline === "walkforward") lab.resetWalkForward();
+              else if (activePipeline === "montecarlo") lab.resetMonteCarlo();
+              else if (activePipeline === "regime") lab.resetRegimeDetection();
+              else if (activePipeline === "multiasset") lab.resetMultiAsset();
+            }}
+            icon={
+              activePipeline === "optimization" ? <Target className="w-5 h-5" /> :
+              activePipeline === "walkforward" ? <RefreshCw className="w-5 h-5" /> :
+              activePipeline === "montecarlo" ? <Dice5 className="w-5 h-5" /> :
+              activePipeline === "regime" ? <Activity className="w-5 h-5" /> :
+              <Layers className="w-5 h-5" />
+            }
+          />
         </TabsContent>
-        
+
         {/* Results Tab */}
         <TabsContent value="results">
-          <Card>
-            <CardHeader>
-              <CardTitle>Resultados da Otimização</CardTitle>
-              <CardDescription>
-                Top 10 melhores combinações de parâmetros
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {results.map((result) => (
-                  <div
-                    key={result.combinationId}
-                    className={`p-4 border rounded-lg ${
-                      result.isRecommended ? "border-green-500 bg-green-50 dark:bg-green-950" : ""
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <Badge variant={result.isRecommended ? "default" : "secondary"}>
-                          #{result.rank}
-                        </Badge>
-                        {result.isRecommended && (
-                          <Badge variant="outline" className="text-green-600">
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            Recomendado
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <div className="text-lg font-bold">
-                          Score: {result.robustnessScore.toFixed(1)}
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          Degradação: {result.degradationPercent.toFixed(1)}%
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <Separator className="my-2" />
-                    
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Lucro (IS):</span>
-                        <span className="ml-2 font-medium">
-                          ${result.inSampleMetrics.netProfit.toFixed(2)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Winrate (IS):</span>
-                        <span className="ml-2 font-medium">
-                          {result.inSampleMetrics.winRate.toFixed(1)}%
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Sharpe (IS):</span>
-                        <span className="ml-2 font-medium">
-                          {result.inSampleMetrics.sharpeRatio.toFixed(2)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">DD Max (IS):</span>
-                        <span className="ml-2 font-medium">
-                          {result.inSampleMetrics.maxDrawdownPercent.toFixed(1)}%
-                        </span>
-                      </div>
-                    </div>
-                    
-                    {result.outSampleMetrics && (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mt-2">
-                        <div>
-                          <span className="text-muted-foreground">Lucro (OS):</span>
-                          <span className="ml-2 font-medium">
-                            ${result.outSampleMetrics.netProfit.toFixed(2)}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Winrate (OS):</span>
-                          <span className="ml-2 font-medium">
-                            {result.outSampleMetrics.winRate.toFixed(1)}%
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Sharpe (OS):</span>
-                          <span className="ml-2 font-medium">
-                            {result.outSampleMetrics.sharpeRatio.toFixed(2)}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">DD Max (OS):</span>
-                          <span className="ml-2 font-medium">
-                            {result.outSampleMetrics.maxDrawdownPercent.toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {result.warnings.length > 0 && (
-                      <div className="mt-2 flex items-center gap-2 text-yellow-600">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span className="text-sm">{result.warnings.join(", ")}</span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          {activePipeline === "montecarlo" && lab.monteCarlo.result && (
+            <MonteCarloChart 
+              result={lab.monteCarlo.result as any} 
+              initialBalance={10000} 
+            />
+          )}
+
+          {activePipeline === "regime" && lab.regimeDetection.result && (
+            <RegimeAnalysisChart 
+              result={lab.regimeDetection.result as any} 
+            />
+          )}
+
+          {activePipeline === "multiasset" && lab.multiAsset.result && (
+            <MultiAssetDashboard 
+              result={lab.multiAsset.result as any} 
+              initialBalance={10000} 
+            />
+          )}
+
+          {(activePipeline === "optimization" || activePipeline === "walkforward") && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Resultados</CardTitle>
+                <CardDescription>
+                  {currentPipelineState.result 
+                    ? "Análise concluída com sucesso" 
+                    : "Aguardando resultados..."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {currentPipelineState.result ? (
+                  <pre className="p-4 bg-muted rounded-lg overflow-auto max-h-96 text-sm">
+                    {JSON.stringify(currentPipelineState.result, null, 2)}
+                  </pre>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8">
+                    Execute uma análise para ver os resultados aqui.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>
