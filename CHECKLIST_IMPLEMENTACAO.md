@@ -1,296 +1,260 @@
 # Checklist de Implementação - Laboratório de Backtest Institucional Plus
 
-## Status: ✅ Fase 1 Completa
+## Status: ✅ FASE 2 COMPLETA
 
 ---
 
-## 1. ESTRUTURA DE DIRETÓRIOS
+## Resumo de Progresso
 
-### Backend (server/backtest/)
-- [x] Criar `server/backtest/optimization/` ✅
-- [x] Criar `server/backtest/optimization/types/` ✅
-- [x] Criar `server/backtest/validation/` ✅
-- [x] Criar `server/backtest/validation/types/` ✅
-- [x] Criar `server/backtest/multi-asset/` ✅
-- [x] Criar `server/backtest/multi-asset/types/` ✅
-- [x] Criar `server/backtest/data-management/` ✅
+| Work Package | Status | Arquivos | Linhas |
+|-------------|--------|----------|--------|
+| WP1 - Isolamento e Determinismo | ✅ Completo | 2 | 1070 |
+| WP2 - Otimização Multi-Objetivo | ✅ Completo | 2 | ~900 |
+| WP3 - Walk-Forward Validation | ✅ Completo | 1 | ~500 |
+| WP4 - Monte Carlo Simulator | ✅ Completo | 1 | 479 |
+| WP5 - Regime Detector | ✅ Completo | 1 | 589 |
+| WP6 - Multi-Asset | ✅ Completo | 6 | 2620 |
+| WP0 - Rotas da API | ✅ Completo | 1 | 956 |
+| WP7 - Dashboard MVP | ✅ Completo | 3 | 1537 |
 
-### Frontend (client/src/components/)
-- [x] Criar `client/src/components/backtest-lab/` ✅
-- [x] Criar `client/src/components/backtest-lab/components/` ✅
-- [x] Criar `client/src/components/charts/` ✅
-
-### Database (drizzle/)
-- [x] Criar `drizzle/schema/` ✅
+**Total de Linhas de Código Adicionadas (Fase 2):** ~7.250+ linhas
 
 ---
 
-## 2. TIPOS E INTERFACES (optimization.types.ts)
+## FASE 1 - Estrutura Base (COMPLETA)
 
-- [x] Criar `ParameterDefinition` interface ✅
-- [x] Criar `ParameterCategory` enum ✅
-- [x] Criar `ParameterType` enum ✅
-- [x] Criar `ParameterCombination` interface ✅
-- [x] Criar `CombinationResult` interface ✅
-- [x] Criar `OptimizationConfig` interface ✅
-- [x] Criar `OptimizationObjective` interface ✅
-- [x] Criar `OptimizationProgress` interface ✅
-- [x] Criar `OptimizationFinalResult` interface ✅
-- [x] Criar `DEFAULT_SMC_PARAMETER_DEFINITIONS` ✅
+### 1. Estrutura de Diretórios
+- [x] `server/backtest/optimization/` - Criado
+- [x] `server/backtest/optimization/types/` - Criado
+- [x] `server/backtest/validation/` - Criado
+- [x] `server/backtest/validation/types/` - Criado
+- [x] `server/backtest/multi-asset/` - Criado
+- [x] `server/backtest/multi-asset/types/` - Criado
+- [x] `server/backtest/data-management/` - Criado
+- [x] `server/backtest/utils/` - Criado
+- [x] `drizzle/schema/` - Criado
+- [x] `client/src/components/backtest-lab/` - Criado
 
----
+### 2. Arquivos de Tipos (Fase 1)
+- [x] `optimization.types.ts` - Tipos para otimização institucional
+- [x] `validation.types.ts` - Tipos para validação Walk-Forward e Monte Carlo
+- [x] `multi-asset.types.ts` - Tipos para backtest multi-asset
 
-## 3. TIPOS E INTERFACES (validation.types.ts)
+### 3. Schemas de Banco de Dados
+- [x] `backtest-runs.ts` - Schema para execuções de backtest
+- [x] `optimization-results.ts` - Schema para resultados de otimização
+- [x] `walk-forward-validations.ts` - Schema para validações Walk-Forward
+- [x] `market-regimes.ts` - Schema para regimes de mercado
+- [x] `index.ts` - Exportação dos schemas
 
-- [x] Criar `WalkForwardConfig` interface ✅
-- [x] Criar `WalkForwardWindow` interface ✅
-- [x] Criar `WalkForwardResult` interface ✅
-- [x] Criar `WindowResult` interface ✅
-- [x] Criar `MonteCarloConfig` interface ✅
-- [x] Criar `MonteCarloSimulation` interface ✅
-- [x] Criar `MonteCarloResult` interface ✅
-- [x] Criar `MarketRegimeType` enum ✅
-- [x] Criar `RegimeDetectionConfig` interface ✅
-- [x] Criar `RegimePeriod` interface ✅
-- [x] Criar `RegimeDetectionResult` interface ✅
-- [x] Criar `ValidationProgress` interface ✅
-- [x] Criar `CombinedValidationResult` interface ✅
+### 4. Migração SQL
+- [x] `0010_add_backtest_lab_tables.sql` - Migração para novas tabelas
 
----
+### 5. Módulos Core (Fase 1)
+- [x] `GridSearchEngine.ts` - Motor de otimização Grid Search
+- [x] `WalkForwardValidator.ts` - Validador Walk-Forward
+- [x] `DataDownloader.ts` - Download automático de dados
+- [x] `DataCacheManager.ts` - Gerenciamento de cache
 
-## 4. TIPOS E INTERFACES (multi-asset.types.ts)
+### 6. Backend Router (Fase 1)
+- [x] Rotas placeholder adicionadas ao `backtestRouter.ts`
 
-- [x] Criar `MultiAssetConfig` interface ✅
-- [x] Criar `SymbolResult` interface ✅
-- [x] Criar `MultiAssetResult` interface ✅
-- [x] Criar `CorrelationAnalysis` interface ✅
-- [x] Criar `CorrelationMatrix` interface ✅
-- [x] Criar `CorrelationPair` interface ✅
-- [x] Criar `PortfolioMetrics` interface ✅
-- [x] Criar `SymbolWeight` interface ✅
-- [x] Criar `PeriodMetric` interface ✅
-- [x] Criar `MultiAssetProgress` interface ✅
-- [x] Criar `AllocationStrategy` enum ✅
-- [x] Criar `AllocationConfig` interface ✅
+### 7. Frontend (Fase 1)
+- [x] `BacktestLabPage.tsx` - Página principal do laboratório
 
 ---
 
-## 5. SCHEMA DO BANCO DE DADOS
+## FASE 2 - Implementação Completa (COMPLETA)
 
-### Tabela: backtest_runs
-- [x] Criar schema `backtest_runs` ✅
-- [x] Campos: id, userId, botId, runName, description, status ✅
-- [x] Campos: symbols, startDate, endDate, strategyType ✅
-- [x] Campos: parameterRanges, validationConfig ✅
-- [x] Campos: totalCombinationsTested, totalTradesExecuted, executionTimeSeconds ✅
-- [x] Campos: createdAt, completedAt, errorMessage ✅
+### WP1 - Blindar Isolamento e Determinismo (PRIORIDADE MÁXIMA)
+- [x] `IsolatedBacktestRunner.ts` - Runner isolado com estado independente (681 linhas)
+  - [x] Cópia profunda de dados antes de cada execução
+  - [x] Estado completamente isolado entre execuções
+  - [x] Método `runWithParameters()` para injeção de parâmetros
+  - [x] Seed para determinismo
+- [x] `SeededRNG.ts` - Gerador de números aleatórios seedado (389 linhas)
+  - [x] Algoritmo Mulberry32 para determinismo
+  - [x] Métodos: `random()`, `randomInt()`, `randomFloat()`, `shuffle()`, `choice()`
+  - [x] Função `seedFromTimestamp()` para geração de seeds
 
-### Tabela: optimization_results
-- [x] Criar schema `optimization_results` ✅
-- [x] Campos: id, backtestRunId, symbol, combinationHash ✅
-- [x] Campos: parameters, inSampleMetrics, outSampleMetrics ✅
-- [x] Campos: robustnessScore, degradationPercent ✅
-- [x] Campos: rank, isRecommended, tradesJson, equityCurveJson, warnings, createdAt ✅
+### WP2/WP3 - Otimização Multi-Objetivo e Walk-Forward
+- [x] `GridSearchEngine.ts` - Atualizado com split IS/OOS (já existente)
+- [x] `WalkForwardValidator.ts` - Validação temporal completa (já existente)
+  - [x] Geração de janelas de treino/teste
+  - [x] Cálculo de degradação
+  - [x] Score de estabilidade
 
-### Tabela: walk_forward_validations
-- [x] Criar schema `walk_forward_validations` ✅
-- [x] Campos: id, optimizationResultId, windowNumber ✅
-- [x] Campos: trainStartDate, trainEndDate, testStartDate, testEndDate ✅
-- [x] Campos: parameters, trainMetrics, testMetrics ✅
-- [x] Campos: degradation, stabilityScore, createdAt ✅
+### WP4 - Monte Carlo Simulator
+- [x] `MonteCarloSimulator.ts` - Simulação Monte Carlo completa (479 linhas)
+  - [x] Block Bootstrap com RNG seedado
+  - [x] Trade Resampling
+  - [x] Randomize Order
+  - [x] Cálculo de probabilidade de ruína
+  - [x] Intervalos de confiança (percentis 5%, 95%)
+  - [x] Estatísticas de equity final e drawdown
 
-### Tabela: market_regimes
-- [x] Criar schema `market_regimes` ✅
-- [x] Campos: id, symbol, startDate, endDate ✅
-- [x] Campos: regime, confidence ✅
-- [x] Campos: trendStrength, volatilityLevel, averageRange, durationDays, createdAt, updatedAt ✅
+### WP5 - Regime Detector
+- [x] `RegimeDetector.ts` - Detecção de regimes sem look-ahead (589 linhas)
+  - [x] Detecção de tendência (TRENDING_UP, TRENDING_DOWN)
+  - [x] Detecção de volatilidade (HIGH_VOLATILITY, LOW_VOLATILITY)
+  - [x] Detecção de ranging (RANGING)
+  - [x] Análise de performance por regime
+  - [x] Sem look-ahead bias (usa apenas dados passados)
 
-### Index e Exports
-- [x] Criar `drizzle/schema/index.ts` com exports ✅
+### WP6 - Multi-Asset com GlobalClock, Ledger e RiskGovernor
+- [x] `GlobalClock.ts` - Relógio global para sincronização (273 linhas)
+  - [x] Registro de símbolos
+  - [x] Sincronização temporal
+  - [x] Callbacks de tick
+- [x] `Ledger.ts` - Tracking de posições e equity (515 linhas)
+  - [x] Abertura/fechamento de posições
+  - [x] Cálculo de equity em tempo real
+  - [x] Snapshots de estado
+  - [x] Histórico de transações
+- [x] `RiskGovernor.ts` - Controle de limites globais (456 linhas)
+  - [x] Limite de posições totais
+  - [x] Limite de posições por símbolo
+  - [x] Limite de drawdown diário
+  - [x] Limite de exposição total
+  - [x] Validação de ordens
+  - [x] Registro de violações
+- [x] `CorrelationAnalyzer.ts` - Análise de correlação (412 linhas)
+  - [x] Matriz de correlação de Pearson
+  - [x] Classificação de força de correlação
+  - [x] Score de diversificação
+  - [x] Detecção de mudanças de correlação
+- [x] `PortfolioMetricsCalculator.ts` - Métricas de portfólio (523 linhas)
+  - [x] Sharpe, Sortino, Calmar Ratio
+  - [x] Information Ratio
+  - [x] Métricas por ativo
+  - [x] Contribuição de cada ativo
+  - [x] Ratio de diversificação
+- [x] `MultiAssetOrchestrator.ts` - Orquestrador principal (441 linhas)
+  - [x] Coordenação de todos os componentes
+  - [x] Execução de backtests por símbolo
+  - [x] Consolidação de resultados
+  - [x] Callbacks de progresso
 
----
+### WP0 - Operacionalizar Rotas da API
+- [x] `institutionalRouter.ts` - Router tRPC completo (956 linhas)
+  - [x] `startOptimization` - Otimização institucional
+  - [x] `getOptimizationStatus` - Status da otimização
+  - [x] `getOptimizationResults` - Resultados da otimização
+  - [x] `abortOptimization` - Abortar otimização
+  - [x] `runWalkForward` - Validação Walk-Forward
+  - [x] `getWalkForwardStatus` - Status Walk-Forward
+  - [x] `getWalkForwardResults` - Resultados Walk-Forward
+  - [x] `runMonteCarlo` - Simulação Monte Carlo
+  - [x] `getMonteCarloStatus` - Status Monte Carlo
+  - [x] `getMonteCarloResults` - Resultados Monte Carlo
+  - [x] `runRegimeDetection` - Detecção de regimes
+  - [x] `getRegimeDetectionStatus` - Status detecção
+  - [x] `getRegimeDetectionResults` - Resultados detecção
+  - [x] `runMultiAsset` - Backtest multi-asset
+  - [x] `getMultiAssetStatus` - Status multi-asset
+  - [x] `getMultiAssetResults` - Resultados multi-asset
+  - [x] `abortMultiAsset` - Abortar multi-asset
+  - [x] `runIsolatedBacktest` - Backtest isolado com seed
+- [x] Router registrado em `routers.ts`
 
-## 6. MÓDULOS BACKEND
-
-### DataDownloader.ts
-- [x] Criar classe `DataDownloader` ✅
-- [x] Implementar `downloadHistoricalData()` ✅
-- [x] Implementar `downloadFromDukascopy()` ✅
-- [x] Implementar `downloadFromFXCM()` ✅
-- [x] Implementar `validateData()` ✅
-- [x] Implementar rate limiting ✅
-- [x] Criar `DATA_SOURCES` config ✅
-
-### DataCacheManager.ts
-- [x] Criar classe `DataCacheManager` ✅
-- [x] Implementar `getOrDownload()` ✅
-- [x] Implementar `checkCache()` ✅
-- [x] Implementar `fileExists()` ✅
-- [x] Implementar `isCacheValid()` ✅
-- [x] Implementar `validateFileIntegrity()` ✅
-- [x] Implementar `getCachedFiles()` ✅
-- [x] Implementar `cleanExpiredCache()` ✅
-- [x] Implementar `clearAllCache()` ✅
-- [x] Implementar `getCacheStats()` ✅
-
-### data-management/index.ts
-- [x] Criar arquivo de exports ✅
-
-### GridSearchEngine.ts
-- [x] Criar classe `GridSearchEngine` ✅
-- [x] Implementar `generateCombinations()` ✅
-- [x] Implementar `run()` ✅
-- [x] Implementar `testCombination()` ✅
-- [x] Implementar `runBacktest()` ✅
-- [x] Implementar `calculateRobustnessScore()` ✅
-- [x] Implementar `calculateDegradation()` ✅
-- [x] Implementar `generateWarnings()` ✅
-- [x] Implementar `isRecommended()` ✅
-- [x] Implementar `rankResults()` ✅
-- [x] Implementar `abort()` ✅
-- [x] Implementar `setProgressCallback()` ✅
-- [x] Implementar funções auxiliares (generateRange, cartesianProduct, hashParameters, etc.) ✅
-- [x] Criar `WorkerPool` class ✅
-
-### optimization/index.ts
-- [x] Criar arquivo de exports ✅
-
-### WalkForwardValidator.ts
-- [x] Criar classe `WalkForwardValidator` ✅
-- [x] Implementar `validate()` ✅
-- [x] Implementar `createWindows()` ✅
-- [x] Implementar `processWindow()` ✅
-- [x] Implementar `processWindowWithProgress()` ✅
-- [x] Implementar `runBacktest()` ✅
-- [x] Implementar `calculateAggregatedMetrics()` ✅
-- [x] Implementar `isRobust()` ✅
-- [x] Implementar `calculateConfidence()` ✅
-- [x] Implementar `generateWarnings()` ✅
-- [x] Implementar `setProgressCallback()` ✅
-- [x] Implementar funções auxiliares (monthsBetween, addMonths, calculateMetricDegradation, etc.) ✅
-
-### validation/index.ts
-- [x] Criar arquivo de exports ✅
-
-### multi-asset/index.ts
-- [x] Criar arquivo de exports (tipos por enquanto) ✅
-
----
-
-## 7. MODIFICAÇÕES EM ARQUIVOS EXISTENTES
-
-### BacktestRunner.ts
-- [x] Adicionar propriedade `customParameters` ✅
-- [x] Adicionar método `injectCustomParameters()` ✅
-- [x] Adicionar método `runWithParameters()` ✅
-- [x] Adicionar método `getCustomParameters()` ✅
-- **NOTA:** SMCTradingEngine precisa expor `getStrategyConfig()` e `updateStrategyConfig()` para injeção completa
-
-### backtestRouter.ts
-- [x] Adicionar rota `getParameterDefinitions` ✅
-- [x] Adicionar rota `startInstitutionalOptimization` (placeholder) ✅
-- [x] Adicionar rota `getInstitutionalOptimizationStatus` (placeholder) ✅
-- [x] Adicionar rota `abortInstitutionalOptimization` (placeholder) ✅
-- [x] Adicionar rota `getInstitutionalOptimizationResults` (placeholder) ✅
-- [x] Adicionar rota `runWalkForwardValidation` (placeholder) ✅
-- [x] Adicionar rota `getWalkForwardResults` (placeholder) ✅
+### WP7 - Dashboard MVP Operacional
+- [x] `MonteCarloChart.tsx` - Visualização Monte Carlo (426 linhas)
+  - [x] Cards de resumo (equity, drawdown, ruína, IC)
+  - [x] Gráfico de distribuição de equity final
+  - [x] Curvas de equity simuladas
+  - [x] Tabela de estatísticas detalhadas
+  - [x] Alertas de risco
+- [x] `RegimeAnalysisChart.tsx` - Visualização de regimes (418 linhas)
+  - [x] Header com regime atual
+  - [x] Gráfico de pizza de distribuição
+  - [x] Barras de percentual por regime
+  - [x] Performance por regime
+  - [x] Timeline de regimes
+- [x] `MultiAssetDashboard.tsx` - Dashboard multi-asset (693 linhas)
+  - [x] Cards de métricas principais
+  - [x] Tabs: Equity, Ativos, Correlação, Risco, Métricas
+  - [x] Curva de equity do portfólio
+  - [x] Contribuição por ativo (pie chart)
+  - [x] Performance por ativo (bar chart)
+  - [x] Matriz de correlação visual
+  - [x] Análise de risco detalhada
+  - [x] Métricas completas do portfólio
+- [x] `index.ts` - Exportações atualizadas
 
 ---
 
-## 8. MIGRAÇÕES DE BANCO DE DADOS
+## Arquivos Modificados (Fase 2)
 
-- [x] Criar arquivo de migração `0010_add_backtest_lab_tables.sql` ✅
-- [ ] Testar migração localmente (pendente)
-- [ ] Executar migração em produção (pendente)
-
----
-
-## 9. FRONTEND
-
-### Componentes Base
-- [x] Criar `BacktestLabPage.tsx` - Página principal do laboratório ✅
-- [x] Criar `backtest-lab/index.ts` - Export dos componentes ✅
-
-### Componentes Pendentes (próxima fase)
-- [ ] `ParameterConfigPanel.tsx` - Painel de configuração de parâmetros
-- [ ] `OptimizationProgressCard.tsx` - Card de progresso
-- [ ] `ResultsTable.tsx` - Tabela de resultados
-- [ ] `WalkForwardChart.tsx` - Gráfico Walk-Forward
-- [ ] `MonteCarloChart.tsx` - Gráfico Monte Carlo
-- [ ] `EquityCurveChart.tsx` - Gráfico de curva de equity
+| Arquivo | Tipo | Descrição |
+|---------|------|-----------|
+| `server/routers.ts` | Modificado | Adicionado institutionalRouter |
+| `server/backtest/index.ts` | Modificado | Exportações atualizadas |
+| `server/backtest/validation/index.ts` | Modificado | Exportações atualizadas |
+| `server/backtest/multi-asset/index.ts` | Modificado | Exportações atualizadas |
+| `server/backtest/validation/types/validation.types.ts` | Modificado | Adicionados tipos |
+| `client/src/components/backtest-lab/index.ts` | Modificado | Exportações atualizadas |
 
 ---
 
-## 10. NOTAS IMPORTANTES
+## Arquivos Criados (Fase 2)
 
-- ⚠️ **NÃO ALTERAR:** BacktestAdapter.ts (existente)
-- ⚠️ **NÃO ALTERAR:** ITradingAdapter.ts (existente)
-- ⚠️ **NÃO ALTERAR:** SMCStrategy.ts (existente)
-- ✅ **MODIFICADO:** BacktestRunner.ts (apenas adicionados métodos, core preservado)
-- ✅ **MODIFICADO:** backtestRouter.ts (apenas adicionadas rotas, existentes preservadas)
+### Backend (12 arquivos, ~5.700 linhas)
+1. `server/backtest/runners/IsolatedBacktestRunner.ts` (681 linhas)
+2. `server/backtest/utils/SeededRNG.ts` (389 linhas)
+3. `server/backtest/utils/index.ts`
+4. `server/backtest/validation/MonteCarloSimulator.ts` (479 linhas)
+5. `server/backtest/validation/RegimeDetector.ts` (589 linhas)
+6. `server/backtest/multi-asset/GlobalClock.ts` (273 linhas)
+7. `server/backtest/multi-asset/Ledger.ts` (515 linhas)
+8. `server/backtest/multi-asset/RiskGovernor.ts` (456 linhas)
+9. `server/backtest/multi-asset/CorrelationAnalyzer.ts` (412 linhas)
+10. `server/backtest/multi-asset/PortfolioMetricsCalculator.ts` (523 linhas)
+11. `server/backtest/multi-asset/MultiAssetOrchestrator.ts` (441 linhas)
+12. `server/backtest/institutionalRouter.ts` (956 linhas)
 
----
-
-## 11. PROGRESSO
-
-| Módulo | Status | Data |
-|--------|--------|------|
-| Estrutura de Diretórios | ✅ Completo | 2026-01-15 |
-| optimization.types.ts | ✅ Completo | 2026-01-15 |
-| validation.types.ts | ✅ Completo | 2026-01-15 |
-| multi-asset.types.ts | ✅ Completo | 2026-01-15 |
-| Schema BD (Drizzle) | ✅ Completo | 2026-01-15 |
-| Migração SQL | ✅ Completo | 2026-01-15 |
-| DataDownloader.ts | ✅ Completo | 2026-01-15 |
-| DataCacheManager.ts | ✅ Completo | 2026-01-15 |
-| GridSearchEngine.ts | ✅ Completo | 2026-01-15 |
-| WalkForwardValidator.ts | ✅ Completo | 2026-01-15 |
-| BacktestRunner (modificações) | ✅ Completo | 2026-01-15 |
-| backtestRouter (novas rotas) | ✅ Completo | 2026-01-15 |
-| BacktestLabPage.tsx | ✅ Completo | 2026-01-15 |
+### Frontend (3 arquivos, ~1.537 linhas)
+1. `client/src/components/backtest-lab/MonteCarloChart.tsx` (426 linhas)
+2. `client/src/components/backtest-lab/RegimeAnalysisChart.tsx` (418 linhas)
+3. `client/src/components/backtest-lab/MultiAssetDashboard.tsx` (693 linhas)
 
 ---
 
-## 12. ARQUIVOS CRIADOS NESTA SESSÃO
+## Notas Técnicas
 
-1. `server/backtest/optimization/types/optimization.types.ts`
-2. `server/backtest/optimization/GridSearchEngine.ts`
-3. `server/backtest/optimization/index.ts`
-4. `server/backtest/validation/types/validation.types.ts`
-5. `server/backtest/validation/WalkForwardValidator.ts`
-6. `server/backtest/validation/index.ts`
-7. `server/backtest/multi-asset/types/multi-asset.types.ts`
-8. `server/backtest/multi-asset/index.ts`
-9. `server/backtest/data-management/DataDownloader.ts`
-10. `server/backtest/data-management/DataCacheManager.ts`
-11. `server/backtest/data-management/index.ts`
-12. `drizzle/schema/backtest-runs.ts`
-13. `drizzle/schema/optimization-results.ts`
-14. `drizzle/schema/walk-forward-validations.ts`
-15. `drizzle/schema/market-regimes.ts`
-16. `drizzle/schema/index.ts`
-17. `drizzle/0010_add_backtest_lab_tables.sql`
-18. `client/src/components/backtest-lab/BacktestLabPage.tsx`
-19. `client/src/components/backtest-lab/index.ts`
+### Determinismo
+- Todas as operações aleatórias usam `SeededRNG`
+- Seeds são propagados para garantir reprodutibilidade
+- Função `seedFromTimestamp()` para seeds únicos
 
-## 13. ARQUIVOS MODIFICADOS NESTA SESSÃO
+### Isolamento
+- `IsolatedBacktestRunner` cria cópias profundas dos dados
+- Estado completamente isolado entre execuções
+- Sem efeitos colaterais entre backtests
 
-1. `server/backtest/runners/BacktestRunner.ts` - Adicionados métodos para injeção de parâmetros
-2. `server/backtest/backtestRouter.ts` - Adicionadas rotas para otimização institucional
+### Performance
+- Backtests podem ser executados em paralelo
+- Cache de dados implementado
+- Progresso reportado via callbacks
 
 ---
 
-## 14. PENDENTE PARA PRÓXIMA FASE (conforme documento)
+## Próximos Passos (Pendentes para Fase 3)
 
-- [ ] Implementação completa das rotas de otimização institucional
-- [ ] MonteCarloSimulator.ts
-- [ ] RegimeDetector.ts
-- [ ] MultiAssetOrchestrator.ts
-- [ ] CorrelationAnalyzer.ts
-- [ ] PortfolioMetricsCalculator.ts
-- [ ] Componentes de gráficos (EquityCurve, WalkForward, MonteCarlo)
-- [ ] Integração completa frontend-backend
-- [ ] Testes unitários e de integração
+### Integração Frontend-Backend
+- [ ] Conectar BacktestLabPage com tRPC mutations
+- [ ] Implementar polling de status em tempo real
+- [ ] Adicionar WebSocket para progresso em tempo real
+
+### Testes
+- [ ] Testes unitários para SeededRNG
+- [ ] Testes unitários para MonteCarloSimulator
+- [ ] Testes unitários para RegimeDetector
+- [ ] Testes de integração para MultiAssetOrchestrator
+
+### Documentação
+- [ ] JSDoc completo para todas as funções públicas
+- [ ] README do módulo de backtest
+- [ ] Guia de uso do laboratório
 
 ---
 

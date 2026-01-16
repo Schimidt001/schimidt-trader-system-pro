@@ -13,6 +13,22 @@ export {
   createWalkForwardValidator,
 } from "./WalkForwardValidator";
 
+// MonteCarloSimulator
+export {
+  MonteCarloSimulator,
+  createMonteCarloSimulator,
+  DEFAULT_MONTE_CARLO_CONFIG,
+} from "./MonteCarloSimulator";
+
+// RegimeDetector
+export {
+  RegimeDetector,
+  createRegimeDetector,
+  DEFAULT_REGIME_DETECTION_CONFIG,
+  type TradeWithRegime,
+  type RegimePerformance,
+} from "./RegimeDetector";
+
 // Types
 export {
   type WalkForwardConfig,
@@ -22,6 +38,7 @@ export {
   type MonteCarloConfig,
   type MonteCarloSimulation,
   type MonteCarloResult,
+  type ConfidenceInterval,
   MarketRegimeType,
   type RegimeDetectionConfig,
   type RegimePeriod,

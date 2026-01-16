@@ -261,44 +261,48 @@ export interface MonteCarloResult {
 /**
  * Tipos de regime de mercado
  */
+/**
+ * Intervalo de confiança
+ */
+export interface ConfidenceInterval {
+  lower: number;
+  upper: number;
+  mean: number;
+  median: number;
+}
+
 export enum MarketRegimeType {
   BULL = "BULL",           // Tendência de alta
   BEAR = "BEAR",           // Tendência de baixa
   SIDEWAYS = "SIDEWAYS",   // Mercado lateral
   HIGH_VOL = "HIGH_VOL",   // Alta volatilidade
   LOW_VOL = "LOW_VOL",     // Baixa volatilidade
+  TRENDING_UP = "TRENDING_UP",     // Tendência de alta (alias)
+  TRENDING_DOWN = "TRENDING_DOWN", // Tendência de baixa (alias)
+  RANGING = "RANGING",             // Mercado lateral (alias)
+  HIGH_VOLATILITY = "HIGH_VOLATILITY", // Alta volatilidade (alias)
+  LOW_VOLATILITY = "LOW_VOLATILITY",   // Baixa volatilidade (alias)
+  UNKNOWN = "UNKNOWN",             // Regime desconhecido
 }
 
 /**
  * Configuração para detecção de regime
  */
 export interface RegimeDetectionConfig {
-  /** Símbolo a analisar */
-  symbol: string;
+  /** Período de lookback para cálculos */
+  lookbackPeriod: number;
   
-  /** Data de início */
-  startDate: Date;
-  
-  /** Data de fim */
-  endDate: Date;
-  
-  /** Timeframe para análise */
-  timeframe: string;
-  
-  /** Período para cálculo de tendência */
-  trendPeriod: number;
-  
-  /** Período para cálculo de volatilidade (ATR) */
-  volatilityPeriod: number;
+  /** Threshold para classificar como alta volatilidade */
+  volatilityThreshold: number;
   
   /** Threshold para classificar como tendência */
   trendThreshold: number;
   
-  /** Threshold para classificar como alta volatilidade */
-  highVolThreshold: number;
+  /** Threshold para classificar como ranging */
+  rangeThreshold: number;
   
-  /** Threshold para classificar como baixa volatilidade */
-  lowVolThreshold: number;
+  /** Duração mínima de um regime */
+  minRegimeDuration: number;
 }
 
 /**
@@ -314,20 +318,16 @@ export interface RegimePeriod {
   /** Data de fim do regime */
   endDate: Date;
   
-  /** Duração em dias */
-  durationDays: number;
-  
   /** Confiança na classificação (0-100) */
   confidence: number;
   
-  /** Força da tendência (se aplicável) */
-  trendStrength?: number;
-  
-  /** Nível de volatilidade (se aplicável) */
-  volatilityLevel?: number;
-  
-  /** Range médio do período */
-  averageRange?: number;
+  /** Métricas do período */
+  metrics: {
+    avgVolatility: number;
+    trendStrength: number;
+    avgRange: number;
+    duration: number;
+  };
 }
 
 /**

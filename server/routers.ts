@@ -31,6 +31,7 @@ import { predictionService } from "./prediction/predictionService";
 import { engineManager } from "./prediction/engineManager";
 import { icmarketsRouter } from "./icmarkets/icmarketsRouter";
 import { backtestRouter } from "./backtest/backtestRouter";
+import { institutionalRouter } from "./backtest/institutionalRouter";
 
 export const appRouter = router({
   // Rota para predição manual (diagnóstico)
@@ -1375,6 +1376,9 @@ export const appRouter = router({
 
   // Backtest Router
   backtest: backtestRouter,
+
+  // Institutional Backtest Lab Router
+  institutional: institutionalRouter,
 });
 
 export type AppRouter = typeof appRouter;
