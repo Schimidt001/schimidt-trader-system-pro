@@ -261,6 +261,10 @@ export const institutionalRouter = router({
 
   /**
    * Get available datasets (symbols and timeframes with historical data)
+   * 
+   * Suporta dois formatos de arquivo:
+   * 1. Formato HistoricalDataFile: { symbol, timeframe, bars: [...], totalBars, startDate, endDate }
+   * 2. Formato Array simples: [{ timestamp, open, high, low, close, volume }, ...]
    */
   getAvailableDatasets: protectedProcedure
     .query(() => {
@@ -292,15 +296,29 @@ export const institutionalRouter = router({
             try {
               const stats = fs.statSync(filePath);
               const content = fs.readFileSync(filePath, "utf-8");
-              const candles = JSON.parse(content);
+              const data = JSON.parse(content);
               
-              if (Array.isArray(candles) && candles.length > 0) {
+              // Formato 1: HistoricalDataFile (MarketDataCollector)
+              // { symbol, timeframe, bars: [...], totalBars, startDate, endDate, metadata }
+              if (data && typeof data === 'object' && !Array.isArray(data) && data.bars && Array.isArray(data.bars)) {
+                datasets.push({
+                  symbol: data.symbol || symbol,
+                  timeframe: data.timeframe || timeframe,
+                  recordCount: data.totalBars || data.bars.length,
+                  startDate: data.startDate || new Date(data.bars[0]?.timestamp).toISOString(),
+                  endDate: data.endDate || new Date(data.bars[data.bars.length - 1]?.timestamp).toISOString(),
+                  lastUpdated: stats.mtime.toISOString(),
+                });
+              }
+              // Formato 2: Array simples de candles
+              // [{ timestamp, open, high, low, close, volume }, ...]
+              else if (Array.isArray(data) && data.length > 0) {
                 datasets.push({
                   symbol,
                   timeframe,
-                  recordCount: candles.length,
-                  startDate: new Date(candles[0].timestamp).toISOString(),
-                  endDate: new Date(candles[candles.length - 1].timestamp).toISOString(),
+                  recordCount: data.length,
+                  startDate: new Date(data[0].timestamp).toISOString(),
+                  endDate: new Date(data[data.length - 1].timestamp).toISOString(),
                   lastUpdated: stats.mtime.toISOString(),
                 });
               }
