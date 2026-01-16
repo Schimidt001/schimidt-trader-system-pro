@@ -83,6 +83,12 @@ const AVAILABLE_SYMBOLS = [
   { value: "EURUSD", label: "EURUSD" },
   { value: "GBPUSD", label: "GBPUSD" },
   { value: "USDJPY", label: "USDJPY" },
+  { value: "AUDUSD", label: "AUDUSD" },
+  { value: "USDCAD", label: "USDCAD" },
+  { value: "NZDUSD", label: "NZDUSD" },
+  { value: "USDCHF", label: "USDCHF" },
+  { value: "EURJPY", label: "EURJPY" },
+  { value: "GBPJPY", label: "GBPJPY" },
 ];
 
 // ============================================================================
