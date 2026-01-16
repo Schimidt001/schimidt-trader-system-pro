@@ -135,17 +135,31 @@ export function DataDownloadManager() {
       const isComplete = hasM5 && hasM15 && hasH1;
       
       // Check date range alignment
+      // Considera alinhado se houver overlap significativo entre os timeframes
+      // Tolerância: diferença de até 7 dias nas datas de início/fim é aceitável
       let dateRangeAligned = false;
       if (isComplete && m5 && m15 && h1) {
         const startDates = [new Date(m5.startDate), new Date(m15.startDate), new Date(h1.startDate)];
         const endDates = [new Date(m5.endDate), new Date(m15.endDate), new Date(h1.endDate)];
         
         const maxStart = new Date(Math.max(...startDates.map(d => d.getTime())));
+        const minStart = new Date(Math.min(...startDates.map(d => d.getTime())));
+        const maxEnd = new Date(Math.max(...endDates.map(d => d.getTime())));
         const minEnd = new Date(Math.min(...endDates.map(d => d.getTime())));
         
-        // Consider aligned if overlap is at least 80% of the smallest range
+        // Diferença entre datas de início e fim (em dias)
+        const startDiffDays = (maxStart.getTime() - minStart.getTime()) / (1000 * 60 * 60 * 24);
+        const endDiffDays = (maxEnd.getTime() - minEnd.getTime()) / (1000 * 60 * 60 * 24);
+        
+        // Overlap entre os períodos
         const overlapDays = (minEnd.getTime() - maxStart.getTime()) / (1000 * 60 * 60 * 24);
-        dateRangeAligned = overlapDays > 30; // At least 30 days overlap
+        
+        // Considera alinhado se:
+        // 1. Houver pelo menos 7 dias de overlap E
+        // 2. A diferença entre datas de início for menor que 7 dias E
+        // 3. A diferença entre datas de fim for menor que 7 dias
+        // OU se houver mais de 30 dias de overlap (dados suficientes para backtest)
+        dateRangeAligned = (overlapDays >= 7 && startDiffDays <= 7 && endDiffDays <= 7) || overlapDays >= 30;
       }
       
       return {
@@ -306,7 +320,7 @@ export function DataDownloadManager() {
                         </TooltipTrigger>
                         <TooltipContent>
                           {status.m5Info 
-                            ? `${formatNumber(status.m5Info.recordCount)} candles`
+                            ? `${formatNumber(status.m5Info.recordCount)} candles\n${formatDate(status.m5Info.startDate)} - ${formatDate(status.m5Info.endDate)}`
                             : "Sem dados"}
                         </TooltipContent>
                       </Tooltip>
@@ -324,7 +338,7 @@ export function DataDownloadManager() {
                         </TooltipTrigger>
                         <TooltipContent>
                           {status.m15Info 
-                            ? `${formatNumber(status.m15Info.recordCount)} candles`
+                            ? `${formatNumber(status.m15Info.recordCount)} candles\n${formatDate(status.m15Info.startDate)} - ${formatDate(status.m15Info.endDate)}`
                             : "Sem dados"}
                         </TooltipContent>
                       </Tooltip>
@@ -342,7 +356,7 @@ export function DataDownloadManager() {
                         </TooltipTrigger>
                         <TooltipContent>
                           {status.h1Info 
-                            ? `${formatNumber(status.h1Info.recordCount)} candles`
+                            ? `${formatNumber(status.h1Info.recordCount)} candles\n${formatDate(status.h1Info.startDate)} - ${formatDate(status.h1Info.endDate)}`
                             : "Sem dados"}
                         </TooltipContent>
                       </Tooltip>
@@ -351,15 +365,39 @@ export function DataDownloadManager() {
                   <TableCell className="text-center">
                     {status.isComplete ? (
                       status.dateRangeAligned ? (
-                        <Badge variant="default" className="bg-green-600">
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          Completo
-                        </Badge>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <Badge variant="default" className="bg-green-600 cursor-help">
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                                Completo
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Todos os timeframes estão alinhados e prontos para backtest
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       ) : (
-                        <Badge variant="default" className="bg-amber-600">
-                          <AlertTriangle className="w-3 h-3 mr-1" />
-                          Desalinhado
-                        </Badge>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <Badge variant="default" className="bg-amber-600 cursor-help">
+                                <AlertTriangle className="w-3 h-3 mr-1" />
+                                Desalinhado
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              <div className="space-y-1">
+                                <p className="font-medium">Períodos diferentes entre timeframes:</p>
+                                {status.m5Info && <p>M5: {formatDate(status.m5Info.startDate)} - {formatDate(status.m5Info.endDate)}</p>}
+                                {status.m15Info && <p>M15: {formatDate(status.m15Info.startDate)} - {formatDate(status.m15Info.endDate)}</p>}
+                                {status.h1Info && <p>H1: {formatDate(status.h1Info.startDate)} - {formatDate(status.h1Info.endDate)}</p>}
+                                <p className="text-xs text-amber-300 mt-2">Baixe novamente para sincronizar os períodos</p>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       )
                     ) : (
                       <Badge variant="destructive">
