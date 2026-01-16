@@ -38,6 +38,7 @@ import { SMCTradingEngine, SMCTradingEngineConfig } from "../../adapters/ctrader
 import { StrategyType } from "../../adapters/ctrader/ITradingStrategy";
 import { ITradingAdapter } from "../adapters/ITradingAdapter";
 import { CandleData, PriceTick } from "../../adapters/IBrokerAdapter";
+import { backtestLogger } from "../utils/LabLogger";
 
 // ============================================================================
 // BACKTEST RUNNER CLASS
@@ -64,14 +65,10 @@ export class BacktestRunner {
   async run(): Promise<BacktestResult> {
     const startTime = Date.now();
     
-    console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[BacktestRunner] 🚀 INICIANDO BACKTEST COM SINCRONIZAÇÃO MTF");
-    console.log(`[BacktestRunner] Símbolo: ${this.config.symbol}`);
-    console.log(`[BacktestRunner] Estratégia: ${this.config.strategy}`);
-    console.log(`[BacktestRunner] Período: ${this.config.startDate.toISOString()} - ${this.config.endDate.toISOString()}`);
-    console.log(`[BacktestRunner] Saldo Inicial: $${this.config.initialBalance}`);
-    console.log(`[BacktestRunner] Timeframes: ${this.config.timeframes.join(", ")}`);
-    console.log("═══════════════════════════════════════════════════════════════");
+    backtestLogger.startOperation("Backtest MTF", {
+      simbolo: this.config.symbol,
+      estrategia: this.config.strategy,
+    });
     
     // 1. Create BacktestAdapter (Mock da corretora)
     this.adapter = new BacktestAdapter(this.config);
@@ -91,11 +88,7 @@ export class BacktestRunner {
     }
     
     // Log MTF data availability
-    console.log(`[BacktestRunner] ✅ Dados carregados:`);
-    for (const tf of this.config.timeframes) {
-      const bars = this.adapter.getTotalBars(this.config.symbol, tf);
-      console.log(`[BacktestRunner]    ${tf}: ${bars} velas`);
-    }
+    backtestLogger.info(`Dados carregados para ${this.config.timeframes.length} timeframes`, "BacktestRunner");
     
     // 3. Determine strategy type
     const strategyType = this.mapStrategyType(this.config.strategy);
@@ -119,11 +112,11 @@ export class BacktestRunner {
       this.adapter as unknown as ITradingAdapter
     );
     
-    console.log("[BacktestRunner] ✅ SMCTradingEngine instanciado com BacktestAdapter");
+    backtestLogger.debug("SMCTradingEngine instanciado", "BacktestRunner");
     
     // 6. Inicializar engine para backtest (sem loops de produção)
     await this.engine.initializeForBacktest();
-    console.log("[BacktestRunner] ✅ Engine inicializado para backtest");
+    backtestLogger.debug("Engine inicializado", "BacktestRunner");
     
     // 7. Run simulation with strategy integration
     const { trades, equityCurve, drawdownCurve } = await this.runSimulationWithStrategy();
@@ -133,26 +126,16 @@ export class BacktestRunner {
     
     const executionTime = Date.now() - startTime;
     
-    console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[BacktestRunner] ✅ BACKTEST CONCLUÍDO");
-    console.log(`[BacktestRunner] Tempo de execução: ${(executionTime / 1000).toFixed(2)}s`);
-    console.log(`[BacktestRunner] Total de trades: ${metrics.totalTrades}`);
-    console.log(`[BacktestRunner] Lucro Líquido: $${metrics.netProfit.toFixed(2)}`);
-    console.log(`[BacktestRunner] Winrate: ${metrics.winRate.toFixed(2)}%`);
-    console.log(`[BacktestRunner] Drawdown Máximo: ${metrics.maxDrawdownPercent.toFixed(2)}%`);
-    console.log(`[BacktestRunner] Profit Factor: ${metrics.profitFactor.toFixed(2)}`);
-    console.log("═══════════════════════════════════════════════════════════════");
+    backtestLogger.endOperation("Backtest MTF", true, {
+      tempo: `${(executionTime / 1000).toFixed(2)}s`,
+      trades: metrics.totalTrades,
+      lucro: `$${metrics.netProfit.toFixed(2)}`,
+      winrate: `${metrics.winRate.toFixed(2)}%`,
+    });
     
     // Validação de sanidade: alertar se 0 trades
     if (metrics.totalTrades === 0) {
-      console.warn("═══════════════════════════════════════════════════════════════");
-      console.warn("[BacktestRunner] ⚠️ ALERTA: 0 TRADES EXECUTADOS!");
-      console.warn("[BacktestRunner] Possíveis causas:");
-      console.warn("[BacktestRunner]   1. Dados insuficientes para análise");
-      console.warn("[BacktestRunner]   2. Filtros de sessão muito restritivos");
-      console.warn("[BacktestRunner]   3. Spread máximo muito baixo");
-      console.warn("[BacktestRunner]   4. Estratégia não encontrou sinais válidos");
-      console.warn("═══════════════════════════════════════════════════════════════");
+      backtestLogger.warn("0 trades executados - verificar dados e filtros", "BacktestRunner");
     }
     
     return {
@@ -192,12 +175,11 @@ export class BacktestRunner {
     const primaryTimeframe = this.config.timeframes[0] || "M5";
     const totalBars = this.adapter.getTotalBars(symbol, primaryTimeframe);
     
-    console.log(`[BacktestRunner] Iniciando simulação com ${totalBars} velas...`);
-    console.log(`[BacktestRunner] Timeframe primário: ${primaryTimeframe}`);
+    backtestLogger.info(`Simulação: ${totalBars} velas, TF: ${primaryTimeframe}`, "BacktestRunner");
     
     // Warmup period - avançar velas sem trading para popular indicadores
     const warmupBars = Math.min(200, Math.floor(totalBars * 0.1));
-    console.log(`[BacktestRunner] Período de warmup: ${warmupBars} velas`);
+    backtestLogger.debug(`Warmup: ${warmupBars} velas`, "BacktestRunner");
     
     for (let i = 0; i < warmupBars; i++) {
       if (!this.adapter.advanceBar(symbol, primaryTimeframe)) break;
@@ -206,7 +188,7 @@ export class BacktestRunner {
     // Log de validação MTF após warmup
     await this.logMTFSyncValidation(symbol, "Após Warmup");
     
-    console.log(`[BacktestRunner] ✅ Warmup completo. Iniciando trading...`);
+    backtestLogger.debug("Warmup completo", "BacktestRunner");
     
     // Main simulation loop
     let barCount = 0;
@@ -228,17 +210,8 @@ export class BacktestRunner {
       // (Em produção, isso é feito via eventos, aqui fazemos manualmente)
       await this.triggerStrategyAnalysis(symbol, mtfData);
       
-      // Log progress every 1000 bars
-      if (barCount % 1000 === 0) {
-        const elapsed = (Date.now() - startTime) / 1000;
-        const trades = this.adapter.getClosedTrades().length;
-        console.log(`[BacktestRunner] Processadas ${barCount} velas em ${elapsed.toFixed(1)}s | Trades: ${trades}`);
-        
-        // Log de validação MTF periódico (a cada 5000 barras)
-        if (barCount % 5000 === 0) {
-          await this.logMTFSyncValidation(symbol, `Barra ${barCount}`);
-        }
-      }
+      // Log de progresso usando throttling
+      backtestLogger.progress(barCount, totalBars, "Processando velas", "BacktestRunner");
     }
     
     // Close any remaining positions
@@ -251,7 +224,7 @@ export class BacktestRunner {
     const totalTime = (Date.now() - startTime) / 1000;
     const closedTrades = this.adapter.getClosedTrades();
     
-    console.log(`[BacktestRunner] ✅ Simulação concluída: ${barCount} velas, ${closedTrades.length} trades em ${totalTime.toFixed(2)}s`);
+    backtestLogger.info(`Simulação concluída: ${barCount} velas, ${closedTrades.length} trades`, "BacktestRunner");
     
     return {
       trades: closedTrades,
@@ -272,8 +245,7 @@ export class BacktestRunner {
     const currentTimestamp = this.adapter.getCurrentSimulatedTimestamp();
     const currentDate = new Date(currentTimestamp);
     
-    console.log(`[BacktestRunner] 📊 Validação MTF (${context}):`);
-    console.log(`[BacktestRunner]    Timestamp Simulado: ${currentDate.toISOString()}`);
+    backtestLogger.debug(`Validação MTF (${context}): ${currentDate.toISOString()}`, "BacktestRunner");
     
     for (const tf of this.config.timeframes) {
       const candles = await this.adapter.getCandleHistory(symbol, tf, 1);
@@ -287,9 +259,9 @@ export class BacktestRunner {
         const isValid = lastCandle.timestamp <= currentTimestamp;
         const status = isValid ? "✅" : "❌ LOOK-AHEAD BIAS!";
         
-        console.log(`[BacktestRunner]    ${tf}: ${candleDate.toISOString()} (${diffMinutes}min atrás) ${status}`);
+        if (!isValid) backtestLogger.warn(`${tf}: Look-ahead bias detectado!`, "BacktestRunner");
       } else {
-        console.log(`[BacktestRunner]    ${tf}: Sem dados`);
+        backtestLogger.debug(`${tf}: Sem dados`, "BacktestRunner");
       }
     }
   }
@@ -677,7 +649,7 @@ export class BacktestRunner {
    */
   private injectCustomParameters(parameters: Record<string, number | string | boolean>): void {
     if (!this.engine) {
-      console.warn("[BacktestRunner] Engine não inicializado, parâmetros serão aplicados após inicialização");
+      backtestLogger.warn("Engine não inicializado, parâmetros serão aplicados após inicialização", "BacktestRunner");
       this.customParameters = parameters;
       return;
     }
@@ -697,11 +669,11 @@ export class BacktestRunner {
       // Atualizar configuração da estratégia
       (this.engine as any).updateStrategyConfig(mergedConfig);
       
-      console.log(`[BacktestRunner] ✅ Parâmetros customizados injetados: ${Object.keys(parameters).length} parâmetros`);
+      backtestLogger.debug(`Parâmetros injetados: ${Object.keys(parameters).length}`, "BacktestRunner");
     } else {
       // Fallback: armazenar para uso posterior
       this.customParameters = parameters;
-      console.log(`[BacktestRunner] ⚠️ Engine não suporta updateStrategyConfig, parâmetros armazenados para uso alternativo`);
+      backtestLogger.debug("Engine não suporta updateStrategyConfig", "BacktestRunner");
     }
   }
   

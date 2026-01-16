@@ -26,6 +26,9 @@ import { RegimeDetector, createRegimeDetector, DEFAULT_REGIME_DETECTION_CONFIG }
 import { MultiAssetOrchestrator, createMultiAssetOrchestrator } from "./multi-asset/MultiAssetOrchestrator";
 import { IsolatedBacktestRunner, createIsolatedRunner } from "./runners/IsolatedBacktestRunner";
 import { createSeededRNG, seedFromTimestamp } from "./utils/SeededRNG";
+import { labLogger, optimizationLogger, validationLogger } from "./utils/LabLogger";
+import { handleLabError, createDataNotFoundError, sanitizeResponse, withErrorHandling } from "./utils/LabErrors";
+import { labGuard } from "./utils/LabGuard";
 
 // Importar tipos
 import { BacktestStrategyType, BacktestTrade } from "./types/backtest.types";
@@ -323,7 +326,7 @@ export const institutionalRouter = router({
                 });
               }
             } catch (error) {
-              console.error(`Erro ao ler arquivo ${file}:`, error);
+              labLogger.error(`Erro ao ler arquivo ${file}`, error as Error, "DataLoader");
             }
           }
         }

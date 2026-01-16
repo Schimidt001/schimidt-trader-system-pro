@@ -12,6 +12,8 @@
  */
 
 import { createHash } from "crypto";
+import { optimizationLogger } from "../utils/LabLogger";
+import { sanitizeMetrics } from "../utils/LabErrors";
 import {
   ParameterDefinition,
   ParameterCombination,
@@ -100,7 +102,7 @@ export class GridSearchEngine {
     // Filtrar apenas parâmetros habilitados e não travados
     const enabledParams = this.config.parameters.filter(p => p.enabled && !p.locked);
     
-    console.log(`[GridSearch] Parâmetros ativos: ${enabledParams.length}`);
+    optimizationLogger.debug(`Parâmetros ativos: ${enabledParams.length}`, "GridSearch");
     
     // Gerar valores possíveis para cada parâmetro
     const parameterValues: Map<string, (number | string | boolean)[]> = new Map();
@@ -128,11 +130,11 @@ export class GridSearchEngine {
     // Calcular produto cartesiano (todas as combinações)
     const combinations = this.cartesianProduct(parameterValues);
     
-    console.log(`[GridSearch] Total de combinações: ${combinations.length}`);
+    optimizationLogger.info(`Total de combinações: ${combinations.length}`, "GridSearch");
     
     // Verificar limite
     if (this.config.maxCombinations && combinations.length > this.config.maxCombinations) {
-      console.warn(`[GridSearch] ⚠️ Limite de ${this.config.maxCombinations} combinações excedido. Amostrando aleatoriamente...`);
+      optimizationLogger.warn(`Limite de ${this.config.maxCombinations} combinações excedido. Amostrando aleatoriamente...`, "GridSearch");
       return this.sampleCombinations(combinations, this.config.maxCombinations);
     }
     
@@ -152,13 +154,13 @@ export class GridSearchEngine {
     const results: CombinationResult[] = [];
     const errors: string[] = [];
     
-    console.log(`[GridSearch] Iniciando teste de ${combinations.length} combinações...`);
+    optimizationLogger.startOperation("Grid Search", { combinacoes: combinations.length });
     
     // Dividir período in-sample / out-sample
     const { inSamplePeriod, outSamplePeriod } = this.splitPeriod();
     
-    console.log(`[GridSearch] Período In-Sample: ${inSamplePeriod.start.toISOString()} - ${inSamplePeriod.end.toISOString()}`);
-    console.log(`[GridSearch] Período Out-Sample: ${outSamplePeriod.start.toISOString()} - ${outSamplePeriod.end.toISOString()}`);
+    optimizationLogger.info(`Período In-Sample: ${inSamplePeriod.start.toISOString().split("T")[0]} - ${inSamplePeriod.end.toISOString().split("T")[0]}`, "GridSearch");
+    optimizationLogger.info(`Período Out-Sample: ${outSamplePeriod.start.toISOString().split("T")[0]} - ${outSamplePeriod.end.toISOString().split("T")[0]}`, "GridSearch");
     
     // Criar worker pool
     const workerPool = this.createWorkerPool();
@@ -169,7 +171,7 @@ export class GridSearchEngine {
     // Processar combinações
     for (const combination of combinations) {
       if (this.aborted) {
-        console.log("[GridSearch] ⚠️ Otimização abortada pelo usuário");
+        optimizationLogger.warn("Otimização abortada pelo usuário", "GridSearch");
         break;
       }
       
@@ -213,21 +215,21 @@ export class GridSearchEngine {
         });
       }
       
-      // Log de progresso a cada 10%
-      if (completed % Math.max(1, Math.floor(combinations.length / 10)) === 0) {
-        console.log(`[GridSearch] Progresso: ${completed}/${combinations.length} (${((completed / combinations.length) * 100).toFixed(1)}%)`);
-      }
+      // Log de progresso usando throttling
+      optimizationLogger.progress(completed, combinations.length, "Testando combinações", "GridSearch");
     }
     
     // Rankear resultados
-    console.log("[GridSearch] Rankeando resultados...");
+    optimizationLogger.info("Rankeando resultados...", "GridSearch");
     const rankedResults = this.rankResults(results);
     
     const executionTime = (Date.now() - startTime) / 1000;
     
-    console.log(`[GridSearch] ✅ Otimização concluída em ${executionTime.toFixed(1)}s`);
-    console.log(`[GridSearch] Total de combinações testadas: ${completed}`);
-    console.log(`[GridSearch] Total de trades executados: ${totalTrades}`);
+    optimizationLogger.endOperation("Grid Search", true, {
+      tempo: `${executionTime.toFixed(1)}s`,
+      combinacoes: completed,
+      trades: totalTrades,
+    });
     
     return {
       config: this.config,
@@ -497,7 +499,7 @@ export class GridSearchEngine {
    */
   abort(): void {
     this.aborted = true;
-    console.log("[GridSearch] Solicitação de abort recebida");
+    optimizationLogger.info("Solicitação de abort recebida", "GridSearch");
   }
   
   /**

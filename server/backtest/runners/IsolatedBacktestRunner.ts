@@ -31,6 +31,8 @@ import { SMCTradingEngine, SMCTradingEngineConfig } from "../../adapters/ctrader
 import { StrategyType } from "../../adapters/ctrader/ITradingStrategy";
 import { ITradingAdapter } from "../adapters/ITradingAdapter";
 import { CandleData, PriceTick } from "../../adapters/IBrokerAdapter";
+import { backtestLogger } from "../utils/LabLogger";
+import { sanitizeMetrics } from "../utils/LabErrors";
 
 // ============================================================================
 // TYPES
@@ -176,14 +178,11 @@ export class IsolatedBacktestRunner {
     const configHash = this.calculateHash(this.config);
     const parametersHash = this.calculateHash(this.parameters);
     
-    console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[IsolatedBacktestRunner] 🔒 INICIANDO BACKTEST ISOLADO");
-    console.log(`[IsolatedBacktestRunner] Seed: ${this.seed}`);
-    console.log(`[IsolatedBacktestRunner] Config Hash: ${configHash}`);
-    console.log(`[IsolatedBacktestRunner] Parameters Hash: ${parametersHash}`);
-    console.log(`[IsolatedBacktestRunner] Símbolo: ${this.config.symbol}`);
-    console.log(`[IsolatedBacktestRunner] Estratégia: ${this.config.strategy}`);
-    console.log("═══════════════════════════════════════════════════════════════");
+    backtestLogger.startOperation("Backtest Isolado", {
+      seed: this.seed,
+      simbolo: this.config.symbol,
+      estrategia: this.config.strategy,
+    });
     
     try {
       // 1. Criar NOVA instância do adapter (isolamento)
@@ -248,12 +247,11 @@ export class IsolatedBacktestRunner {
       
       const endTimestamp = Date.now();
       
-      console.log("═══════════════════════════════════════════════════════════════");
-      console.log("[IsolatedBacktestRunner] ✅ BACKTEST ISOLADO CONCLUÍDO");
-      console.log(`[IsolatedBacktestRunner] Tempo: ${((endTimestamp - startTimestamp) / 1000).toFixed(2)}s`);
-      console.log(`[IsolatedBacktestRunner] Trades: ${metrics.totalTrades}`);
-      console.log(`[IsolatedBacktestRunner] Lucro: $${metrics.netProfit.toFixed(2)}`);
-      console.log("═══════════════════════════════════════════════════════════════");
+      backtestLogger.endOperation("Backtest Isolado", true, {
+        tempo: `${((endTimestamp - startTimestamp) / 1000).toFixed(2)}s`,
+        trades: metrics.totalTrades,
+        lucro: `$${metrics.netProfit.toFixed(2)}`,
+      });
       
       return {
         config: this.config,
@@ -280,7 +278,7 @@ export class IsolatedBacktestRunner {
       const endTimestamp = Date.now();
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      console.error(`[IsolatedBacktestRunner] ❌ Erro: ${errorMessage}`);
+      backtestLogger.error(`Erro no backtest: ${errorMessage}`, error instanceof Error ? error : undefined, "IsolatedBacktestRunner");
       
       return {
         config: this.config,
@@ -355,7 +353,7 @@ export class IsolatedBacktestRunner {
       const currentConfig = (this.engine as any).getStrategyConfig();
       const mergedConfig = { ...currentConfig, ...this.parameters };
       (this.engine as any).updateStrategyConfig(mergedConfig);
-      console.log(`[IsolatedBacktestRunner] ✅ ${Object.keys(this.parameters).length} parâmetros aplicados`);
+      backtestLogger.debug(`${Object.keys(this.parameters).length} parâmetros aplicados`, "IsolatedBacktestRunner");
     }
   }
   
@@ -389,7 +387,7 @@ export class IsolatedBacktestRunner {
     for (let i = 0; i < totalBars; i++) {
       // Verificar abort
       if (this.isAborted) {
-        console.log("[IsolatedBacktestRunner] ⚠️ Execução abortada pelo usuário");
+        backtestLogger.warn("Execução abortada pelo usuário", "IsolatedBacktestRunner");
         break;
       }
       
