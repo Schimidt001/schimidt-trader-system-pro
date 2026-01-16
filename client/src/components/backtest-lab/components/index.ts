@@ -7,3 +7,7 @@
 
 export { PipelineStatusCard } from "./PipelineStatusCard";
 export { ErrorDisplay } from "./ErrorDisplay";
+export { ParametersTab } from "./ParametersTab";
+export { OptimizationResultsView } from "./OptimizationResultsView";
+export { WalkForwardResultsView } from "./WalkForwardResultsView";
+export { DatasetSelector } from "./DatasetSelector";

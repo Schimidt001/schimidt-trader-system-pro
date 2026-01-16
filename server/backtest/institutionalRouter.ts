@@ -256,6 +256,65 @@ const multiAssetSchema = z.object({
 
 export const institutionalRouter = router({
   // =========================================================================
+  // DATA MANAGEMENT
+  // =========================================================================
+
+  /**
+   * Get available datasets (symbols and timeframes with historical data)
+   */
+  getAvailableDatasets: protectedProcedure
+    .query(() => {
+      const dataPath = path.join(process.cwd(), "data", "candles");
+      const datasets: Array<{
+        symbol: string;
+        timeframe: string;
+        recordCount: number;
+        startDate: string;
+        endDate: string;
+        lastUpdated: string;
+      }> = [];
+
+      // Verificar se o diretório existe
+      if (!fs.existsSync(dataPath)) {
+        return { datasets: [] };
+      }
+
+      // Listar arquivos de dados
+      const files = fs.readdirSync(dataPath);
+      
+      for (const file of files) {
+        if (file.endsWith(".json")) {
+          const match = file.match(/^([A-Z]+)_([A-Z0-9]+)\.json$/);
+          if (match) {
+            const [, symbol, timeframe] = match;
+            const filePath = path.join(dataPath, file);
+            
+            try {
+              const stats = fs.statSync(filePath);
+              const content = fs.readFileSync(filePath, "utf-8");
+              const candles = JSON.parse(content);
+              
+              if (Array.isArray(candles) && candles.length > 0) {
+                datasets.push({
+                  symbol,
+                  timeframe,
+                  recordCount: candles.length,
+                  startDate: new Date(candles[0].timestamp).toISOString(),
+                  endDate: new Date(candles[candles.length - 1].timestamp).toISOString(),
+                  lastUpdated: stats.mtime.toISOString(),
+                });
+              }
+            } catch (error) {
+              console.error(`Erro ao ler arquivo ${file}:`, error);
+            }
+          }
+        }
+      }
+
+      return { datasets };
+    }),
+
+  // =========================================================================
   // INSTITUTIONAL OPTIMIZATION (Grid Search + Walk-Forward)
   // =========================================================================
 

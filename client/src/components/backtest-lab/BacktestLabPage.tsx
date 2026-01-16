@@ -2,19 +2,19 @@
  * BacktestLabPage - Página Principal do Laboratório de Backtest Institucional
  * 
  * Esta página integra todos os componentes do laboratório:
- * - Seleção de símbolos e período
- * - Configuração de parâmetros para otimização
+ * - Seleção de símbolos e período (com validação de dados disponíveis)
+ * - Configuração de parâmetros para otimização (WP-A)
  * - Execução de Grid Search com validação Walk-Forward
  * - Simulação Monte Carlo
  * - Detecção de Regimes
  * - Backtest Multi-Asset
- * - Visualização de resultados
+ * - Visualização de resultados (WP-C)
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 2.0.0 - Integração completa Frontend-Backend
+ * @version 2.1.0 - Implementação WP-A, WP-B, WP-C
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,54 +39,24 @@ import {
   PieChart,
   Shield,
   Dice5,
+  Database,
 } from "lucide-react";
 
 // Hooks e componentes do laboratório
 import { useInstitutionalLab } from "./hooks/useInstitutionalLab";
 import { PipelineStatusCard } from "./components/PipelineStatusCard";
 import { ErrorDisplay } from "./components/ErrorDisplay";
+import { ParametersTab, ParameterConfig } from "./components/ParametersTab";
+import { OptimizationResultsView } from "./components/OptimizationResultsView";
+import { WalkForwardResultsView } from "./components/WalkForwardResultsView";
+import { DatasetSelector } from "./components/DatasetSelector";
 import { MonteCarloChart } from "./MonteCarloChart";
 import { RegimeAnalysisChart } from "./RegimeAnalysisChart";
 import { MultiAssetDashboard } from "./MultiAssetDashboard";
 
 // ============================================================================
-// TYPES
-// ============================================================================
-
-interface OptimizationResult {
-  combinationId: string;
-  parameters: Record<string, number | string | boolean>;
-  robustnessScore: number;
-  degradationPercent: number;
-  isRecommended: boolean;
-  rank: number;
-  inSampleMetrics: {
-    netProfit: number;
-    totalTrades: number;
-    winRate: number;
-    sharpeRatio: number;
-    maxDrawdownPercent: number;
-    profitFactor: number;
-  };
-  outSampleMetrics?: {
-    netProfit: number;
-    totalTrades: number;
-    winRate: number;
-    sharpeRatio: number;
-    maxDrawdownPercent: number;
-    profitFactor: number;
-  };
-  warnings: string[];
-}
-
-// ============================================================================
 // CONSTANTS
 // ============================================================================
-
-const AVAILABLE_SYMBOLS = [
-  "XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD",
-  "USDCAD", "NZDUSD", "USDCHF", "EURJPY", "GBPJPY",
-];
 
 const STRATEGY_TYPES = ["SMC", "HYBRID", "RSI_VWAP"] as const;
 
@@ -114,6 +84,9 @@ export function BacktestLabPage() {
   const [stepMonths, setStepMonths] = useState(1);
   const [seed, setSeed] = useState<number | undefined>(undefined);
 
+  // Parâmetros configurados (WP-A)
+  const [parameterConfigs, setParameterConfigs] = useState<ParameterConfig[]>([]);
+
   // Monte Carlo specific
   const [mcSimulations, setMcSimulations] = useState(1000);
   const [mcMethod, setMcMethod] = useState<"BLOCK_BOOTSTRAP" | "TRADE_RESAMPLING" | "RANDOMIZE_ORDER">("BLOCK_BOOTSTRAP");
@@ -127,43 +100,59 @@ export function BacktestLabPage() {
   // HANDLERS
   // =========================================================================
 
+  const handleParametersChange = useCallback((params: ParameterConfig[]) => {
+    setParameterConfigs(params);
+  }, []);
+
   const handleStartOptimization = useCallback(async () => {
     setActiveTab("progress");
     
-    // Construir parâmetros default (simplificado para demo)
-    const defaultParameters = [
-      {
-        name: "swingH1Lookback",
-        label: "Swing H1 Lookback",
-        category: "STRUCTURE" as const,
-        type: "number" as const,
-        default: 50,
-        min: 30,
-        max: 100,
-        step: 10,
-        enabled: true,
-        locked: false,
-      },
-      {
-        name: "sweepBufferPips",
-        label: "Sweep Buffer (pips)",
-        category: "ENTRY" as const,
-        type: "number" as const,
-        default: 1.5,
-        min: 0.5,
-        max: 3.0,
-        step: 0.5,
-        enabled: true,
-        locked: false,
-      },
-    ];
+    // Converter parâmetros configurados para o formato do backend
+    const parameters = parameterConfigs.map(config => ({
+      name: config.parameterId,
+      label: config.parameterId,
+      category: "STRUCTURE" as const,
+      type: config.type === "boolean" ? "boolean" as const : 
+            config.type === "select" ? "select" as const : "number" as const,
+      default: config.value ?? 0,
+      min: config.min,
+      max: config.max,
+      step: config.step,
+      enabled: config.enabled,
+      locked: config.locked,
+    }));
 
     await lab.startOptimization({
       symbols: selectedSymbols,
       startDate,
       endDate,
       strategyType,
-      parameters: defaultParameters,
+      parameters: parameters.length > 0 ? parameters : [
+        {
+          name: "swingH1Lookback",
+          label: "Swing H1 Lookback",
+          category: "STRUCTURE" as const,
+          type: "number" as const,
+          default: 50,
+          min: 30,
+          max: 100,
+          step: 10,
+          enabled: true,
+          locked: false,
+        },
+        {
+          name: "sweepBufferPips",
+          label: "Sweep Buffer (pips)",
+          category: "ENTRY" as const,
+          type: "number" as const,
+          default: 1.5,
+          min: 0.5,
+          max: 3.0,
+          step: 0.5,
+          enabled: true,
+          locked: false,
+        },
+      ],
       validation: {
         enabled: validationEnabled,
         inSampleRatio,
@@ -180,21 +169,29 @@ export function BacktestLabPage() {
       ],
       seed,
     });
-  }, [lab, selectedSymbols, startDate, endDate, strategyType, validationEnabled, inSampleRatio, walkForwardEnabled, windowMonths, stepMonths, seed]);
+  }, [lab, selectedSymbols, startDate, endDate, strategyType, parameterConfigs, validationEnabled, inSampleRatio, walkForwardEnabled, windowMonths, stepMonths, seed]);
 
   const handleStartWalkForward = useCallback(async () => {
     setActiveTab("progress");
     
+    // Usar parâmetros configurados ou defaults
+    const params: Record<string, number | string | boolean> = {};
+    parameterConfigs.forEach(config => {
+      if (config.value !== undefined) {
+        params[config.parameterId] = config.value;
+      }
+    });
+    
     await lab.runWalkForward({
       symbol: selectedSymbols[0] || "XAUUSD",
-      parameters: { swingH1Lookback: 50, sweepBufferPips: 1.5 },
+      parameters: Object.keys(params).length > 0 ? params : { swingH1Lookback: 50, sweepBufferPips: 1.5 },
       startDate,
       endDate,
       windowMonths,
       stepMonths,
       strategyType,
     });
-  }, [lab, selectedSymbols, startDate, endDate, windowMonths, stepMonths, strategyType]);
+  }, [lab, selectedSymbols, startDate, endDate, windowMonths, stepMonths, strategyType, parameterConfigs]);
 
   const handleStartMonteCarlo = useCallback(async () => {
     setActiveTab("progress");
@@ -223,18 +220,26 @@ export function BacktestLabPage() {
   const handleStartMultiAsset = useCallback(async () => {
     setActiveTab("progress");
     
+    // Usar parâmetros configurados ou defaults
+    const params: Record<string, number | string | boolean> = {};
+    parameterConfigs.forEach(config => {
+      if (config.value !== undefined) {
+        params[config.parameterId] = config.value;
+      }
+    });
+    
     await lab.runMultiAsset({
       symbols: selectedSymbols,
       strategy: strategyType,
       startDate,
       endDate,
-      parameters: { swingH1Lookback: 50, sweepBufferPips: 1.5 },
+      parameters: Object.keys(params).length > 0 ? params : { swingH1Lookback: 50, sweepBufferPips: 1.5 },
       maxTotalPositions,
       maxPositionsPerSymbol,
       maxDailyDrawdown,
       seed,
     });
-  }, [lab, selectedSymbols, strategyType, startDate, endDate, maxTotalPositions, maxPositionsPerSymbol, maxDailyDrawdown, seed]);
+  }, [lab, selectedSymbols, strategyType, startDate, endDate, parameterConfigs, maxTotalPositions, maxPositionsPerSymbol, maxDailyDrawdown, seed]);
 
   // =========================================================================
   // DERIVED STATE
@@ -254,6 +259,9 @@ export function BacktestLabPage() {
     regime: lab.regimeDetection,
     multiasset: lab.multiAsset,
   }[activePipeline];
+
+  // Verificar se pode iniciar (tem símbolos selecionados)
+  const canStart = selectedSymbols.length > 0 && !isAnyRunning;
 
   // =========================================================================
   // RENDER
@@ -370,38 +378,12 @@ export function BacktestLabPage() {
         {/* Configuration Tab */}
         <TabsContent value="config" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Symbol Selection */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Target className="w-5 h-5" />
-                  Símbolos
-                </CardTitle>
-                <CardDescription>
-                  Selecione os símbolos para análise
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-2">
-                  {AVAILABLE_SYMBOLS.map((symbol) => (
-                    <Badge
-                      key={symbol}
-                      variant={selectedSymbols.includes(symbol) ? "default" : "outline"}
-                      className="cursor-pointer"
-                      onClick={() => {
-                        if (selectedSymbols.includes(symbol)) {
-                          setSelectedSymbols(selectedSymbols.filter(s => s !== symbol));
-                        } else {
-                          setSelectedSymbols([...selectedSymbols, symbol]);
-                        }
-                      }}
-                    >
-                      {symbol}
-                    </Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            {/* Dataset Selector (WP-B) */}
+            <DatasetSelector
+              selectedSymbols={selectedSymbols}
+              onSymbolsChange={setSelectedSymbols}
+              multiSelect={activePipeline === "multiasset" || activePipeline === "optimization"}
+            />
 
             {/* Period Selection */}
             <Card>
@@ -653,7 +635,7 @@ export function BacktestLabPage() {
                 else if (activePipeline === "regime") handleStartRegimeDetection();
                 else if (activePipeline === "multiasset") handleStartMultiAsset();
               }}
-              disabled={isAnyRunning || selectedSymbols.length === 0}
+              disabled={!canStart}
             >
               <Play className="w-4 h-4 mr-2" />
               Iniciar {activePipeline === "optimization" ? "Otimização" : 
@@ -664,26 +646,12 @@ export function BacktestLabPage() {
           </div>
         </TabsContent>
 
-        {/* Parameters Tab */}
+        {/* Parameters Tab (WP-A) */}
         <TabsContent value="parameters">
-          <Card>
-            <CardHeader>
-              <CardTitle>Parâmetros de Otimização</CardTitle>
-              <CardDescription>
-                Configure os ranges de parâmetros para o Grid Search
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Em desenvolvimento</AlertTitle>
-                <AlertDescription>
-                  A configuração detalhada de parâmetros será implementada na próxima fase.
-                  Por enquanto, parâmetros default são utilizados.
-                </AlertDescription>
-              </Alert>
-            </CardContent>
-          </Card>
+          <ParametersTab 
+            onParametersChange={handleParametersChange}
+            strategyType={strategyType}
+          />
         </TabsContent>
 
         {/* Progress Tab */}
@@ -718,8 +686,9 @@ export function BacktestLabPage() {
           />
         </TabsContent>
 
-        {/* Results Tab */}
+        {/* Results Tab (WP-C) */}
         <TabsContent value="results">
+          {/* Monte Carlo Results */}
           {activePipeline === "montecarlo" && lab.monteCarlo.result ? (
             <MonteCarloChart 
               result={lab.monteCarlo.result as any} 
@@ -727,12 +696,14 @@ export function BacktestLabPage() {
             />
           ) : null}
 
+          {/* Regime Detection Results */}
           {activePipeline === "regime" && lab.regimeDetection.result ? (
             <RegimeAnalysisChart 
               result={lab.regimeDetection.result as any} 
             />
           ) : null}
 
+          {/* Multi-Asset Results */}
           {activePipeline === "multiasset" && lab.multiAsset.result ? (
             <MultiAssetDashboard 
               result={lab.multiAsset.result as any} 
@@ -740,26 +711,33 @@ export function BacktestLabPage() {
             />
           ) : null}
 
-          {(activePipeline === "optimization" || activePipeline === "walkforward") && (
+          {/* Optimization Results (WP-C) */}
+          {activePipeline === "optimization" && lab.optimization.result ? (
+            <OptimizationResultsView 
+              result={lab.optimization.result as any} 
+            />
+          ) : null}
+
+          {/* Walk-Forward Results (WP-C) */}
+          {activePipeline === "walkforward" && lab.walkForward.result ? (
+            <WalkForwardResultsView 
+              result={lab.walkForward.result as any} 
+            />
+          ) : null}
+
+          {/* No results yet */}
+          {!currentPipelineState.result && (
             <Card>
               <CardHeader>
                 <CardTitle>Resultados</CardTitle>
                 <CardDescription>
-                  {currentPipelineState.result 
-                    ? "Análise concluída com sucesso" 
-                    : "Aguardando resultados..."}
+                  Aguardando resultados...
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {currentPipelineState.result ? (
-                  <pre className="p-4 bg-muted rounded-lg overflow-auto max-h-96 text-sm">
-                    {JSON.stringify(currentPipelineState.result, null, 2)}
-                  </pre>
-                ) : (
-                  <p className="text-muted-foreground text-center py-8">
-                    Execute uma análise para ver os resultados aqui.
-                  </p>
-                )}
+                <p className="text-muted-foreground text-center py-8">
+                  Execute uma análise para ver os resultados aqui.
+                </p>
               </CardContent>
             </Card>
           )}
