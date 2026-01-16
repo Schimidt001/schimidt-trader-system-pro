@@ -804,7 +804,7 @@ export class CTraderAdapter extends BaseBrokerAdapter {
   }
   
   /**
-   * Obtém histórico de candles
+   * Obtém histórico de candles (a partir do momento atual)
    */
   async getCandleHistory(symbol: string, timeframe: string, count: number): Promise<CandleData[]> {
     if (!this.isConnected()) {
@@ -826,6 +826,57 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       toTimestamp,
       count
     );
+    
+    return trendbars.map(bar => ({
+      symbol,
+      timeframe,
+      timestamp: Math.floor(bar.timestamp / 1000),
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+      volume: bar.volume,
+    }));
+  }
+  
+  /**
+   * Obtém histórico de candles por período específico
+   * 
+   * Este método permite buscar dados históricos de um período específico,
+   * essencial para paginação e download de dados alinhados entre timeframes.
+   * 
+   * @param symbol Símbolo do ativo (ex: "XAUUSD")
+   * @param timeframe Timeframe (ex: "M5", "M15", "H1")
+   * @param fromTimestamp Timestamp de início em milissegundos
+   * @param toTimestamp Timestamp de fim em milissegundos
+   * @param count Número máximo de candles (opcional, padrão 1000)
+   * @returns Array de candles no período especificado
+   */
+  async getCandleHistoryRange(
+    symbol: string, 
+    timeframe: string, 
+    fromTimestamp: number, 
+    toTimestamp: number,
+    count: number = 1000
+  ): Promise<CandleData[]> {
+    if (!this.isConnected()) {
+      throw new Error("Não conectado à cTrader");
+    }
+    
+    console.log(`[CTraderAdapter] Buscando candles ${timeframe} de ${symbol} de ${new Date(fromTimestamp).toISOString()} até ${new Date(toTimestamp).toISOString()}`);
+    
+    const symbolId = await this.getSymbolId(symbol);
+    const period = TIMEFRAME_MAP[timeframe] || TrendbarPeriod.M15;
+    
+    const trendbars = await this.client.getTrendbars(
+      symbolId,
+      period,
+      fromTimestamp,
+      toTimestamp,
+      count
+    );
+    
+    console.log(`[CTraderAdapter] Recebidos ${trendbars.length} candles para ${symbol} ${timeframe}`);
     
     return trendbars.map(bar => ({
       symbol,
