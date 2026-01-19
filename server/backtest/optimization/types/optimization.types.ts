@@ -215,6 +215,30 @@ export interface OptimizationConfig {
   
   /** Pesos dos objetivos (deve somar 1) */
   objectiveWeights: number[];
+  
+  /** Caminho para dados de candles */
+  dataPath?: string;
+  
+  /** Timeframes a usar */
+  timeframes?: string[];
+  
+  /** Balanço inicial */
+  initialBalance?: number;
+  
+  /** Alavancagem */
+  leverage?: number;
+  
+  /** Comissão por trade */
+  commission?: number;
+  
+  /** Slippage */
+  slippage?: number;
+  
+  /** Spread */
+  spread?: number;
+  
+  /** Seed para RNG */
+  seed?: number;
 }
 
 // ============================================================================

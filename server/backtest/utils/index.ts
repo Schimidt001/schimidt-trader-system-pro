@@ -50,6 +50,16 @@ export {
   type LabGuardError,
 } from "./LabGuard";
 
+// Job Queue para otimização assíncrona
+export {
+  OptimizationJobQueue,
+  optimizationJobQueue,
+  LAB_ERROR_CODES as JOB_ERROR_CODES,
+  type JobStatus,
+  type OptimizationJob,
+  type JobQueueConfig,
+} from "./OptimizationJobQueue";
+
 // Erros estruturados
 export {
   LabError,

@@ -143,6 +143,8 @@ export class GridSearchEngine {
   
   /**
    * Executar Grid Search completo
+   * 
+   * INSTRUMENTAÇÃO: Inclui checkpoints para debugging de 502
    */
   async run(): Promise<OptimizationFinalResult> {
     const startTime = Date.now();
@@ -150,6 +152,8 @@ export class GridSearchEngine {
     
     this.aborted = false;
     
+    // CHECKPOINT: Geração de combinações
+    optimizationLogger.info("CHECKPOINT: GridSearch.generating_combinations", "GridSearch");
     const combinations = this.generateCombinations();
     const results: CombinationResult[] = [];
     const errors: string[] = [];
@@ -159,6 +163,9 @@ export class GridSearchEngine {
     // Dividir período in-sample / out-sample
     const { inSamplePeriod, outSamplePeriod } = this.splitPeriod();
     
+    // CHECKPOINT: Dados carregados (períodos definidos)
+    optimizationLogger.info("CHECKPOINT: GridSearch.data_loaded | periods_defined", "GridSearch");
+    
     optimizationLogger.info(`Período In-Sample: ${inSamplePeriod.start.toISOString().split("T")[0]} - ${inSamplePeriod.end.toISOString().split("T")[0]}`, "GridSearch");
     optimizationLogger.info(`Período Out-Sample: ${outSamplePeriod.start.toISOString().split("T")[0]} - ${outSamplePeriod.end.toISOString().split("T")[0]}`, "GridSearch");
     
@@ -167,6 +174,8 @@ export class GridSearchEngine {
     
     let completed = 0;
     let totalTrades = 0;
+    let firstIterationLogged = false;
+    let progress5PercentLogged = false;
     
     // Processar combinações
     for (const combination of combinations) {
@@ -196,6 +205,20 @@ export class GridSearchEngine {
       
       completed++;
       
+      // CHECKPOINT: first_iteration
+      if (!firstIterationLogged && completed === 1) {
+        optimizationLogger.info(`CHECKPOINT: GridSearch.first_iteration | combination=1/${combinations.length}`, "GridSearch");
+        firstIterationLogged = true;
+      }
+      
+      const percentComplete = (completed / combinations.length) * 100;
+      
+      // CHECKPOINT: progress_5_percent
+      if (!progress5PercentLogged && percentComplete >= 5) {
+        optimizationLogger.info(`CHECKPOINT: GridSearch.progress_5_percent | ${percentComplete.toFixed(1)}%`, "GridSearch");
+        progress5PercentLogged = true;
+      }
+      
       // Atualizar progresso
       if (this.progressCallback) {
         const elapsed = (Date.now() - startTime) / 1000;
@@ -206,7 +229,7 @@ export class GridSearchEngine {
           phase: "TESTING",
           currentCombination: completed,
           totalCombinations: combinations.length,
-          percentComplete: (completed / combinations.length) * 100,
+          percentComplete,
           estimatedTimeRemaining: remaining,
           elapsedTime: elapsed,
           currentSymbol: this.config.symbols[0],
@@ -612,7 +635,20 @@ export class GridSearchEngine {
   }
   
   private createWorkerPool(): WorkerPool {
-    return new WorkerPool(this.config.parallelWorkers, async (task) => {
+    // GUARD RAIL: Limitar paralelismo para não travar CPU do Railway
+    const MAX_PARALLEL_WORKERS = 2;
+    const workers = Math.min(this.config.parallelWorkers, MAX_PARALLEL_WORKERS);
+    
+    if (this.config.parallelWorkers > MAX_PARALLEL_WORKERS) {
+      optimizationLogger.warn(
+        `Paralelismo reduzido de ${this.config.parallelWorkers} para ${MAX_PARALLEL_WORKERS} (guard rail)`,
+        "GridSearch"
+      );
+    }
+    
+    optimizationLogger.info(`Worker pool criado com ${workers} workers`, "GridSearch");
+    
+    return new WorkerPool(workers, async (task) => {
       // Executor de tarefas - por enquanto, execução síncrona
       return task;
     });

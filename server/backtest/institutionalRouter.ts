@@ -29,6 +29,7 @@ import { createSeededRNG, seedFromTimestamp } from "./utils/SeededRNG";
 import { labLogger, optimizationLogger, validationLogger } from "./utils/LabLogger";
 import { handleLabError, createDataNotFoundError, sanitizeResponse, withErrorHandling } from "./utils/LabErrors";
 import { labGuard } from "./utils/LabGuard";
+import { optimizationJobQueue, LAB_ERROR_CODES } from "./utils/OptimizationJobQueue";
 
 // Importar tipos
 import { BacktestStrategyType, BacktestTrade } from "./types/backtest.types";
@@ -38,6 +39,7 @@ import {
   OptimizationFinalResult,
   DEFAULT_SMC_PARAMETER_DEFINITIONS,
   ParameterCategory,
+  ParameterType,
 } from "./optimization/types/optimization.types";
 import {
   WalkForwardConfig,
@@ -352,14 +354,27 @@ export const institutionalRouter = router({
 
   /**
    * Start institutional optimization
+   * 
+   * CORREÇÃO 502 BAD GATEWAY:
+   * - Esta procedure agora é ENQUEUE-ONLY
+   * - Retorna em <300ms com runId
+   * - Execução pesada acontece fora da request via setImmediate
+   * - Inclui checkpoints de instrumentação para debugging
    */
   startOptimization: protectedProcedure
     .input(institutionalOptimizationSchema)
     .mutation(async ({ input }) => {
-      if (institutionalOptimizationState.isRunning) {
+      const requestStartTime = Date.now();
+      
+      // CHECKPOINT: startOptimization.enter
+      labLogger.info("CHECKPOINT: startOptimization.enter", "InstitutionalRouter");
+      
+      // Verificar se já há job em execução
+      if (optimizationJobQueue.isRunning()) {
         throw new TRPCError({
           code: "CONFLICT",
           message: "Otimização institucional já em execução",
+          cause: { code: LAB_ERROR_CODES.LAB_JOB_ALREADY_RUNNING },
         });
       }
 
@@ -371,173 +386,161 @@ export const institutionalRouter = router({
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: `Dados históricos não encontrados para ${symbol}. Baixe os dados primeiro.`,
+            cause: { code: LAB_ERROR_CODES.LAB_DATA_NOT_FOUND, symbol },
           });
         }
       }
 
-      // CORREÇÃO TAREFA 1: Guard rails para combinações
-      // Calcular número de combinações antes de iniciar
-      const MAX_COMBINATIONS_LIMIT = 10000;
-      let totalCombinations = 1;
-      
-      for (const param of input.parameters) {
-        if (param.enabled && !param.locked) {
-          if (param.type === "boolean") {
-            totalCombinations *= 2;
-          } else if (param.type === "number" && param.min !== undefined && param.max !== undefined && param.step !== undefined) {
-            const steps = Math.floor((param.max - param.min) / param.step) + 1;
-            totalCombinations *= Math.max(1, steps);
+      // Construir configuração
+      const config: OptimizationConfig = {
+        symbols: input.symbols,
+        strategyType: input.strategyType as BacktestStrategyType,
+        startDate: new Date(input.startDate),
+        endDate: new Date(input.endDate),
+        dataPath,
+        timeframes: ["M5", "M15", "H1"],
+        initialBalance: 10000,
+        leverage: 500,
+        commission: 7,
+        slippage: 0.5,
+        spread: 1.0,
+        parameters: input.parameters.map(p => {
+          // Converter tipo do schema para ParameterType
+          let paramType: ParameterType;
+          switch (p.type) {
+            case "boolean":
+              paramType = ParameterType.BOOLEAN;
+              break;
+            case "select":
+              paramType = ParameterType.ENUM;
+              break;
+            case "number":
+            default:
+              // Determinar se é inteiro ou decimal baseado no step
+              paramType = p.step && p.step % 1 !== 0 
+                ? ParameterType.DECIMAL 
+                : ParameterType.INTEGER;
           }
-        }
-      }
-      
-      if (totalCombinations > MAX_COMBINATIONS_LIMIT) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `LAB_TOO_MANY_COMBINATIONS: Número de combinações (${totalCombinations.toLocaleString()}) excede o limite máximo de ${MAX_COMBINATIONS_LIMIT.toLocaleString()}. Reduza os ranges ou desabilite alguns parâmetros.`,
-          cause: {
-            code: "LAB_TOO_MANY_COMBINATIONS",
-            totalCombinations,
-            maxAllowed: MAX_COMBINATIONS_LIMIT,
-          },
-        });
-      }
-      
-      labLogger.info(`Iniciando otimização com ${totalCombinations} combinações`, "InstitutionalRouter");
-
-      // Reset state
-      institutionalOptimizationState.isRunning = true;
-      institutionalOptimizationState.progress = null;
-      institutionalOptimizationState.result = null;
-      institutionalOptimizationState.error = null;
-
-      try {
-        // Construir configuração
-        const config: OptimizationConfig = {
-          symbols: input.symbols,
-          strategyType: input.strategyType as BacktestStrategyType,
-          startDate: new Date(input.startDate),
-          endDate: new Date(input.endDate),
-          dataPath,
-          timeframes: ["M5", "M15", "H1"],
-          initialBalance: 10000,
-          leverage: 500,
-          commission: 7,
-          slippage: 0.5,
-          spread: 1.0,
-          parameters: input.parameters.map(p => ({
+          
+          return {
             name: p.name,
-            label: p.label,
+            displayName: p.label, // Usar label como displayName
             category: p.category,
-            type: p.type,
+            type: paramType,
             default: p.default,
             min: p.min,
             max: p.max,
             step: p.step,
-            values: p.values,
+            values: p.values as (number | string)[] | undefined,
             enabled: p.enabled,
             locked: p.locked,
-            description: p.description,
-          })),
-          objectives: input.objectives.map(o => ({
-            metric: o.metric,
-            target: o.target,
-            weight: o.weight,
-            threshold: o.threshold,
-          })),
-          validation: {
-            enabled: input.validation.enabled,
-            inSampleRatio: input.validation.inSampleRatio,
-            walkForward: {
-              enabled: input.validation.walkForward.enabled,
-              windowMonths: input.validation.walkForward.windowMonths,
-              stepMonths: input.validation.walkForward.stepMonths,
-            },
+            description: p.description || "",
+          };
+        }),
+        objectives: input.objectives.map(o => ({
+          metric: o.metric,
+          target: o.target,
+          weight: o.weight,
+          threshold: o.threshold,
+        })),
+        validation: {
+          enabled: input.validation.enabled,
+          inSampleRatio: input.validation.inSampleRatio,
+          walkForward: {
+            enabled: input.validation.walkForward.enabled,
+            windowMonths: input.validation.walkForward.windowMonths,
+            stepMonths: input.validation.walkForward.stepMonths,
           },
-          maxCombinations: input.maxCombinations,
-          parallelWorkers: input.parallelWorkers,
-          seed: input.seed || seedFromTimestamp(),
-        };
+        },
+        maxCombinations: input.maxCombinations,
+        parallelWorkers: input.parallelWorkers,
+        seed: input.seed || seedFromTimestamp(),
+        objectiveWeights: input.objectives.map(o => o.weight),
+      };
 
-        // Criar engine
-        activeGridSearchEngine = new GridSearchEngine(config);
-
-        // Set progress callback
-        activeGridSearchEngine.setProgressCallback((progress) => {
-          institutionalOptimizationState.progress = progress;
-        });
-
-        // Executar otimização
-        const result = await activeGridSearchEngine.run();
-
-        // Armazenar resultado
-        institutionalOptimizationState.result = result;
-        institutionalOptimizationState.isRunning = false;
-        activeGridSearchEngine = null;
-
-        return {
-          success: true,
-          message: `Otimização institucional concluída! ${result.totalCombinationsTested} combinações testadas.`,
-          totalCombinations: result.totalCombinationsTested,
-          executionTime: result.executionTimeSeconds,
-          bestResult: result.bestResult,
-          aborted: result.aborted,
-        };
-
-      } catch (error) {
-        institutionalOptimizationState.isRunning = false;
-        institutionalOptimizationState.error = (error as Error).message;
-        activeGridSearchEngine = null;
-
+      // CORREÇÃO 4: Guard rails - Validar combinações ANTES de enqueue
+      const validation = optimizationJobQueue.validateAndCalculateCombinations(config);
+      
+      if (!validation.valid) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: `Erro na otimização institucional: ${(error as Error).message}`,
+          code: "BAD_REQUEST",
+          message: validation.error!,
+          cause: {
+            code: validation.errorCode,
+            totalCombinations: validation.totalCombinations,
+            maxAllowed: optimizationJobQueue.getConfig().maxCombinations,
+          },
         });
       }
+
+      // CORREÇÃO 1: Enqueue-only - Retorna em <300ms
+      const { runId, enqueuedAt } = optimizationJobQueue.enqueueJob(config, validation.totalCombinations);
+      
+      const requestElapsed = Date.now() - requestStartTime;
+      
+      // CHECKPOINT: startOptimization.returning_runId
+      labLogger.info(`CHECKPOINT: startOptimization.returning_runId | runId=${runId} | requestTime=${requestElapsed}ms`, "InstitutionalRouter");
+      
+      // Retornar imediatamente (job executa via setImmediate)
+      return {
+        success: true,
+        runId,
+        message: `Otimização enfileirada com sucesso. runId: ${runId}`,
+        totalCombinations: validation.totalCombinations,
+        enqueuedAt: enqueuedAt.toISOString(),
+        requestTimeMs: requestElapsed,
+      };
     }),
 
   /**
    * Get optimization status
+   * 
+   * CORREÇÃO 502: Agora usa JobQueue para status
+   * Inclui runId, lastProgressAt para monitoramento de heartbeat
    */
   getOptimizationStatus: protectedProcedure
     .query(() => {
+      const jobStatus = optimizationJobQueue.getJobStatus();
+      
       return {
-        isRunning: institutionalOptimizationState.isRunning,
-        progress: institutionalOptimizationState.progress,
-        error: institutionalOptimizationState.error,
+        isRunning: jobStatus.status === "RUNNING" || jobStatus.status === "QUEUED",
+        runId: jobStatus.runId,
+        status: jobStatus.status,
+        progress: jobStatus.progress,
+        error: jobStatus.error,
+        lastProgressAt: jobStatus.lastProgressAt?.toISOString() || null,
       };
     }),
 
   /**
    * Get optimization results
+   * 
+   * CORREÇÃO 502: Agora usa JobQueue para resultados
    */
   getOptimizationResults: protectedProcedure
     .query(() => {
-      return institutionalOptimizationState.result;
+      return optimizationJobQueue.getJobResult();
     }),
 
   /**
    * Abort optimization
+   * 
+   * CORREÇÃO 502: Agora usa JobQueue para abort
    */
   abortOptimization: protectedProcedure
     .mutation(() => {
-      if (activeGridSearchEngine) {
-        activeGridSearchEngine.abort();
-        institutionalOptimizationState.isRunning = false;
-        activeGridSearchEngine = null;
-        return { success: true, message: "Otimização institucional abortada" };
-      }
-      return { success: false, message: "Nenhuma otimização em execução" };
+      const result = optimizationJobQueue.abort();
+      return result;
     }),
 
   /**
    * Clear optimization results
+   * 
+   * CORREÇÃO 502: Agora usa JobQueue para clear
    */
   clearOptimizationResults: protectedProcedure
     .mutation(() => {
-      institutionalOptimizationState.result = null;
-      institutionalOptimizationState.error = null;
-      institutionalOptimizationState.progress = null;
+      optimizationJobQueue.clearJob();
       return { success: true };
     }),
 
