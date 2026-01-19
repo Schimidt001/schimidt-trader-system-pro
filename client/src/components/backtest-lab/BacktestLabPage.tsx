@@ -47,6 +47,7 @@ import { useInstitutionalLab } from "./hooks/useInstitutionalLab";
 import { PipelineStatusCard } from "./components/PipelineStatusCard";
 import { ErrorDisplay } from "./components/ErrorDisplay";
 import { ParametersTab, ParameterConfig } from "./components/ParametersTab";
+import { useLabParameters } from "@/contexts/LabParametersContext";
 import { OptimizationResultsView } from "./components/OptimizationResultsView";
 import { WalkForwardResultsView } from "./components/WalkForwardResultsView";
 import { DatasetSelector } from "./components/DatasetSelector";
@@ -69,33 +70,57 @@ export function BacktestLabPage() {
   // Hook de integração com o backend
   const lab = useInstitutionalLab();
 
+  // CORREÇÃO TAREFA 1: Usar contexto global para persistência de estado
+  const { 
+    labConfig, 
+    updateLabConfig, 
+    parameterConfigs: globalParameterConfigs,
+    combinationsValidation,
+    canExecuteOptimization,
+  } = useLabParameters();
+
   // Estado da UI
   const [activeTab, setActiveTab] = useState("config");
   const [activePipeline, setActivePipeline] = useState<"optimization" | "walkforward" | "montecarlo" | "regime" | "multiasset">("optimization");
 
-  // Configuration state
-  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(["XAUUSD"]);
-  const [startDate, setStartDate] = useState("2024-01-01");
-  const [endDate, setEndDate] = useState("2025-01-01");
-  const [strategyType, setStrategyType] = useState<"SMC" | "HYBRID" | "RSI_VWAP">("SMC");
-  const [validationEnabled, setValidationEnabled] = useState(true);
-  const [inSampleRatio, setInSampleRatio] = useState(0.7);
-  const [walkForwardEnabled, setWalkForwardEnabled] = useState(true);
-  const [windowMonths, setWindowMonths] = useState(6);
-  const [stepMonths, setStepMonths] = useState(1);
-  const [seed, setSeed] = useState<number | undefined>(undefined);
+  // Usar valores do contexto global (persistidos)
+  const selectedSymbols = labConfig.selectedSymbols;
+  const setSelectedSymbols = (symbols: string[]) => updateLabConfig({ selectedSymbols: symbols });
+  const startDate = labConfig.startDate;
+  const setStartDate = (date: string) => updateLabConfig({ startDate: date });
+  const endDate = labConfig.endDate;
+  const setEndDate = (date: string) => updateLabConfig({ endDate: date });
+  const strategyType = labConfig.strategyType;
+  const setStrategyType = (type: "SMC" | "HYBRID" | "RSI_VWAP") => updateLabConfig({ strategyType: type });
+  const validationEnabled = labConfig.validationEnabled;
+  const setValidationEnabled = (enabled: boolean) => updateLabConfig({ validationEnabled: enabled });
+  const inSampleRatio = labConfig.inSampleRatio;
+  const setInSampleRatio = (ratio: number) => updateLabConfig({ inSampleRatio: ratio });
+  const walkForwardEnabled = labConfig.walkForwardEnabled;
+  const setWalkForwardEnabled = (enabled: boolean) => updateLabConfig({ walkForwardEnabled: enabled });
+  const windowMonths = labConfig.windowMonths;
+  const setWindowMonths = (months: number) => updateLabConfig({ windowMonths: months });
+  const stepMonths = labConfig.stepMonths;
+  const setStepMonths = (months: number) => updateLabConfig({ stepMonths: months });
+  const seed = labConfig.seed;
+  const setSeed = (s: number | undefined) => updateLabConfig({ seed: s });
 
-  // Parâmetros configurados (WP-A)
+  // Parâmetros configurados (WP-A) - agora vem do contexto global
   const [parameterConfigs, setParameterConfigs] = useState<ParameterConfig[]>([]);
 
-  // Monte Carlo specific
-  const [mcSimulations, setMcSimulations] = useState(1000);
-  const [mcMethod, setMcMethod] = useState<"BLOCK_BOOTSTRAP" | "TRADE_RESAMPLING" | "RANDOMIZE_ORDER">("BLOCK_BOOTSTRAP");
+  // Monte Carlo specific - usar valores do contexto
+  const mcSimulations = labConfig.mcSimulations;
+  const setMcSimulations = (sims: number) => updateLabConfig({ mcSimulations: sims });
+  const mcMethod = labConfig.mcMethod;
+  const setMcMethod = (method: "BLOCK_BOOTSTRAP" | "TRADE_RESAMPLING" | "RANDOMIZE_ORDER") => updateLabConfig({ mcMethod: method });
 
-  // Multi-Asset specific
-  const [maxTotalPositions, setMaxTotalPositions] = useState(10);
-  const [maxPositionsPerSymbol, setMaxPositionsPerSymbol] = useState(3);
-  const [maxDailyDrawdown, setMaxDailyDrawdown] = useState(5);
+  // Multi-Asset specific - usar valores do contexto
+  const maxTotalPositions = labConfig.maxTotalPositions;
+  const setMaxTotalPositions = (pos: number) => updateLabConfig({ maxTotalPositions: pos });
+  const maxPositionsPerSymbol = labConfig.maxPositionsPerSymbol;
+  const setMaxPositionsPerSymbol = (pos: number) => updateLabConfig({ maxPositionsPerSymbol: pos });
+  const maxDailyDrawdown = labConfig.maxDailyDrawdown;
+  const setMaxDailyDrawdown = (dd: number) => updateLabConfig({ maxDailyDrawdown: dd });
 
   // =========================================================================
   // HANDLERS
@@ -106,6 +131,14 @@ export function BacktestLabPage() {
   }, []);
 
   const handleStartOptimization = useCallback(async () => {
+    // CORREÇÃO TAREFA 1: Validar combinações antes de iniciar
+    const validation = canExecuteOptimization();
+    if (!validation.canExecute) {
+      // Não iniciar se validação falhar
+      console.error("Otimização bloqueada:", validation.reason);
+      return;
+    }
+    
     setActiveTab("progress");
     
     // Converter parâmetros configurados para o formato do backend

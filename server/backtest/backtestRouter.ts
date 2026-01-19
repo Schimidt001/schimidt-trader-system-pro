@@ -31,7 +31,21 @@ import {
   RANKING_CATEGORY_LABELS,
   RankingCategory,
 } from "./types/batchOptimizer.types";
-import { ctraderAdapter } from "../adapters/CTraderAdapter";
+// CORREÇÃO TAREFA 4: Removida importação de ctraderAdapter do top-level
+// Usar lazy import para evitar que o módulo seja carregado no contexto do LAB
+import { labLogger } from "./utils/LabLogger";
+import { labGuard } from "./utils/LabGuard";
+
+/**
+ * Obtém o ctraderAdapter de forma lazy para evitar import no top-level
+ * IMPORTANTE: Este import só deve ser feito quando realmente necessário
+ * para evitar que o módulo seja carregado no contexto do LAB
+ */
+function getCTraderAdapter() {
+  // Import dinâmico para evitar carregar no contexto do LAB
+  const { ctraderAdapter } = require("../adapters/CTraderAdapter");
+  return ctraderAdapter;
+}
 
 // ============================================================================
 // STATE
@@ -192,7 +206,9 @@ export const backtestRouter = router({
         });
       }
       
+      // CORREÇÃO TAREFA 4: Usar lazy import para ctraderAdapter
       // Check cTrader connection
+      const ctraderAdapter = getCTraderAdapter();
       if (!ctraderAdapter.isConnected()) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -962,7 +978,7 @@ export const backtestRouter = router({
   runWalkForwardValidation: protectedProcedure
     .input(z.object({
       symbol: z.string(),
-      parameters: z.record(z.union([z.number(), z.string(), z.boolean()])),
+      parameters: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])),
       startDate: z.string(),
       endDate: z.string(),
       windowMonths: z.number().min(3).max(24).default(6),

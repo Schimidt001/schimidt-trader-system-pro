@@ -41,6 +41,7 @@ interface ErrorDisplayProps {
 // ============================================================================
 
 const ERROR_SUGGESTIONS: Record<string, string[]> = {
+  // Erros TRPC padrão
   PRECONDITION_FAILED: [
     "Verifique se os dados históricos foram baixados para o símbolo selecionado.",
     "Use a página de download de dados para obter os dados necessários.",
@@ -65,6 +66,67 @@ const ERROR_SUGGESTIONS: Record<string, string[]> = {
   ],
   UNKNOWN_ERROR: [
     "Um erro inesperado ocorreu.",
+    "Tente novamente ou entre em contato com o suporte.",
+  ],
+  
+  // CORREÇÃO TAREFA 5: Erros estruturados do Laboratório (LAB_*)
+  LAB_TOO_MANY_COMBINATIONS: [
+    "Reduza o número de parâmetros habilitados para otimização.",
+    "Diminua os ranges (min/max) dos parâmetros.",
+    "Aumente o valor do passo (step) para reduzir combinações.",
+    "Trave alguns parâmetros com valores fixos.",
+  ],
+  LAB_CONFIG_INVALID: [
+    "Verifique se todos os parâmetros estão configurados corretamente.",
+    "Certifique-se de que os valores estão dentro dos limites permitidos.",
+  ],
+  LAB_CONFIG_MISSING_REQUIRED: [
+    "Preencha todos os campos obrigatórios antes de iniciar.",
+    "Selecione pelo menos um símbolo e defina o período.",
+  ],
+  LAB_DATA_NOT_FOUND: [
+    "Baixe os dados históricos para o símbolo selecionado.",
+    "Verifique se o símbolo está correto.",
+    "Use a aba 'Download de Dados' para obter os dados necessários.",
+  ],
+  LAB_DATA_INVALID_FORMAT: [
+    "Os dados históricos podem estar corrompidos.",
+    "Tente baixar os dados novamente.",
+  ],
+  LAB_DATA_INSUFFICIENT: [
+    "O período selecionado não possui dados suficientes.",
+    "Selecione um período maior ou baixe mais dados históricos.",
+  ],
+  LAB_EXECUTION_FAILED: [
+    "A execução do backtest falhou.",
+    "Verifique os parâmetros e tente novamente.",
+  ],
+  LAB_EXECUTION_TIMEOUT: [
+    "A operação excedeu o tempo limite.",
+    "Reduza o número de combinações ou o período de análise.",
+  ],
+  LAB_EXECUTION_ABORTED: [
+    "A operação foi cancelada pelo usuário.",
+    "Inicie novamente quando estiver pronto.",
+  ],
+  LAB_VALIDATION_FAILED: [
+    "A validação dos parâmetros falhou.",
+    "Verifique os valores configurados.",
+  ],
+  LAB_ISOLATION_VIOLATION: [
+    "Operação não permitida em modo Laboratório.",
+    "O Laboratório é isolado do sistema Live por segurança.",
+  ],
+  LAB_BROKER_ACCESS_DENIED: [
+    "Acesso ao broker não permitido em modo Laboratório.",
+    "Use dados históricos locais para backtesting.",
+  ],
+  LAB_METRICS_INVALID: [
+    "Erro ao calcular métricas do backtest.",
+    "Verifique se os dados estão corretos.",
+  ],
+  LAB_INTERNAL_ERROR: [
+    "Erro interno do Laboratório.",
     "Tente novamente ou entre em contato com o suporte.",
   ],
 };

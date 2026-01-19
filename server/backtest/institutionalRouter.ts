@@ -375,6 +375,36 @@ export const institutionalRouter = router({
         }
       }
 
+      // CORREÇÃO TAREFA 1: Guard rails para combinações
+      // Calcular número de combinações antes de iniciar
+      const MAX_COMBINATIONS_LIMIT = 10000;
+      let totalCombinations = 1;
+      
+      for (const param of input.parameters) {
+        if (param.enabled && !param.locked) {
+          if (param.type === "boolean") {
+            totalCombinations *= 2;
+          } else if (param.type === "number" && param.min !== undefined && param.max !== undefined && param.step !== undefined) {
+            const steps = Math.floor((param.max - param.min) / param.step) + 1;
+            totalCombinations *= Math.max(1, steps);
+          }
+        }
+      }
+      
+      if (totalCombinations > MAX_COMBINATIONS_LIMIT) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `LAB_TOO_MANY_COMBINATIONS: Número de combinações (${totalCombinations.toLocaleString()}) excede o limite máximo de ${MAX_COMBINATIONS_LIMIT.toLocaleString()}. Reduza os ranges ou desabilite alguns parâmetros.`,
+          cause: {
+            code: "LAB_TOO_MANY_COMBINATIONS",
+            totalCombinations,
+            maxAllowed: MAX_COMBINATIONS_LIMIT,
+          },
+        });
+      }
+      
+      labLogger.info(`Iniciando otimização com ${totalCombinations} combinações`, "InstitutionalRouter");
+
       // Reset state
       institutionalOptimizationState.isRunning = true;
       institutionalOptimizationState.progress = null;

@@ -409,18 +409,27 @@ export function useInstitutionalLab() {
       
       return { success: true, runId };
     } catch (error: any) {
+      // CORREÇÃO TAREFA 5: Extrair código de erro estruturado do backend
+      const errorCode = error.data?.code || 
+                        error.data?.cause?.code || 
+                        (error.message?.includes("LAB_") ? error.message.split(":")[0].trim() : "LAB_INTERNAL_ERROR");
+      
+      const errorMessage = error.message?.includes(":") 
+        ? error.message.split(":").slice(1).join(":").trim()
+        : error.message || "Erro desconhecido ao iniciar otimização";
+      
       setOptimizationState(prev => ({
         ...prev,
         status: "ERROR",
         finishedAt: new Date(),
         error: {
-          code: error.data?.code || "UNKNOWN_ERROR",
-          message: error.message || "Erro desconhecido ao iniciar otimização",
-          context: error.data,
+          code: errorCode,
+          message: errorMessage,
+          context: error.data?.cause || error.data,
         },
       }));
       
-      return { success: false, error: error.message };
+      return { success: false, error: errorMessage, code: errorCode };
     }
   }, [startOptimizationMutation, pollOptimizationStatus]);
 

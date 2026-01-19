@@ -5,6 +5,7 @@ import { Route, Switch, Link, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { BrokerProvider, useBroker } from "./contexts/BrokerContext";
+import { LabParametersProvider } from "./contexts/LabParametersContext";
 import { BrokerSwitch, BrokerSwitchCompact } from "./components/BrokerSwitch";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
@@ -221,10 +222,12 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <BrokerProvider defaultBroker="DERIV">
-          <TooltipProvider>
-            <Toaster />
-            <Router />
-          </TooltipProvider>
+          <LabParametersProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Router />
+            </TooltipProvider>
+          </LabParametersProvider>
         </BrokerProvider>
       </ThemeProvider>
     </ErrorBoundary>

@@ -1,25 +1,30 @@
 /**
  * ParametersTab - Componente para configuração de parâmetros de otimização
  * 
+ * CORREÇÃO TAREFA 1: Integração com LabParametersContext para persistência
+ * 
  * Permite ao usuário:
  * - Visualizar todos os parâmetros disponíveis por categoria
  * - Configurar ranges (min/max/step) para parâmetros numéricos
  * - Habilitar/desabilitar parâmetros para otimização
  * - Definir valores fixos para parâmetros travados
  * 
+ * MUDANÇAS:
+ * - Usa useLabParameters() para estado global persistente
+ * - Valida combinações e bloqueia execuções absurdas
+ * - Estado persiste ao navegar entre abas
+ * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 2.0.0 - Com persistência de estado
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -35,10 +40,12 @@ import {
   Filter,
   TrendingUp,
   RotateCcw,
-  Save,
   Calculator,
+  AlertTriangle,
+  Ban,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useLabParameters, MAX_COMBINATIONS_LIMIT, COMBINATIONS_WARNING_LIMIT, ParameterConfig } from "@/contexts/LabParametersContext";
 
 // ============================================================================
 // TYPES
@@ -60,16 +67,8 @@ export interface ParameterDefinition {
   locked: boolean;
 }
 
-export interface ParameterConfig {
-  parameterId: string;
-  type: "number" | "range" | "boolean" | "select";
-  value?: number | string | boolean;
-  min?: number;
-  max?: number;
-  step?: number;
-  enabled: boolean;
-  locked: boolean;
-}
+// Re-export ParameterConfig for backward compatibility
+export type { ParameterConfig };
 
 interface ParametersTabProps {
   onParametersChange: (parameters: ParameterConfig[]) => void;
@@ -108,13 +107,19 @@ export function ParametersTab({ onParametersChange, strategyType }: ParametersTa
   // Buscar definições de parâmetros do backend
   const { data: parameterData, isLoading, error } = trpc.institutional.getParameterDefinitions.useQuery();
   
-  // Estado local dos parâmetros configurados
-  const [parameterConfigs, setParameterConfigs] = useState<Map<string, ParameterConfig>>(new Map());
-  const [hasChanges, setHasChanges] = useState(false);
+  // Usar contexto global para persistência de estado
+  const { 
+    parameterConfigs, 
+    updateParameter, 
+    setParameterConfigs,
+    resetParameters,
+    combinationsValidation,
+    enabledParametersCount,
+  } = useLabParameters();
 
-  // Inicializar configurações quando os dados chegarem
+  // Inicializar configurações quando os dados chegarem (apenas se não houver dados persistidos)
   useEffect(() => {
-    if (parameterData?.parameters) {
+    if (parameterData?.parameters && parameterConfigs.size === 0) {
       const initialConfigs = new Map<string, ParameterConfig>();
       
       parameterData.parameters.forEach((param: ParameterDefinition) => {
@@ -135,9 +140,9 @@ export function ParametersTab({ onParametersChange, strategyType }: ParametersTa
       
       setParameterConfigs(initialConfigs);
     }
-  }, [parameterData]);
+  }, [parameterData, parameterConfigs.size, setParameterConfigs]);
 
-  // Notificar mudanças
+  // Notificar mudanças para o componente pai
   useEffect(() => {
     if (parameterConfigs.size > 0) {
       onParametersChange(Array.from(parameterConfigs.values()));
@@ -146,56 +151,29 @@ export function ParametersTab({ onParametersChange, strategyType }: ParametersTa
 
   // Handlers
   const handleToggleEnabled = useCallback((paramName: string) => {
-    setParameterConfigs(prev => {
-      const newConfigs = new Map(prev);
-      const config = newConfigs.get(paramName);
-      if (config && !config.locked) {
-        newConfigs.set(paramName, { ...config, enabled: !config.enabled });
-        setHasChanges(true);
-      }
-      return newConfigs;
-    });
-  }, []);
+    const config = parameterConfigs.get(paramName);
+    if (config && !config.locked) {
+      updateParameter(paramName, { enabled: !config.enabled });
+    }
+  }, [parameterConfigs, updateParameter]);
 
   const handleToggleLocked = useCallback((paramName: string) => {
-    setParameterConfigs(prev => {
-      const newConfigs = new Map(prev);
-      const config = newConfigs.get(paramName);
-      if (config) {
-        newConfigs.set(paramName, { 
-          ...config, 
-          locked: !config.locked,
-          enabled: config.locked ? config.enabled : false, // Se travar, desabilita otimização
-        });
-        setHasChanges(true);
-      }
-      return newConfigs;
-    });
-  }, []);
+    const config = parameterConfigs.get(paramName);
+    if (config) {
+      updateParameter(paramName, { 
+        locked: !config.locked,
+        enabled: config.locked ? config.enabled : false,
+      });
+    }
+  }, [parameterConfigs, updateParameter]);
 
   const handleValueChange = useCallback((paramName: string, value: number | string | boolean) => {
-    setParameterConfigs(prev => {
-      const newConfigs = new Map(prev);
-      const config = newConfigs.get(paramName);
-      if (config) {
-        newConfigs.set(paramName, { ...config, value });
-        setHasChanges(true);
-      }
-      return newConfigs;
-    });
-  }, []);
+    updateParameter(paramName, { value });
+  }, [updateParameter]);
 
   const handleRangeChange = useCallback((paramName: string, field: "min" | "max" | "step", value: number) => {
-    setParameterConfigs(prev => {
-      const newConfigs = new Map(prev);
-      const config = newConfigs.get(paramName);
-      if (config) {
-        newConfigs.set(paramName, { ...config, [field]: value });
-        setHasChanges(true);
-      }
-      return newConfigs;
-    });
-  }, []);
+    updateParameter(paramName, { [field]: value });
+  }, [updateParameter]);
 
   const handleResetToDefaults = useCallback(() => {
     if (parameterData?.parameters) {
@@ -218,24 +196,11 @@ export function ParametersTab({ onParametersChange, strategyType }: ParametersTa
       });
       
       setParameterConfigs(defaultConfigs);
-      setHasChanges(false);
     }
-  }, [parameterData]);
-
-  // Calcular número de combinações
-  const calculateCombinations = useCallback(() => {
-    let combinations = 1;
-    parameterConfigs.forEach((config) => {
-      if (config.enabled && !config.locked && config.type === "range" && config.min !== undefined && config.max !== undefined && config.step !== undefined) {
-        const steps = Math.floor((config.max - config.min) / config.step) + 1;
-        combinations *= steps;
-      }
-    });
-    return combinations;
-  }, [parameterConfigs]);
+  }, [parameterData, setParameterConfigs]);
 
   // Agrupar parâmetros por categoria
-  const groupedParameters = React.useMemo(() => {
+  const groupedParameters = useMemo(() => {
     if (!parameterData?.parameters) return {};
     
     const grouped: Record<string, ParameterDefinition[]> = {};
@@ -270,9 +235,6 @@ export function ParametersTab({ onParametersChange, strategyType }: ParametersTa
     );
   }
 
-  const totalCombinations = calculateCombinations();
-  const enabledCount = Array.from(parameterConfigs.values()).filter(c => c.enabled && !c.locked).length;
-
   return (
     <div className="space-y-6">
       {/* Header com estatísticas */}
@@ -293,7 +255,6 @@ export function ParametersTab({ onParametersChange, strategyType }: ParametersTa
                 variant="outline"
                 size="sm"
                 onClick={handleResetToDefaults}
-                disabled={!hasChanges}
               >
                 <RotateCcw className="w-4 h-4 mr-2" />
                 Restaurar Padrões
@@ -304,29 +265,59 @@ export function ParametersTab({ onParametersChange, strategyType }: ParametersTa
         <CardContent>
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-muted rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-primary">{enabledCount}</div>
+              <div className="text-2xl font-bold text-primary">
+                {enabledParametersCount}
+              </div>
               <div className="text-sm text-muted-foreground">Parâmetros Ativos</div>
             </div>
-            <div className="bg-muted rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-primary">
-                {totalCombinations.toLocaleString()}
+            <div className={`rounded-lg p-4 text-center ${
+              !combinationsValidation.isValid 
+                ? 'bg-destructive/20 border border-destructive' 
+                : combinationsValidation.isWarning 
+                  ? 'bg-yellow-500/20 border border-yellow-500'
+                  : 'bg-muted'
+            }`}>
+              <div className={`text-2xl font-bold ${
+                !combinationsValidation.isValid 
+                  ? 'text-destructive' 
+                  : combinationsValidation.isWarning 
+                    ? 'text-yellow-500'
+                    : 'text-primary'
+              }`}>
+                {combinationsValidation.totalCombinations.toLocaleString()}
               </div>
               <div className="text-sm text-muted-foreground">Combinações Estimadas</div>
             </div>
             <div className="bg-muted rounded-lg p-4 text-center">
               <div className="text-2xl font-bold text-primary">
-                ~{Math.ceil(totalCombinations * 0.5 / 60)} min
+                ~{combinationsValidation.estimatedTimeMinutes} min
               </div>
               <div className="text-sm text-muted-foreground">Tempo Estimado</div>
             </div>
           </div>
           
-          {totalCombinations > 10000 && (
+          {/* Alerta de limite excedido */}
+          {!combinationsValidation.isValid && (
             <Alert className="mt-4" variant="destructive">
-              <Calculator className="h-4 w-4" />
-              <AlertTitle>Muitas Combinações</AlertTitle>
+              <Ban className="h-4 w-4" />
+              <AlertTitle>Limite de Combinações Excedido</AlertTitle>
               <AlertDescription>
-                O número de combinações é muito alto. Considere reduzir os ranges ou desabilitar alguns parâmetros para otimização mais rápida.
+                {combinationsValidation.message}
+                <br />
+                <span className="text-xs mt-1 block">
+                  Limite máximo: {MAX_COMBINATIONS_LIMIT.toLocaleString()} combinações
+                </span>
+              </AlertDescription>
+            </Alert>
+          )}
+          
+          {/* Alerta de warning */}
+          {combinationsValidation.isWarning && combinationsValidation.isValid && (
+            <Alert className="mt-4" variant="default">
+              <AlertTriangle className="h-4 w-4 text-yellow-500" />
+              <AlertTitle className="text-yellow-500">Atenção: Muitas Combinações</AlertTitle>
+              <AlertDescription>
+                {combinationsValidation.message}
               </AlertDescription>
             </Alert>
           )}
