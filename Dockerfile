@@ -71,6 +71,9 @@ EXPOSE 3000
 # Variáveis de ambiente padrão
 ENV NODE_ENV=production
 ENV PORT=3000
+# CORREÇÃO OOM: Aumentar heap do Node.js para evitar crash por memória
+# Railway Free: 512MB | Pro: 1024MB ou mais
+ENV NODE_OPTIONS="--max-old-space-size=512"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

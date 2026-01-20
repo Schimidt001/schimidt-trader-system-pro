@@ -496,17 +496,31 @@ export const institutionalRouter = router({
    * Get optimization status
    * 
    * CORREÇÃO 502: Agora usa JobQueue para status
+   * CORREÇÃO OOM: Retorna apenas metadata leve, sem dados pesados
    * Inclui runId, lastProgressAt para monitoramento de heartbeat
    */
   getOptimizationStatus: protectedProcedure
     .query(() => {
       const jobStatus = optimizationJobQueue.getJobStatus();
       
+      // CORREÇÃO OOM: Retornar apenas campos essenciais do progress
+      // Não retornar currentParams ou outros dados pesados
+      const lightProgress = jobStatus.progress ? {
+        phase: jobStatus.progress.phase,
+        currentCombination: jobStatus.progress.currentCombination,
+        totalCombinations: jobStatus.progress.totalCombinations,
+        percentComplete: jobStatus.progress.percentComplete,
+        estimatedTimeRemaining: jobStatus.progress.estimatedTimeRemaining,
+        elapsedTime: jobStatus.progress.elapsedTime,
+        statusMessage: jobStatus.progress.statusMessage,
+        // NÃO incluir currentParams para reduzir payload
+      } : null;
+      
       return {
         isRunning: jobStatus.status === "RUNNING" || jobStatus.status === "QUEUED",
         runId: jobStatus.runId,
         status: jobStatus.status,
-        progress: jobStatus.progress,
+        progress: lightProgress,
         error: jobStatus.error,
         lastProgressAt: jobStatus.lastProgressAt?.toISOString() || null,
       };

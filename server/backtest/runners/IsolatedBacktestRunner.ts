@@ -33,6 +33,7 @@ import { ITradingAdapter } from "../adapters/ITradingAdapter";
 import { CandleData, PriceTick } from "../../adapters/IBrokerAdapter";
 import { backtestLogger } from "../utils/LabLogger";
 import { sanitizeMetrics } from "../utils/LabErrors";
+import { memoryManager, hasEnoughMemory } from "../utils/MemoryManager";
 
 // ============================================================================
 // TYPES
@@ -391,6 +392,11 @@ export class IsolatedBacktestRunner {
         break;
       }
       
+      // CORREÇÃO OOM: Verificar memória periodicamente
+      if (i % 500 === 0 && !hasEnoughMemory(30)) {
+        memoryManager.tryFreeMemory();
+      }
+      
       // Avançar vela
       const candle = this.adapter.advanceCandle(symbol, primaryTimeframe);
       if (!candle) continue;
@@ -646,10 +652,17 @@ export class IsolatedBacktestRunner {
   
   /**
    * Limpar estado (garantir isolamento)
+   * CORREÇÃO OOM: Forçar liberação de memória após cada execução
    */
   private cleanup(): void {
+    // Limpar referências
     this.adapter = null;
     this.engine = null;
+    
+    // CORREÇÃO OOM: Forçar GC se disponível
+    memoryManager.tryFreeMemory();
+    
+    backtestLogger.debug("Cleanup concluído, memória liberada", "IsolatedBacktestRunner");
   }
 }
 

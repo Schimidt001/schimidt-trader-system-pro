@@ -39,6 +39,7 @@ import { StrategyType } from "../../adapters/ctrader/ITradingStrategy";
 import { ITradingAdapter } from "../adapters/ITradingAdapter";
 import { CandleData, PriceTick } from "../../adapters/IBrokerAdapter";
 import { backtestLogger } from "../utils/LabLogger";
+import { memoryManager, hasEnoughMemory } from "../utils/MemoryManager";
 
 // ============================================================================
 // BACKTEST RUNNER CLASS
@@ -202,6 +203,11 @@ export class BacktestRunner {
     
     while (this.adapter.advanceBar(symbol, primaryTimeframe)) {
       barCount++;
+      
+      // CORREÇÃO OOM: Verificar memória periodicamente
+      if (barCount % 500 === 0 && !hasEnoughMemory(30)) {
+        memoryManager.tryFreeMemory();
+      }
       
       // Obter dados MTF para análise (agora sincronizados por timestamp)
       const mtfData = await this.buildMTFData(symbol);

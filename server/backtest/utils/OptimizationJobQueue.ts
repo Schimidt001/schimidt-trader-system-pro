@@ -14,6 +14,8 @@
 
 import { labLogger, optimizationLogger } from "./LabLogger";
 import { GridSearchEngine } from "../optimization/GridSearchEngine";
+import { GridSearchEngineOptimized } from "../optimization/GridSearchEngineOptimized";
+import { memoryManager } from "./MemoryManager";
 import { OptimizationConfig, OptimizationProgress, OptimizationFinalResult, ParameterType } from "../optimization/types/optimization.types";
 
 // ============================================================================
@@ -209,8 +211,21 @@ export class OptimizationJobQueue {
       
       labLogger.info(`Workers ajustados: ${adjustedConfig.parallelWorkers} (max: ${this.config.maxParallelWorkers})`, "JobQueue");
       
-      // Criar engine
-      this.activeEngine = new GridSearchEngine(adjustedConfig);
+      // CORREÇÃO OOM: Usar engine otimizado para memória
+      // O GridSearchEngineOptimized mantém apenas Top-N resultados em memória
+      const useOptimizedEngine = true; // Feature flag para rollback se necessário
+      
+      if (useOptimizedEngine) {
+        const optimizedEngine = new GridSearchEngineOptimized(adjustedConfig);
+        this.activeEngine = optimizedEngine as unknown as GridSearchEngine;
+        labLogger.info("Usando GridSearchEngineOptimized (memória otimizada)", "JobQueue");
+      } else {
+        this.activeEngine = new GridSearchEngine(adjustedConfig);
+        labLogger.info("Usando GridSearchEngine (padrão)", "JobQueue");
+      }
+      
+      // Log de memória inicial
+      memoryManager.logMemoryStats("JobQueue - Antes da otimização");
       
       // CHECKPOINT: job.loaded_data (será logado pelo GridSearchEngine)
       labLogger.info(`CHECKPOINT: job.loaded_data(${runId})`, "JobQueue");
