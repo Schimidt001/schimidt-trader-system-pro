@@ -25,6 +25,8 @@ import {
 } from "./types/optimization.types";
 import { BacktestMetrics, BacktestResult, BacktestConfig, BacktestStrategyType } from "../types/backtest.types";
 import { BacktestRunner } from "../runners/BacktestRunner";
+import { BacktestRunnerOptimized } from "../runners/BacktestRunnerOptimized";
+import { candleDataCache } from "../utils/CandleDataCache";
 
 // ============================================================================
 // CONSTANTS - MEMORY OPTIMIZATION
@@ -37,7 +39,10 @@ const MAX_TOP_RESULTS = 50;
 const BATCH_SIZE = 10;
 
 /** Intervalo para forçar GC (em combinações) */
-const GC_INTERVAL = 25;
+const GC_INTERVAL = 20;
+
+/** Flag para usar cache compartilhado de candles */
+const USE_SHARED_CACHE = true;
 
 // ============================================================================
 // TOP-N HEAP CLASS
@@ -234,6 +239,20 @@ export class GridSearchEngineOptimized {
     
     const { inSamplePeriod, outSamplePeriod } = this.splitPeriod();
     
+    // CORREÇÃO OOM: Pré-carregar dados no cache compartilhado
+    const dataPath = this.config.dataPath || "./data/candles";
+    if (USE_SHARED_CACHE) {
+      optimizationLogger.info("Pré-carregando dados no cache compartilhado...", "GridSearchOpt");
+      candleDataCache.preload(
+        dataPath,
+        this.config.symbols,
+        this.config.timeframes || ["M5", "M15", "H1"],
+        this.config.startDate,
+        this.config.endDate
+      );
+      candleDataCache.logStats();
+    }
+    
     optimizationLogger.info("CHECKPOINT: GridSearchOpt.data_loaded", "GridSearchOpt");
     optimizationLogger.info(`In-Sample: ${inSamplePeriod.start.toISOString().split("T")[0]} - ${inSamplePeriod.end.toISOString().split("T")[0]}`, "GridSearchOpt");
     optimizationLogger.info(`Out-Sample: ${outSamplePeriod.start.toISOString().split("T")[0]} - ${outSamplePeriod.end.toISOString().split("T")[0]}`, "GridSearchOpt");
@@ -349,6 +368,12 @@ export class GridSearchEngineOptimized {
     memoryManager.logMemoryStats("GridSearchOpt - Fim");
     memoryManager.stopMonitoring();
     
+    // CORREÇÃO OOM: Limpar cache de candles após otimização
+    if (USE_SHARED_CACHE) {
+      candleDataCache.clear();
+      optimizationLogger.info("Cache de candles limpo", "GridSearchOpt");
+    }
+    
     optimizationLogger.endOperation("Grid Search Otimizado", true, {
       tempo: `${executionTime.toFixed(1)}s`,
       combinacoes: completed,
@@ -453,7 +478,7 @@ export class GridSearchEngineOptimized {
       strategy: this.config.strategyType,
       startDate,
       endDate,
-      dataPath: "./data/candles",
+      dataPath: this.config.dataPath || "./data/candles",
       timeframes: ["M5", "M15", "H1"],
       initialBalance: 10000,
       leverage: 500,
@@ -465,13 +490,20 @@ export class GridSearchEngineOptimized {
       maxSpread: (parameters.maxSpreadPips as number) || 3,
     };
     
-    const runner = new BacktestRunner(config);
-    const result = await runner.run();
+    // CORREÇÃO OOM: Usar runner otimizado que usa cache compartilhado
+    const runner = USE_SHARED_CACHE 
+      ? new BacktestRunnerOptimized(config)
+      : new BacktestRunner(config);
     
-    // CORREÇÃO OOM: Limpar dados pesados do runner após uso
-    // O runner não é mais necessário após retornar o resultado
-    
-    return result;
+    try {
+      const result = await runner.run();
+      return result;
+    } finally {
+      // CORREÇÃO OOM: Limpar recursos do runner
+      if ('cleanup' in runner && typeof runner.cleanup === 'function') {
+        runner.cleanup();
+      }
+    }
   }
 
   /**

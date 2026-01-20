@@ -52,9 +52,9 @@ export interface MemoryConfig {
 // ============================================================================
 
 const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
-  heapWarningThresholdMB: 350, // 70% de 512MB
-  heapCriticalThresholdMB: 450, // 90% de 512MB
-  monitoringIntervalMs: 10000, // 10 segundos
+  heapWarningThresholdMB: 300, // 60% de 512MB - mais conservador
+  heapCriticalThresholdMB: 400, // 80% de 512MB - mais conservador
+  monitoringIntervalMs: 5000, // 5 segundos - mais frequente
   enableForcedGC: true,
   enableMemoryLogs: true,
 };

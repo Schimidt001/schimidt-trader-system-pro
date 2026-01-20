@@ -54,9 +54,9 @@ export interface JobQueueConfig {
 // ============================================================================
 
 const DEFAULT_JOB_QUEUE_CONFIG: JobQueueConfig = {
-  heartbeatIntervalMs: 5000, // 5 segundos
-  maxCombinations: 10000,
-  maxParallelWorkers: 2, // Reduzido para não travar CPU do Railway
+  heartbeatIntervalMs: 3000, // 3 segundos - mais frequente para detectar problemas
+  maxCombinations: 5000, // Reduzido para evitar OOM
+  maxParallelWorkers: 1, // Reduzido para 1 para minimizar uso de memória
   jobTimeoutMs: 0, // Sem timeout por padrão
 };
 

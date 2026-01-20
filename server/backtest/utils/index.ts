@@ -27,6 +27,7 @@ export {
   backtestLogger,
   validationLogger,
   multiAssetLogger,
+  dataLogger,
   setGlobalLogLevel,
   disableProgressLogs,
   enableSilentMode,
@@ -59,6 +60,25 @@ export {
   type OptimizationJob,
   type JobQueueConfig,
 } from "./OptimizationJobQueue";
+
+// Memory Manager
+export {
+  MemoryManager,
+  memoryManager,
+  withMemoryMonitoring,
+  hasEnoughMemory,
+  waitForMemory,
+  type MemoryStats,
+  type MemoryConfig,
+} from "./MemoryManager";
+
+// Candle Data Cache
+export {
+  CandleDataCache,
+  candleDataCache,
+  type CachedCandles,
+  type CacheStats,
+} from "./CandleDataCache";
 
 // Erros estruturados
 export {
