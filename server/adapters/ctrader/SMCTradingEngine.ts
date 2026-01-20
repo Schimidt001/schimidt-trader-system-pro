@@ -54,6 +54,8 @@ export interface SMCTradingEngineConfig {
   cooldownMs: number;
   /** Spread máximo permitido em pips (TAREFA B - Proteção de Spread) */
   maxSpread: number;
+  /** Máximo de trades por símbolo (CORREÇÃO CRÍTICA 2026-01-20) */
+  maxTradesPerSymbol: number;
 }
 
 /**
@@ -107,6 +109,7 @@ const DEFAULT_ENGINE_CONFIG: Omit<SMCTradingEngineConfig, "userId" | "botId"> = 
   maxPositions: 3,
   cooldownMs: 60000,
   maxSpread: 2.0, // TAREFA B: Spread máximo padrão de 2 pips
+  maxTradesPerSymbol: 1, // CORREÇÃO CRÍTICA 2026-01-20: Máximo de trades por símbolo
 };
 
 // ============= CLASSE PRINCIPAL =============
@@ -572,6 +575,15 @@ export class SMCTradingEngine extends EventEmitter {
         // Atualizar max positions
         if (smcConfig.maxOpenTrades) {
           this.config.maxPositions = smcConfig.maxOpenTrades;
+        }
+        
+        // CORREÇÃO CRÍTICA 2026-01-20: Carregar maxTradesPerSymbol do banco de dados
+        // Este campo controla quantos trades simultâneos são permitidos POR ATIVO
+        if (smcConfig.maxTradesPerSymbol !== undefined && smcConfig.maxTradesPerSymbol !== null) {
+          this.config.maxTradesPerSymbol = smcConfig.maxTradesPerSymbol;
+          console.log(`[SMCTradingEngine] [Config] ✅ maxTradesPerSymbol carregado do banco: ${this.config.maxTradesPerSymbol}`);
+        } else {
+          console.log(`[SMCTradingEngine] [Config] ⚠️ maxTradesPerSymbol não encontrado no banco, usando default: ${this.config.maxTradesPerSymbol}`);
         }
       } else {
         console.warn(`[SMCTradingEngine] [Config] ⚠️ smcConfig é NULL! Usando símbolos padrão: ${JSON.stringify(this.config.symbols)}`);
@@ -1470,14 +1482,29 @@ export class SMCTradingEngine extends EventEmitter {
       }
     }
     
-    // Verificar posições abertas
+    // Verificar posições abertas (cache local)
     const openPositions = await this.adapter.getOpenPositions();
     const symbolPositions = openPositions.filter(p => p.symbol === symbol);
     
-    if (symbolPositions.length >= 1) {
-      console.log(`[SMCTradingEngine] ⚠️ Já existe posição aberta em ${symbol}`);
-      await this.logFilter("POSITION_EXISTS", symbol, `Já existe ${symbolPositions.length} posição(s) aberta(s)`, { openPositions: symbolPositions.length });
+    console.log(`[SMCTradingEngine] 📊 ${symbol}: Posições neste ativo=${symbolPositions.length}, Limite=${this.config.maxTradesPerSymbol}`);
+    
+    if (symbolPositions.length >= this.config.maxTradesPerSymbol) {
+      console.log(`[SMCTradingEngine] ⚠️ ${symbol}: BLOQUEADO - Já existe ${symbolPositions.length} posição(ões) neste ativo (limite: ${this.config.maxTradesPerSymbol})`);
+      await this.logFilter("POSITION_EXISTS", symbol, `Já existe ${symbolPositions.length} posição(s) aberta(s) (limite: ${this.config.maxTradesPerSymbol})`, { openPositions: symbolPositions.length, limit: this.config.maxTradesPerSymbol });
       return;
+    }
+    
+    // CORREÇÃO CRÍTICA 2026-01-20: Verificação adicional no banco de dados
+    // Esta é uma camada de segurança adicional para evitar race conditions
+    if (this.riskManager) {
+      const dbSymbolPositions = await this.riskManager.getOpenTradesCountBySymbol(symbol);
+      console.log(`[SMCTradingEngine] 📊 ${symbol}: Posições no BANCO DE DADOS=${dbSymbolPositions}, Limite=${this.config.maxTradesPerSymbol}`);
+      
+      if (dbSymbolPositions >= this.config.maxTradesPerSymbol) {
+        console.log(`[SMCTradingEngine] ⚠️ ${symbol}: BLOQUEADO (DB) - Já existe ${dbSymbolPositions} posição(ões) no banco de dados (limite: ${this.config.maxTradesPerSymbol})`);
+        await this.logFilter("POSITION_EXISTS_DB", symbol, `Já existe ${dbSymbolPositions} posição(s) no banco de dados (limite: ${this.config.maxTradesPerSymbol})`, { dbPositions: dbSymbolPositions, limit: this.config.maxTradesPerSymbol });
+        return;
+      }
     }
     
     // Calcular tamanho da posição

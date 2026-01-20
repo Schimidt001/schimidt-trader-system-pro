@@ -405,11 +405,21 @@ export class HybridTradingEngine extends EventEmitter {
         if (smcConfig[0].maxOpenTrades) {
           this.config.maxPositions = smcConfig[0].maxOpenTrades;
         }
+        
+        // CORREÇÃO CRÍTICA 2026-01-20: Carregar maxTradesPerSymbol do banco de dados
+        // Este campo controla quantos trades simultâneos são permitidos POR ATIVO
+        // Sem esta correção, o valor ficava fixo no default (1) e não era respeitado
+        if (smcConfig[0].maxTradesPerSymbol !== undefined && smcConfig[0].maxTradesPerSymbol !== null) {
+          this.config.maxTradesPerSymbol = smcConfig[0].maxTradesPerSymbol;
+          console.log(`[HybridEngine] [Config] ✅ maxTradesPerSymbol carregado do banco: ${this.config.maxTradesPerSymbol}`);
+        } else {
+          console.log(`[HybridEngine] [Config] ⚠️ maxTradesPerSymbol não encontrado no banco, usando default: ${this.config.maxTradesPerSymbol}`);
+        }
       } else {
         console.warn(`[HybridEngine] [Config] ⚠️ Nenhuma configuração SMC encontrada para userId=${this.config.userId}, botId=${this.config.botId}`);
       }
       
-      console.log(`[HybridEngine] ✅ Configurações carregadas: ${this.config.symbols.length} símbolos | maxPositions=${this.config.maxPositions}`);
+      console.log(`[HybridEngine] ✅ Configurações carregadas: ${this.config.symbols.length} símbolos | maxPositions=${this.config.maxPositions} | maxTradesPerSymbol=${this.config.maxTradesPerSymbol}`);
       
     } catch (error) {
       console.error("[HybridEngine] ❌ Erro ao carregar config:", error);
@@ -1151,6 +1161,21 @@ export class HybridTradingEngine extends EventEmitter {
       if (symbolPositions.length >= this.config.maxTradesPerSymbol) {
         console.log(`[HybridEngine] ⚠️ ${symbol}: BLOQUEADO - Já existe ${symbolPositions.length} posição(ões) neste ativo (limite: ${this.config.maxTradesPerSymbol})`);
         return;
+      }
+      
+      // ═══════════════════════════════════════════════════════════════
+      // CAMADA 5d: VERIFICAÇÃO ADICIONAL NO BANCO DE DADOS (CORREÇÃO CRÍTICA 2026-01-20)
+      // Esta é uma camada de segurança adicional que verifica diretamente no banco
+      // de dados para evitar race conditions entre cache e API.
+      // ═══════════════════════════════════════════════════════════════
+      if (this.riskManager) {
+        const dbSymbolPositions = await this.riskManager.getOpenTradesCountBySymbol(symbol);
+        console.log(`[HybridEngine] 📊 ${symbol}: Posições no BANCO DE DADOS=${dbSymbolPositions}, Limite=${this.config.maxTradesPerSymbol}`);
+        
+        if (dbSymbolPositions >= this.config.maxTradesPerSymbol) {
+          console.log(`[HybridEngine] ⚠️ ${symbol}: BLOQUEADO (DB) - Já existe ${dbSymbolPositions} posição(ões) no banco de dados (limite: ${this.config.maxTradesPerSymbol})`);
+          return;
+        }
       }
       
       // Verificar limite total de posições (incluindo pendentes)

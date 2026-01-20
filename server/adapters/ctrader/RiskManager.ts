@@ -567,6 +567,40 @@ export class RiskManager {
   }
   
   /**
+   * CORREÇÃO CRÍTICA 2026-01-20: Obtém o número de trades abertos por símbolo
+   * Esta verificação é feita diretamente no banco de dados para garantir consistência
+   * e evitar race conditions que ocorrem quando se usa apenas cache local.
+   * 
+   * @param symbol - Símbolo a verificar (ex: "EURUSD")
+   * @returns Número de posições abertas para o símbolo
+   */
+  async getOpenTradesCountBySymbol(symbol: string): Promise<number> {
+    try {
+      const db = await getDb();
+      if (!db) return 0;
+      
+      const result = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(forexPositions)
+        .where(
+          and(
+            eq(forexPositions.userId, this.config.userId),
+            eq(forexPositions.botId, this.config.botId),
+            eq(forexPositions.symbol, symbol),
+            eq(forexPositions.status, "OPEN")
+          )
+        );
+      
+      const count = result[0]?.count || 0;
+      console.log(`[RiskManager] Posições abertas para ${symbol}: ${count}`);
+      return count;
+    } catch (error) {
+      console.error(`[RiskManager] Erro ao contar trades abertos para ${symbol}:`, error);
+      return 0;
+    }
+  }
+  
+  /**
    * Obtém o número de trades abertos do banco de dados
    */
   private async getOpenTradesCount(): Promise<number> {
