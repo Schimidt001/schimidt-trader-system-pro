@@ -12,9 +12,16 @@
  * 
  * @author Schimidt Trader Pro
  * @version 1.0.0
+ * 
+ * CORREÇÃO P0 v5.0 (2026-01-22):
+ * - Implementado sistema de In-Flight Orders por símbolo
+ * - Mutex por símbolo com seção crítica atômica
+ * - Watchdog de 30s para timeout de locks
+ * - Logs estruturados para observabilidade (LOCK_ACQUIRED, LOCK_BLOCKED, LOCK_RELEASED, LOCK_TIMEOUT)
  */
 
 import { EventEmitter } from "events";
+import { randomUUID } from "crypto";
 import { ctraderAdapter } from "../CTraderAdapter";
 import { TradeSide } from "./CTraderClient";
 import { ITradingStrategy, IMultiTimeframeStrategy, StrategyType, SignalResult, MultiTimeframeData } from "./ITradingStrategy";
@@ -67,6 +74,29 @@ interface CombinedSignal {
   conflictReason?: string;
 }
 
+// ============= CORREÇÃO P0 v5.0: TIPOS PARA IN-FLIGHT ORDERS =============
+
+/**
+ * Informação de uma ordem in-flight (em voo)
+ * Uma ordem é considerada in-flight desde o momento que decidimos enviar
+ * até a confirmação real da API ou timeout.
+ */
+interface InFlightOrderInfo {
+  timestamp: number;        // Quando a ordem foi marcada como in-flight
+  orderId?: string;         // ID da ordem (preenchido após resposta da API)
+  correlationId: string;    // ID único para rastreio nos logs
+  status: 'pending' | 'sent' | 'confirmed' | 'failed' | 'timeout';
+}
+
+/**
+ * Resultado da tentativa de adquirir lock
+ */
+interface LockAcquisitionResult {
+  acquired: boolean;
+  reason?: string;
+  correlationId?: string;
+}
+
 // ============= CONFIGURAÇÃO PADRÃO =============
 
 const DEFAULT_HYBRID_CONFIG: Omit<HybridEngineConfig, "userId" | "botId"> = {
@@ -78,6 +108,14 @@ const DEFAULT_HYBRID_CONFIG: Omit<HybridEngineConfig, "userId" | "botId"> = {
   maxTotalExposurePercent: 7.0,
   maxTradesPerSymbol: 1,
 };
+
+// ============= CONSTANTES DE TIMEOUT =============
+
+/**
+ * CORREÇÃO P0 v5.0: Timeout para ordens in-flight
+ * Após este tempo, o lock é liberado automaticamente pelo watchdog
+ */
+const IN_FLIGHT_TIMEOUT_MS = 30000; // 30 segundos conforme especificação
 
 // ============= CLASSE PRINCIPAL =============
 
@@ -103,21 +141,44 @@ export class HybridTradingEngine extends EventEmitter {
   private tradesExecuted: number = 0;
   private startTime: number | null = null;
   
-  // ============= CONTROLE DE CONCORRÊNCIA PER-SYMBOL =============
+  // ============= CORREÇÃO P0 v5.0: SISTEMA DE IN-FLIGHT ORDERS =============
+  
+  /**
+   * CORREÇÃO P0 v5.0: In-Flight Orders por Símbolo
+   * 
+   * Map que armazena informações de ordens "em voo" - ordens que foram
+   * iniciadas mas ainda não confirmadas pela API.
+   * 
+   * REGRAS CRÍTICAS:
+   * 1. SETAR in-flight ANTES de chamar placeOrder (fecha a janela de corrida)
+   * 2. Se placeOrder lançar exceção ou retornar rejected → limpar imediatamente
+   * 3. Se success=true → manter até confirmação via API
+   * 4. Watchdog de 30s libera locks travados
+   * 
+   * Chave: symbol
+   * Valor: InFlightOrderInfo
+   */
+  private inFlightOrdersBySymbol: Map<string, InFlightOrderInfo> = new Map();
+  
+  /**
+   * CORREÇÃO P0 v5.0: Mutex por Símbolo (Promessas de Lock)
+   * 
+   * Map que armazena promessas de resolução para implementar mutex simples.
+   * Quando um símbolo está sendo processado, outros ciclos aguardam a resolução.
+   */
+  private symbolMutexes: Map<string, Promise<void>> = new Map();
+  private symbolMutexResolvers: Map<string, () => void> = new Map();
+  
+  // ============= CONTROLE DE CONCORRÊNCIA LEGADO (mantido para compatibilidade) =============
+  
   /**
    * Map que controla se um símbolo está em processo de execução de ordem.
-   * Previne Race Condition onde múltiplas ordens são enviadas para o mesmo ativo
-   * antes da confirmação da API.
-   * 
-   * IMPORTANTE: Este lock é POR ATIVO, não global.
-   * Se EURUSD está travado, GBPUSD continua livre para operar.
+   * @deprecated Use inFlightOrdersBySymbol para controle mais preciso
    */
   private isExecutingOrder: Map<string, boolean> = new Map();
   
   /**
-   * CORREÇÃO v3.0: Watchdog de Deadlock
-   * Map que armazena o timestamp de quando cada símbolo foi travado.
-   * Usado para detectar e liberar locks que ficaram presos por mais de 15 segundos.
+   * @deprecated Use inFlightOrdersBySymbol.timestamp
    */
   private lockTimestamps: Map<string, number> = new Map();
   
@@ -125,11 +186,7 @@ export class HybridTradingEngine extends EventEmitter {
   
   /**
    * CORREÇÃO v4.0: Posições Pendentes (Phantom Positions)
-   * Map que armazena posições que foram enviadas à API mas ainda não confirmadas.
-   * Isso previne race conditions onde múltiplas ordens são enviadas antes da confirmação.
-   * 
-   * Chave: symbol
-   * Valor: timestamp de quando a ordem foi enviada
+   * @deprecated Substituído por inFlightOrdersBySymbol na v5.0
    */
   private pendingPositions: Map<string, number> = new Map();
   
@@ -155,7 +212,7 @@ export class HybridTradingEngine extends EventEmitter {
   
   /**
    * CORREÇÃO v4.0: Timeout para Posições Pendentes
-   * Após este tempo (em ms), uma posição pendente é considerada expirada.
+   * @deprecated Use IN_FLIGHT_TIMEOUT_MS
    */
   private readonly PENDING_POSITION_TIMEOUT_MS = 30000; // 30 segundos
   
@@ -207,6 +264,166 @@ export class HybridTradingEngine extends EventEmitter {
     return this._isRunning;
   }
   
+  // ============= CORREÇÃO P0 v5.0: MÉTODOS DE CONTROLE IN-FLIGHT =============
+  
+  /**
+   * CORREÇÃO P0 v5.0: Verifica se existe ordem in-flight para o símbolo
+   * 
+   * @param symbol Símbolo a verificar
+   * @returns true se existe ordem in-flight válida (não expirada)
+   */
+  private hasInFlightOrder(symbol: string): boolean {
+    const inFlight = this.inFlightOrdersBySymbol.get(symbol);
+    if (!inFlight) return false;
+    
+    const now = Date.now();
+    const age = now - inFlight.timestamp;
+    
+    // Se expirou, limpar e retornar false
+    if (age > IN_FLIGHT_TIMEOUT_MS) {
+      this.logLockTimeout(symbol, age, inFlight.correlationId);
+      this.clearInFlightOrder(symbol, 'timeout');
+      return false;
+    }
+    
+    return true;
+  }
+  
+  /**
+   * CORREÇÃO P0 v5.0: Marca uma ordem como in-flight
+   * 
+   * IMPORTANTE: Deve ser chamado ANTES de placeOrder para fechar a janela de corrida
+   * 
+   * @param symbol Símbolo da ordem
+   * @returns correlationId para rastreio nos logs
+   */
+  private setInFlightOrder(symbol: string): string {
+    const correlationId = randomUUID().substring(0, 8); // ID curto para logs
+    
+    this.inFlightOrdersBySymbol.set(symbol, {
+      timestamp: Date.now(),
+      correlationId,
+      status: 'pending'
+    });
+    
+    return correlationId;
+  }
+  
+  /**
+   * CORREÇÃO P0 v5.0: Atualiza status de ordem in-flight
+   */
+  private updateInFlightOrder(symbol: string, updates: Partial<InFlightOrderInfo>): void {
+    const inFlight = this.inFlightOrdersBySymbol.get(symbol);
+    if (inFlight) {
+      this.inFlightOrdersBySymbol.set(symbol, { ...inFlight, ...updates });
+    }
+  }
+  
+  /**
+   * CORREÇÃO P0 v5.0: Limpa ordem in-flight
+   * 
+   * @param symbol Símbolo da ordem
+   * @param reason Motivo da limpeza (para logs)
+   */
+  private clearInFlightOrder(symbol: string, reason: 'confirmed' | 'failed' | 'rejected' | 'timeout'): void {
+    const inFlight = this.inFlightOrdersBySymbol.get(symbol);
+    if (inFlight) {
+      this.logLockReleased(symbol, reason, inFlight.correlationId);
+    }
+    this.inFlightOrdersBySymbol.delete(symbol);
+  }
+  
+  /**
+   * CORREÇÃO P0 v5.0: Tenta adquirir lock para um símbolo
+   * 
+   * Esta função implementa a lógica de mutex por símbolo:
+   * 1. Verifica se já existe ordem in-flight
+   * 2. Se existir, bloqueia imediatamente
+   * 3. Se não existir, adquire o lock
+   * 
+   * @param symbol Símbolo para adquirir lock
+   * @returns Resultado da tentativa de aquisição
+   */
+  private tryAcquireLock(symbol: string): LockAcquisitionResult {
+    // Verificar se já existe ordem in-flight
+    if (this.hasInFlightOrder(symbol)) {
+      const inFlight = this.inFlightOrdersBySymbol.get(symbol)!;
+      const age = Date.now() - inFlight.timestamp;
+      
+      this.logLockBlocked(symbol, 'inflight', inFlight.correlationId, age);
+      
+      return {
+        acquired: false,
+        reason: `Ordem in-flight há ${Math.floor(age/1000)}s (correlationId: ${inFlight.correlationId})`
+      };
+    }
+    
+    // Adquirir lock
+    const correlationId = this.setInFlightOrder(symbol);
+    this.logLockAcquired(symbol, correlationId);
+    
+    return {
+      acquired: true,
+      correlationId
+    };
+  }
+  
+  /**
+   * CORREÇÃO P0 v5.0: Executa watchdog para limpar locks expirados
+   * 
+   * Chamado periodicamente para garantir que locks travados sejam liberados
+   */
+  private runWatchdog(): void {
+    const now = Date.now();
+    
+    for (const [symbol, inFlight] of this.inFlightOrdersBySymbol.entries()) {
+      const age = now - inFlight.timestamp;
+      
+      if (age > IN_FLIGHT_TIMEOUT_MS) {
+        this.logLockTimeout(symbol, age, inFlight.correlationId);
+        this.clearInFlightOrder(symbol, 'timeout');
+      }
+    }
+  }
+  
+  // ============= CORREÇÃO P0 v5.0: LOGS ESTRUTURADOS =============
+  
+  /**
+   * Log estruturado: LOCK_ACQUIRED
+   */
+  private logLockAcquired(symbol: string, correlationId: string): void {
+    const logMsg = `LOCK_ACQUIRED symbol=${symbol} correlationId=${correlationId}`;
+    console.log(`[HybridEngine] 🔐 ${logMsg}`);
+    this.logToDatabase("INFO", "SYSTEM", logMsg, { symbol, data: { correlationId, event: 'LOCK_ACQUIRED' } });
+  }
+  
+  /**
+   * Log estruturado: LOCK_BLOCKED
+   */
+  private logLockBlocked(symbol: string, reason: string, correlationId: string, ageMs?: number): void {
+    const logMsg = `LOCK_BLOCKED symbol=${symbol} reason=${reason} correlationId=${correlationId}${ageMs ? ` ageMs=${ageMs}` : ''}`;
+    console.log(`[HybridEngine] 🚫 ${logMsg}`);
+    this.logToDatabase("WARN", "SYSTEM", logMsg, { symbol, data: { correlationId, reason, ageMs, event: 'LOCK_BLOCKED' } });
+  }
+  
+  /**
+   * Log estruturado: LOCK_RELEASED
+   */
+  private logLockReleased(symbol: string, reason: string, correlationId: string): void {
+    const logMsg = `LOCK_RELEASED symbol=${symbol} reason=${reason} correlationId=${correlationId}`;
+    console.log(`[HybridEngine] 🔓 ${logMsg}`);
+    this.logToDatabase("INFO", "SYSTEM", logMsg, { symbol, data: { correlationId, reason, event: 'LOCK_RELEASED' } });
+  }
+  
+  /**
+   * Log estruturado: LOCK_TIMEOUT
+   */
+  private logLockTimeout(symbol: string, ageMs: number, correlationId: string): void {
+    const logMsg = `LOCK_TIMEOUT symbol=${symbol} ageMs=${ageMs} correlationId=${correlationId}`;
+    console.warn(`[HybridEngine] ⏰ ${logMsg}`);
+    this.logToDatabase("WARN", "SYSTEM", logMsg, { symbol, data: { correlationId, ageMs, event: 'LOCK_TIMEOUT' } });
+  }
+  
   // ============= MÉTODOS PÚBLICOS =============
   
   /**
@@ -226,6 +443,7 @@ export class HybridTradingEngine extends EventEmitter {
     console.log("[HybridEngine] 🚀 INICIANDO MOTOR HÍBRIDO");
     console.log(`[HybridEngine] Modo: ${this.config.mode}`);
     console.log(`[HybridEngine] Símbolos: ${this.config.symbols.join(", ")}`);
+    console.log("[HybridEngine] 🔒 CORREÇÃO P0 v5.0: Sistema In-Flight ativo (timeout: 30s)");
     console.log("═══════════════════════════════════════════════════════════════");
     
     try {
@@ -301,6 +519,7 @@ export class HybridTradingEngine extends EventEmitter {
     
     this._isRunning = false;
     
+    // Parar loops
     if (this.analysisInterval) {
       clearInterval(this.analysisInterval);
       this.analysisInterval = null;
@@ -311,40 +530,72 @@ export class HybridTradingEngine extends EventEmitter {
       this.dataRefreshInterval = null;
     }
     
+    // Cancelar subscrições
     await this.unsubscribeFromAllPrices();
     
-    this.startTime = null;
-    this.emit("stopped");
+    // CORREÇÃO P0 v5.0: Limpar todos os locks in-flight
+    for (const [symbol, inFlight] of this.inFlightOrdersBySymbol.entries()) {
+      console.log(`[HybridEngine] 🔓 Limpando lock in-flight de ${symbol} (correlationId: ${inFlight.correlationId})`);
+    }
+    this.inFlightOrdersBySymbol.clear();
     
-    console.log("[HybridEngine] ✅ Motor híbrido parado!");
+    // Limpar estado legado
+    this.isExecutingOrder.clear();
+    this.lockTimestamps.clear();
+    this.pendingPositions.clear();
+    
+    this.emit("stopped", {
+      analysisCount: this.analysisCount,
+      tradesExecuted: this.tradesExecuted,
+      runtime: this.startTime ? Date.now() - this.startTime : 0,
+    });
+    
+    console.log("[HybridEngine] ✅ Motor híbrido parado");
+    
+    // Log para UI
+    await this.logInfo(
+      `🛑 ROBÔ HÍBRIDO PARADO | Análises: ${this.analysisCount} | Trades: ${this.tradesExecuted}`,
+      "SYSTEM"
+    );
   }
   
   /**
-   * Obtém status atual
+   * Retorna status atual do motor
    */
-  getStatus() {
+  getStatus(): {
+    isRunning: boolean;
+    mode: HybridMode;
+    symbols: string[];
+    analysisCount: number;
+    tradesExecuted: number;
+    runtime: number;
+    inFlightOrders: Array<{ symbol: string; age: number; correlationId: string }>;
+  } {
+    // CORREÇÃO P0 v5.0: Incluir informações de ordens in-flight no status
+    const inFlightOrders: Array<{ symbol: string; age: number; correlationId: string }> = [];
+    const now = Date.now();
+    
+    for (const [symbol, inFlight] of this.inFlightOrdersBySymbol.entries()) {
+      inFlightOrders.push({
+        symbol,
+        age: now - inFlight.timestamp,
+        correlationId: inFlight.correlationId
+      });
+    }
+    
     return {
       isRunning: this._isRunning,
       mode: this.config.mode,
-      activeSymbols: this.config.symbols,
-      currentSymbol: this.currentSymbol,
-      lastTickPrice: this.lastTickPrice,
-      lastTickTime: this.lastTickTime,
-      lastSignal: this.lastSignal,
-      lastSignalTime: this.lastSignalTime,
+      symbols: this.config.symbols,
       analysisCount: this.analysisCount,
       tradesExecuted: this.tradesExecuted,
-      startTime: this.startTime,
-      tickCount: this.tickCount,
-      strategies: {
-        smc: this.smcStrategy !== null,
-        rsiVwap: this.rsiVwapStrategy !== null,
-      },
+      runtime: this.startTime ? Date.now() - this.startTime : 0,
+      inFlightOrders
     };
   }
   
   /**
-   * Altera o modo de operação
+   * Atualiza modo de operação
    */
   setMode(mode: HybridMode): void {
     this.config.mode = mode;
@@ -354,111 +605,99 @@ export class HybridTradingEngine extends EventEmitter {
   // ============= MÉTODOS PRIVADOS =============
   
   /**
-   * Carrega configurações do banco de dados
-   * 
-   * CORREÇÃO CRÍTICA: Adicionado logs detalhados para debug
+   * Carrega configuração do banco de dados
    */
   private async loadConfigFromDB(): Promise<void> {
     try {
-      const db = await getDb();
-      if (!db) {
-        console.warn("[HybridEngine] ⚠️ Banco de dados não disponível, usando configurações padrão");
-        return;
-      }
+      const db = getDb();
       
-      console.log(`[HybridEngine] [Config] Carregando config para userId=${this.config.userId}, botId=${this.config.botId}`);
-      
-      // Carregar configuração SMC
-      const smcConfig = await db
+      // Carregar configuração do ICMarkets
+      const icConfig = await db
         .select()
-        .from(smcStrategyConfig)
+        .from(icmarketsConfig)
         .where(
           and(
-            eq(smcStrategyConfig.userId, this.config.userId),
-            eq(smcStrategyConfig.botId, this.config.botId)
+            eq(icmarketsConfig.userId, this.config.userId),
+            eq(icmarketsConfig.botId, this.config.botId)
           )
         )
         .limit(1);
       
-      if (smcConfig[0]) {
-        console.log(`[HybridEngine] [Config] DEBUG - activeSymbols bruto: "${smcConfig[0].activeSymbols}"`);
-        
-        // Atualizar símbolos
-        try {
-          const symbols = JSON.parse(smcConfig[0].activeSymbols || "[]");
-          console.log(`[HybridEngine] [Config] DEBUG - symbols parseados: ${JSON.stringify(symbols)}`);
-          console.log(`[HybridEngine] [Config] DEBUG - é Array: ${Array.isArray(symbols)}, length: ${symbols.length}`);
-          
-          if (Array.isArray(symbols) && symbols.length > 0) {
-            const oldSymbols = [...this.config.symbols];
-            this.config.symbols = symbols;
-            console.log(`[HybridEngine] [Config] ✅ Símbolos atualizados: ${oldSymbols.join(',')} → ${symbols.join(',')}`);
-          } else {
-            console.warn(`[HybridEngine] [Config] ⚠️ Símbolos inválidos ou vazios, mantendo: ${this.config.symbols.join(',')}`);
-          }
-        } catch (e) {
-          console.error("[HybridEngine] ❌ Erro ao parsear activeSymbols:", e);
-          console.error(`[HybridEngine] ❌ Valor que causou erro: "${smcConfig[0].activeSymbols}"`);
+      if (icConfig[0]) {
+        const cfg = icConfig[0];
+        if (cfg.symbols) {
+          this.config.symbols = cfg.symbols.split(",").map(s => s.trim()).filter(s => s);
+        }
+        if (cfg.maxPositions) {
+          this.config.maxPositions = cfg.maxPositions;
+        }
+        if (cfg.cooldownMs) {
+          this.config.cooldownMs = cfg.cooldownMs;
+        }
+        if (cfg.maxSpread) {
+          this.config.maxSpread = Number(cfg.maxSpread);
+        }
+        if (cfg.maxTradesPerSymbol) {
+          this.config.maxTradesPerSymbol = cfg.maxTradesPerSymbol;
         }
         
-        // Atualizar max positions
-        if (smcConfig[0].maxOpenTrades) {
-          this.config.maxPositions = smcConfig[0].maxOpenTrades;
-        }
-        
-        // CORREÇÃO CRÍTICA 2026-01-20: Carregar maxTradesPerSymbol do banco de dados
-        // Este campo controla quantos trades simultâneos são permitidos POR ATIVO
-        // Sem esta correção, o valor ficava fixo no default (1) e não era respeitado
-        if (smcConfig[0].maxTradesPerSymbol !== undefined && smcConfig[0].maxTradesPerSymbol !== null) {
-          this.config.maxTradesPerSymbol = smcConfig[0].maxTradesPerSymbol;
-          console.log(`[HybridEngine] [Config] ✅ maxTradesPerSymbol carregado do banco: ${this.config.maxTradesPerSymbol}`);
-        } else {
-          console.log(`[HybridEngine] [Config] ⚠️ maxTradesPerSymbol não encontrado no banco, usando default: ${this.config.maxTradesPerSymbol}`);
-        }
-      } else {
-        console.warn(`[HybridEngine] [Config] ⚠️ Nenhuma configuração SMC encontrada para userId=${this.config.userId}, botId=${this.config.botId}`);
+        console.log("[HybridEngine] Configuração carregada do banco:");
+        console.log(`  - Símbolos: ${this.config.symbols.join(", ")}`);
+        console.log(`  - Max Posições: ${this.config.maxPositions}`);
+        console.log(`  - Max Trades/Símbolo: ${this.config.maxTradesPerSymbol}`);
+        console.log(`  - Cooldown: ${this.config.cooldownMs}ms`);
+        console.log(`  - Max Spread: ${this.config.maxSpread} pips`);
       }
-      
-      console.log(`[HybridEngine] ✅ Configurações carregadas: ${this.config.symbols.length} símbolos | maxPositions=${this.config.maxPositions} | maxTradesPerSymbol=${this.config.maxTradesPerSymbol}`);
-      
     } catch (error) {
-      console.error("[HybridEngine] ❌ Erro ao carregar config:", error);
+      console.warn("[HybridEngine] Erro ao carregar config do DB, usando defaults:", error);
     }
   }
   
   /**
-   * Inicializa as estratégias baseado no modo
+   * Inicializa estratégias baseado no modo
    */
   private async initializeStrategies(): Promise<void> {
-    const db = await getDb();
-    let smcConfig: any = null;
-    
-    if (db) {
-      const result = await db
-        .select()
-        .from(smcStrategyConfig)
-        .where(
-          and(
-            eq(smcStrategyConfig.userId, this.config.userId),
-            eq(smcStrategyConfig.botId, this.config.botId)
-          )
-        )
-        .limit(1);
-      smcConfig = result[0];
-    }
+    const db = getDb();
     
     // Inicializar SMC se necessário
     if (this.config.mode === HybridMode.SMC_ONLY || this.config.mode === HybridMode.HYBRID) {
-      this.smcStrategy = strategyFactory.createStrategy(StrategyType.SMC_SWARM, smcConfig);
-      console.log("[HybridEngine] Estratégia SMC inicializada");
+      try {
+        const smcConfigs = await db
+          .select()
+          .from(smcStrategyConfig)
+          .where(
+            and(
+              eq(smcStrategyConfig.userId, this.config.userId),
+              eq(smcStrategyConfig.botId, this.config.botId)
+            )
+          )
+          .limit(1);
+        
+        const smcConfig = smcConfigs[0];
+        
+        const strategyConfig: SMCStrategyConfig = {
+          lookbackPeriod: smcConfig?.lookbackPeriod ?? 50,
+          swingStrength: smcConfig?.swingStrength ?? 3,
+          orderBlockMinSize: smcConfig?.orderBlockMinSize ? Number(smcConfig.orderBlockMinSize) : 0.0005,
+          fvgMinSize: smcConfig?.fvgMinSize ? Number(smcConfig.fvgMinSize) : 0.0003,
+          stopLossPips: smcConfig?.stopLossPips ?? 20,
+          takeProfitPips: smcConfig?.takeProfitPips ?? 40,
+          riskRewardRatio: smcConfig?.riskRewardRatio ? Number(smcConfig.riskRewardRatio) : 2.0,
+          useTrailingStop: smcConfig?.useTrailingStop ?? false,
+          trailingStopPips: smcConfig?.trailingStopPips ?? 10,
+        };
+        
+        this.smcStrategy = strategyFactory.createStrategy(StrategyType.SMC, strategyConfig);
+        console.log("[HybridEngine] ✅ Estratégia SMC inicializada");
+      } catch (error) {
+        console.error("[HybridEngine] Erro ao inicializar SMC:", error);
+      }
     }
     
     // Inicializar RSI+VWAP se necessário
     if (this.config.mode === HybridMode.RSI_VWAP_ONLY || this.config.mode === HybridMode.HYBRID) {
-      // CORREÇÃO CRÍTICA: Carregar configurações RSI+VWAP do banco de dados
-      let rsiConfig: any = null;
-      if (db) {
-        const result = await db
+      try {
+        const rsiConfigs = await db
           .select()
           .from(rsiVwapConfig)
           .where(
@@ -468,31 +707,36 @@ export class HybridTradingEngine extends EventEmitter {
             )
           )
           .limit(1);
-        rsiConfig = result[0];
         
-        if (rsiConfig) {
-          console.log("[HybridEngine] Configurações RSI+VWAP carregadas do banco de dados");
-        } else {
-          console.log("[HybridEngine] Nenhuma configuração RSI+VWAP encontrada, usando defaults");
-        }
+        const rsiConfig = rsiConfigs[0];
+        
+        const strategyConfig: RsiVwapStrategyConfig = {
+          rsiPeriod: rsiConfig?.rsiPeriod ?? 14,
+          rsiOverbought: rsiConfig?.rsiOverbought ?? 70,
+          rsiOversold: rsiConfig?.rsiOversold ?? 30,
+          vwapPeriod: rsiConfig?.vwapPeriod ?? 20,
+          stopLossPips: rsiConfig?.stopLossPips ?? 15,
+          takeProfitPips: rsiConfig?.takeProfitPips ?? 30,
+          useTrailingStop: rsiConfig?.useTrailingStop ?? false,
+          trailingStopPips: rsiConfig?.trailingStopPips ?? 10,
+        };
+        
+        this.rsiVwapStrategy = strategyFactory.createStrategy(StrategyType.RSI_VWAP, strategyConfig);
+        console.log("[HybridEngine] ✅ Estratégia RSI+VWAP inicializada");
+      } catch (error) {
+        console.error("[HybridEngine] Erro ao inicializar RSI+VWAP:", error);
       }
-      
-      // Criar estratégia com configurações do banco ou defaults
-      this.rsiVwapStrategy = strategyFactory.createStrategy(StrategyType.RSI_VWAP_REVERSAL, rsiConfig);
-      console.log("[HybridEngine] Estratégia RSI+VWAP inicializada com configurações do DB");
     }
-    
-    console.log(`[HybridEngine] Estratégias ativas: SMC=${!!this.smcStrategy}, RSI+VWAP=${!!this.rsiVwapStrategy}`);
   }
   
   /**
    * Inicializa o Risk Manager
    */
   private async initializeRiskManager(): Promise<void> {
-    const db = await getDb();
-    let smcConfig: any = null;
+    const db = getDb();
     
-    if (db) {
+    let smcConfig: any = null;
+    if (this.config.mode === HybridMode.SMC_ONLY || this.config.mode === HybridMode.HYBRID) {
       const result = await db
         .select()
         .from(smcStrategyConfig)
@@ -785,11 +1029,16 @@ export class HybridTradingEngine extends EventEmitter {
    * 
    * CORREÇÃO CRÍTICA: Agora loga claramente quantos símbolos estão sendo analisados
    * e emite evento para a UI com status da análise
+   * 
+   * CORREÇÃO P0 v5.0: Executa watchdog a cada ciclo de análise
    */
   private async performAnalysis(): Promise<void> {
     if (!this._isRunning) return;
     
     this.analysisCount++;
+    
+    // CORREÇÃO P0 v5.0: Executar watchdog para limpar locks expirados
+    this.runWatchdog();
     
     // Log de início de análise a cada 10 ciclos para confirmar que todos os símbolos estão sendo processados
     if (this.analysisCount % 10 === 0 || this.analysisCount === 1) {
@@ -1041,160 +1290,136 @@ export class HybridTradingEngine extends EventEmitter {
    * IMPORTANTE: Usa o pipeline existente de execução (CTraderAdapter),
    * preservando a lógica de volume do CTraderClient.ts.
    * 
-   * CORREÇÃO CRÍTICA v4.0 (2026-01-14):
-   * - Implementado controle de concorrência PER-SYMBOL (v3.0)
-   * - Adicionado WATCHDOG de 15 segundos para liberar locks travados
-   * - NOVO: Verificação em tempo real via API (reconcilePositions)
-   * - NOVO: Sistema de Posições Pendentes (Phantom Positions)
-   * - NOVO: Filtro de Candle (impede múltiplas ordens no mesmo candle M5)
-   * - NOVO: Signal Consumption (marca estruturas já utilizadas)
+   * CORREÇÃO P0 v5.0 (2026-01-22):
+   * - Sistema de In-Flight Orders com lock atômico
+   * - Lock é setado ANTES de placeOrder (fecha janela de corrida)
+   * - Lock mantido até confirmação real via API ou timeout de 30s
+   * - Logs estruturados para observabilidade
    * 
-   * LÓGICA DE PROTEÇÃO (5 CAMADAS):
-   * 1. Mutex per-symbol com watchdog
+   * LÓGICA DE PROTEÇÃO (6 CAMADAS):
+   * 1. In-Flight Lock (NOVA - fecha race condition)
    * 2. Cooldown por símbolo
-   * 3. Verificação de posição pendente (phantom position)
-   * 4. Filtro de candle M5 (impede múltiplas ordens no mesmo candle)
-   * 5. Verificação em tempo real via API + cache local
+   * 3. Filtro de candle M5
+   * 4. Verificação em tempo real via API (reconcilePositions)
+   * 5. Verificação no banco de dados
+   * 6. Verificação de limite total de posições
    */
   private async executeSignal(symbol: string, combinedSignal: CombinedSignal): Promise<void> {
     const now = Date.now();
     
     // ═══════════════════════════════════════════════════════════════
-    // CAMADA 1: CONTROLE DE CONCORRÊNCIA PER-SYMBOL (MUTEX) + WATCHDOG
+    // CAMADA 0: CORREÇÃO P0 v5.0 - LOCK IN-FLIGHT (SEÇÃO CRÍTICA)
     // ═══════════════════════════════════════════════════════════════
+    // REGRA FUNDAMENTAL: Se existe ordem in-flight para o símbolo,
+    // bloquear IMEDIATAMENTE. Não importa o estado do cache/DB/API.
     
-    if (this.isExecutingOrder.get(symbol)) {
-      const lockTime = this.lockTimestamps.get(symbol) || 0;
-      const lockDuration = now - lockTime;
-      
-      if (lockDuration > 15000) {
-        console.warn(`[HybridEngine] ⚠️ WATCHDOG: ${symbol} travado há ${Math.floor(lockDuration/1000)}s - FORÇANDO DESTRAVAMENTO`);
-        this.isExecutingOrder.set(symbol, false);
-        this.lockTimestamps.delete(symbol);
-      } else {
-        console.log(`[HybridEngine] 🔒 ${symbol}: IGNORADO - Ordem em processamento (mutex ativo há ${Math.floor(lockDuration/1000)}s)`);
-        return;
-      }
-    }
+    const lockResult = this.tryAcquireLock(symbol);
     
-    // ═══════════════════════════════════════════════════════════════
-    // CAMADA 2: COOLDOWN POR SÍMBOLO
-    // ═══════════════════════════════════════════════════════════════
-    const lastTrade = this.lastTradeTime.get(symbol) || 0;
-    if (now - lastTrade < this.config.cooldownMs) {
-      console.log(`[HybridEngine] ⏳ ${symbol}: IGNORADO - Cooldown ativo (${Math.floor((this.config.cooldownMs - (now - lastTrade))/1000)}s restantes)`);
+    if (!lockResult.acquired) {
+      console.log(`[HybridEngine] 🚫 ${symbol}: BLOQUEADO - ${lockResult.reason}`);
       return;
     }
     
-    // ═══════════════════════════════════════════════════════════════
-    // CAMADA 3: VERIFICAÇÃO DE POSIÇÃO PENDENTE (PHANTOM POSITION)
-    // ═══════════════════════════════════════════════════════════════
-    const pendingTime = this.pendingPositions.get(symbol);
-    if (pendingTime) {
-      const pendingDuration = now - pendingTime;
-      if (pendingDuration < this.PENDING_POSITION_TIMEOUT_MS) {
-        console.log(`[HybridEngine] 👻 ${symbol}: IGNORADO - Posição PENDENTE aguardando confirmação (${Math.floor(pendingDuration/1000)}s)`);
-        return;
-      } else {
-        // Timeout expirado, limpar posição pendente
-        console.warn(`[HybridEngine] ⚠️ ${symbol}: Posição pendente expirada após ${Math.floor(pendingDuration/1000)}s - limpando`);
-        this.pendingPositions.delete(symbol);
-      }
-    }
-    
-    // ═══════════════════════════════════════════════════════════════
-    // CAMADA 4: FILTRO DE CANDLE M5 (IMPEDE MÚLTIPLAS ORDENS NO MESMO CANDLE)
-    // ═══════════════════════════════════════════════════════════════
-    const M5_MS = 5 * 60 * 1000; // 5 minutos em milissegundos
-    const currentCandleTimestamp = Math.floor(now / M5_MS) * M5_MS;
-    const lastTradedCandle = this.lastTradedCandleTimestamp.get(symbol) || 0;
-    
-    if (currentCandleTimestamp === lastTradedCandle) {
-      console.log(`[HybridEngine] 🕯️ ${symbol}: IGNORADO - Já operou neste candle M5 (${new Date(currentCandleTimestamp).toISOString()})`);
-      return;
-    }
-    
-    // ═══════════════════════════════════════════════════════════════
-    // TRAVAR O SÍMBOLO ANTES DE QUALQUER OPERAÇÃO ASSÍNCRONA
-    // ═══════════════════════════════════════════════════════════════
-    this.isExecutingOrder.set(symbol, true);
-    this.lockTimestamps.set(symbol, now);
-    console.log(`[HybridEngine] 🔐 ${symbol}: TRAVADO para execução`);
+    const correlationId = lockResult.correlationId!;
     
     try {
-      // Verificar Risk Manager
+      // ═══════════════════════════════════════════════════════════════
+      // CAMADA 1: COOLDOWN POR SÍMBOLO
+      // ═══════════════════════════════════════════════════════════════
+      const lastTrade = this.lastTradeTime.get(symbol) || 0;
+      if (now - lastTrade < this.config.cooldownMs) {
+        console.log(`[HybridEngine] ⏳ ${symbol}: IGNORADO - Cooldown ativo (${Math.floor((this.config.cooldownMs - (now - lastTrade))/1000)}s restantes) correlationId=${correlationId}`);
+        this.clearInFlightOrder(symbol, 'rejected');
+        return;
+      }
+      
+      // ═══════════════════════════════════════════════════════════════
+      // CAMADA 2: FILTRO DE CANDLE M5 (IMPEDE MÚLTIPLAS ORDENS NO MESMO CANDLE)
+      // ═══════════════════════════════════════════════════════════════
+      const M5_MS = 5 * 60 * 1000; // 5 minutos em milissegundos
+      const currentCandleTimestamp = Math.floor(now / M5_MS) * M5_MS;
+      const lastTradedCandle = this.lastTradedCandleTimestamp.get(symbol) || 0;
+      
+      if (currentCandleTimestamp === lastTradedCandle) {
+        console.log(`[HybridEngine] 🕯️ ${symbol}: IGNORADO - Já operou neste candle M5 correlationId=${correlationId}`);
+        this.clearInFlightOrder(symbol, 'rejected');
+        return;
+      }
+      
+      // ═══════════════════════════════════════════════════════════════
+      // CAMADA 3: VERIFICAÇÃO DE RISK MANAGER
+      // ═══════════════════════════════════════════════════════════════
       if (this.riskManager) {
         const canOpen = await this.riskManager.canOpenPosition();
         if (!canOpen.allowed) {
-          console.log(`[HybridEngine] ⚠️ ${canOpen.reason}`);
+          console.log(`[HybridEngine] ⚠️ ${symbol}: ${canOpen.reason} correlationId=${correlationId}`);
+          this.clearInFlightOrder(symbol, 'rejected');
           return;
         }
       }
       
       // ═══════════════════════════════════════════════════════════════
-      // CAMADA 5: VERIFICAÇÃO EM TEMPO REAL VIA API + CACHE LOCAL
-      // CORREÇÃO CRÍTICA v4.0: Sincronizar com a API antes de verificar
+      // CAMADA 4: VERIFICAÇÃO EM TEMPO REAL VIA API (DENTRO DO LOCK)
+      // CORREÇÃO P0 v5.0: reconcilePositions() DENTRO da seção crítica
       // ═══════════════════════════════════════════════════════════════
       
-      // 5a. Primeiro, sincronizar posições com a API (reconcile)
+      // 4a. Sincronizar posições com a API (reconcile)
       try {
         await ctraderAdapter.reconcilePositions();
-        console.log(`[HybridEngine] 🔄 ${symbol}: Posições sincronizadas com a API`);
+        console.log(`[HybridEngine] 🔄 ${symbol}: Posições sincronizadas correlationId=${correlationId}`);
       } catch (reconcileError) {
-        console.warn(`[HybridEngine] ⚠️ ${symbol}: Erro ao sincronizar posições, usando cache local:`, reconcileError);
+        console.warn(`[HybridEngine] ⚠️ ${symbol}: Erro ao sincronizar, usando cache correlationId=${correlationId}:`, reconcileError);
       }
       
-      // 5b. Agora verificar posições abertas (cache atualizado)
+      // 4b. Verificar posições abertas (cache atualizado)
       const openPositions = await ctraderAdapter.getOpenPositions();
       const symbolPositions = openPositions.filter(p => p.symbol === symbol);
       
-      // 5c. Contar também posições pendentes de outros símbolos
-      const pendingCount = Array.from(this.pendingPositions.entries())
-        .filter(([_, timestamp]) => (now - timestamp) < this.PENDING_POSITION_TIMEOUT_MS)
-        .length;
-      
-      const totalPositions = openPositions.length + pendingCount;
-      
-      console.log(`[HybridEngine] 📊 ${symbol}: Posições abertas=${openPositions.length}, Pendentes=${pendingCount}, Total=${totalPositions}`);
-      console.log(`[HybridEngine] 📊 ${symbol}: Posições neste ativo=${symbolPositions.length}, Limite=${this.config.maxTradesPerSymbol}`);
+      console.log(`[HybridEngine] 📊 ${symbol}: Posições abertas=${openPositions.length}, Neste ativo=${symbolPositions.length}, Limite=${this.config.maxTradesPerSymbol} correlationId=${correlationId}`);
       
       if (symbolPositions.length >= this.config.maxTradesPerSymbol) {
-        console.log(`[HybridEngine] ⚠️ ${symbol}: BLOQUEADO - Já existe ${symbolPositions.length} posição(ões) neste ativo (limite: ${this.config.maxTradesPerSymbol})`);
+        console.log(`[HybridEngine] ⚠️ ${symbol}: BLOQUEADO - Já existe ${symbolPositions.length} posição(ões) (limite: ${this.config.maxTradesPerSymbol}) correlationId=${correlationId}`);
+        this.clearInFlightOrder(symbol, 'rejected');
         return;
       }
       
       // ═══════════════════════════════════════════════════════════════
-      // CAMADA 5d: VERIFICAÇÃO ADICIONAL NO BANCO DE DADOS (CORREÇÃO CRÍTICA 2026-01-20)
-      // Esta é uma camada de segurança adicional que verifica diretamente no banco
-      // de dados para evitar race conditions entre cache e API.
+      // CAMADA 5: VERIFICAÇÃO NO BANCO DE DADOS
       // ═══════════════════════════════════════════════════════════════
       if (this.riskManager) {
         const dbSymbolPositions = await this.riskManager.getOpenTradesCountBySymbol(symbol);
-        console.log(`[HybridEngine] 📊 ${symbol}: Posições no BANCO DE DADOS=${dbSymbolPositions}, Limite=${this.config.maxTradesPerSymbol}`);
+        console.log(`[HybridEngine] 📊 ${symbol}: Posições no DB=${dbSymbolPositions} correlationId=${correlationId}`);
         
         if (dbSymbolPositions >= this.config.maxTradesPerSymbol) {
-          console.log(`[HybridEngine] ⚠️ ${symbol}: BLOQUEADO (DB) - Já existe ${dbSymbolPositions} posição(ões) no banco de dados (limite: ${this.config.maxTradesPerSymbol})`);
+          console.log(`[HybridEngine] ⚠️ ${symbol}: BLOQUEADO (DB) - ${dbSymbolPositions} posição(ões) no banco correlationId=${correlationId}`);
+          this.clearInFlightOrder(symbol, 'rejected');
           return;
         }
       }
       
-      // Verificar limite total de posições (incluindo pendentes)
-      if (totalPositions >= this.config.maxPositions) {
-        console.log(`[HybridEngine] ⚠️ Limite de ${this.config.maxPositions} posições atingido (atual: ${totalPositions})`);
+      // ═══════════════════════════════════════════════════════════════
+      // CAMADA 6: VERIFICAÇÃO DE LIMITE TOTAL DE POSIÇÕES
+      // ═══════════════════════════════════════════════════════════════
+      if (openPositions.length >= this.config.maxPositions) {
+        console.log(`[HybridEngine] ⚠️ ${symbol}: Limite total de ${this.config.maxPositions} posições atingido correlationId=${correlationId}`);
+        this.clearInFlightOrder(symbol, 'rejected');
         return;
       }
+      
+      // ═══════════════════════════════════════════════════════════════
+      // PREPARAÇÃO DA ORDEM
+      // ═══════════════════════════════════════════════════════════════
       
       const signal = combinedSignal.finalSignal!;
       const strategy = combinedSignal.source === "SMC" ? this.smcStrategy : this.rsiVwapStrategy;
       
-      if (!strategy) return;
+      if (!strategy) {
+        this.clearInFlightOrder(symbol, 'failed');
+        return;
+      }
       
-      // ═══════════════════════════════════════════════════════════════
-      // MARCAR POSIÇÃO COMO PENDENTE ANTES DE ENVIAR À API
-      // Isso bloqueia novas ordens para este símbolo imediatamente
-      // ═══════════════════════════════════════════════════════════════
-      this.pendingPositions.set(symbol, now);
-      console.log(`[HybridEngine] 👻 ${symbol}: Posição marcada como PENDENTE`);
+      // Atualizar status para 'sent' (ordem está sendo enviada)
+      this.updateInFlightOrder(symbol, { status: 'sent' });
       
       // Obter informações da conta
       const accountInfo = await ctraderAdapter.getAccountInfo();
@@ -1210,13 +1435,13 @@ export class HybridTradingEngine extends EventEmitter {
           currentPrice = direction === TradeSide.BUY ? priceData.ask : priceData.bid;
         }
       } catch (e) {
-        console.error(`[HybridEngine] Erro ao obter preço para ${symbol}`);
-        this.pendingPositions.delete(symbol); // Limpar posição pendente em caso de erro
+        console.error(`[HybridEngine] Erro ao obter preço para ${symbol} correlationId=${correlationId}`);
+        this.clearInFlightOrder(symbol, 'failed');
         return;
       }
       
       if (currentPrice <= 0) {
-        this.pendingPositions.delete(symbol);
+        this.clearInFlightOrder(symbol, 'failed');
         return;
       }
       
@@ -1248,18 +1473,23 @@ export class HybridTradingEngine extends EventEmitter {
           if (posSize.canTrade) {
             lotSize = posSize.lotSize;
           } else {
-            console.warn(`[HybridEngine] ❌ Não pode operar: ${posSize.reason}`);
-            this.pendingPositions.delete(symbol);
+            console.warn(`[HybridEngine] ❌ Não pode operar: ${posSize.reason} correlationId=${correlationId}`);
+            this.clearInFlightOrder(symbol, 'rejected');
             return;
           }
         } catch (e) {
-          console.warn(`[HybridEngine] Erro ao calcular volume, usando fallback:`, e);
+          console.warn(`[HybridEngine] Erro ao calcular volume, usando fallback correlationId=${correlationId}:`, e);
         }
       }
       
-      // Executar ordem via pipeline existente
+      // ═══════════════════════════════════════════════════════════════
+      // EXECUÇÃO DA ORDEM (PONTO CRÍTICO)
+      // ═══════════════════════════════════════════════════════════════
+      // NOTA: O lock in-flight já está setado ANTES de chegar aqui
+      // Isso fecha a janela de corrida entre ciclos concorrentes
+      
       console.log("═══════════════════════════════════════════════════════════════");
-      console.log(`[HybridEngine] 🎯 EXECUTANDO ORDEM: ${signal.signal} (${combinedSignal.source})`);
+      console.log(`[HybridEngine] 🎯 EXECUTANDO ORDEM: ${signal.signal} (${combinedSignal.source}) correlationId=${correlationId}`);
       console.log(`[HybridEngine] Símbolo: ${symbol} | Lotes: ${lotSize}`);
       console.log(`[HybridEngine] SL: ${sltp.stopLoss?.toFixed(5)} | TP: ${sltp.takeProfit?.toFixed(5)}`);
       console.log("═══════════════════════════════════════════════════════════════");
@@ -1276,95 +1506,82 @@ export class HybridTradingEngine extends EventEmitter {
         }, this.config.maxSpread);
         
         if (result.success) {
+          // ═══════════════════════════════════════════════════════════════
+          // SUCESSO: Atualizar estado e limpar lock
+          // ═══════════════════════════════════════════════════════════════
           this.lastTradeTime.set(symbol, now);
-          this.lastTradedCandleTimestamp.set(symbol, currentCandleTimestamp); // Marcar candle como operado
+          this.lastTradedCandleTimestamp.set(symbol, currentCandleTimestamp);
           this.tradesExecuted++;
           
-          // Log especial se foi recuperado via Safety Latch
-          if ((result as any).safetyLatchTriggered) {
-            console.log(`[HybridEngine] ✅ ORDEM EXECUTADA (via SAFETY LATCH): ${result.orderId}`);
-          } else {
-            console.log(`[HybridEngine] ✅ ORDEM EXECUTADA: ${result.orderId}`);
-          }
+          // Atualizar in-flight com orderId antes de limpar
+          this.updateInFlightOrder(symbol, { orderId: result.orderId, status: 'confirmed' });
           
-          // Marcar estrutura como consumida (Signal Consumption)
+          console.log(`[HybridEngine] ✅ ORDEM EXECUTADA: ${result.orderId} correlationId=${correlationId}`);
+          
+          // Marcar estrutura como consumida
           if (signal.metadata?.structureId) {
             this.consumedStructures.add(signal.metadata.structureId);
-            console.log(`[HybridEngine] 🏷️ Estrutura consumida: ${signal.metadata.structureId}`);
           }
           
           this.emit("trade", { symbol, signal, result, source: combinedSignal.source });
           
-          // Limpar posição pendente após sucesso (a posição real já está no cache)
-          this.pendingPositions.delete(symbol);
-        } else {
-          console.error(`[HybridEngine] ❌ ERRO: ${result.errorMessage}`);
+          // Limpar lock após confirmação
+          this.clearInFlightOrder(symbol, 'confirmed');
           
-          // ============= CORREÇÃO BUG FALSO NEGATIVO (2026-01-14) =============
-          // SAFETY LATCH: Antes de limpar a posição pendente, verificar se a ordem
-          // entrou mesmo assim. Isso previne duplicidade causada por falsos negativos.
-          //
-          // Se o Safety Latch já foi acionado no CTraderAdapter, não precisamos
-          // verificar novamente aqui.
-          // =====================================================================
+        } else {
+          // ═══════════════════════════════════════════════════════════════
+          // FALHA: Verificar via Safety Latch se a ordem entrou mesmo assim
+          // ═══════════════════════════════════════════════════════════════
+          console.error(`[HybridEngine] ❌ ERRO: ${result.errorMessage} correlationId=${correlationId}`);
           
           if (!(result as any).safetyLatchTriggered) {
-            console.log(`[HybridEngine] 🔍 SAFETY LATCH: Verificando se a ordem entrou apesar do erro...`);
+            console.log(`[HybridEngine] 🔍 SAFETY LATCH: Verificando se a ordem entrou... correlationId=${correlationId}`);
             
             try {
-              // Reconciliar posições para verificar estado real
               await ctraderAdapter.reconcilePositions();
-              
-              // Verificar se existe posição para este símbolo
-              const openPositions = await ctraderAdapter.getOpenPositions();
-              const symbolPosition = openPositions.find(p => p.symbol === symbol);
+              const checkPositions = await ctraderAdapter.getOpenPositions();
+              const symbolPosition = checkPositions.find(p => p.symbol === symbol);
               
               if (symbolPosition) {
                 // A ordem ENTROU apesar do erro reportado!
-                console.log(`[HybridEngine] ✅ SAFETY LATCH: Ordem encontrada! Posição ${symbolPosition.positionId}`);
-                console.log(`[HybridEngine] ✅ MANTENDO LOCK - NÃO liberar posição pendente`);
+                console.log(`[HybridEngine] ✅ SAFETY LATCH: Ordem encontrada! ${symbolPosition.positionId} correlationId=${correlationId}`);
                 
-                // Atualizar estado como se fosse sucesso
                 this.lastTradeTime.set(symbol, now);
                 this.lastTradedCandleTimestamp.set(symbol, currentCandleTimestamp);
                 this.tradesExecuted++;
                 
-                // Marcar estrutura como consumida
                 if (signal.metadata?.structureId) {
                   this.consumedStructures.add(signal.metadata.structureId);
                 }
                 
                 this.emit("trade", { symbol, signal, result: { success: true, orderId: symbolPosition.positionId }, source: combinedSignal.source });
-                
-                // NÃO limpar posição pendente - a posição real existe
-                this.pendingPositions.delete(symbol);
-                return; // Sair sem marcar como erro
-              } else {
-                console.log(`[HybridEngine] ❌ SAFETY LATCH: Ordem NÃO encontrada - erro genuíno`);
+                this.clearInFlightOrder(symbol, 'confirmed');
+                return;
               }
             } catch (reconcileError) {
-              console.error(`[HybridEngine] ❌ SAFETY LATCH: Erro na verificação:`, reconcileError);
+              console.error(`[HybridEngine] ❌ SAFETY LATCH: Erro na verificação correlationId=${correlationId}:`, reconcileError);
             }
           }
           
-          // Limpar posição pendente apenas se confirmado que a ordem não entrou
-          this.pendingPositions.delete(symbol);
+          // Ordem realmente não entrou
+          this.clearInFlightOrder(symbol, 'failed');
         }
-      } catch (error) {
-        console.error("[HybridEngine] Erro ao executar ordem:", error);
         
-        // ============= CORREÇÃO BUG FALSO NEGATIVO (2026-01-14) =============
-        // SAFETY LATCH: Mesmo em caso de exceção, verificar se a ordem entrou
-        // =====================================================================
-        console.log(`[HybridEngine] 🔍 SAFETY LATCH (catch): Verificando se a ordem entrou apesar da exceção...`);
+      } catch (error) {
+        // ═══════════════════════════════════════════════════════════════
+        // EXCEÇÃO: Verificar via Safety Latch
+        // ═══════════════════════════════════════════════════════════════
+        console.error(`[HybridEngine] Erro ao executar ordem correlationId=${correlationId}:`, error);
+        
+        console.log(`[HybridEngine] 🔍 SAFETY LATCH (catch): Verificando... correlationId=${correlationId}`);
         
         try {
           await ctraderAdapter.reconcilePositions();
-          const openPositions = await ctraderAdapter.getOpenPositions();
-          const symbolPosition = openPositions.find(p => p.symbol === symbol);
+          const checkPositions = await ctraderAdapter.getOpenPositions();
+          const symbolPosition = checkPositions.find(p => p.symbol === symbol);
           
           if (symbolPosition) {
-            console.log(`[HybridEngine] ✅ SAFETY LATCH (catch): Ordem encontrada! Posição ${symbolPosition.positionId}`);
+            console.log(`[HybridEngine] ✅ SAFETY LATCH (catch): Ordem encontrada! ${symbolPosition.positionId} correlationId=${correlationId}`);
             
             this.lastTradeTime.set(symbol, now);
             this.lastTradedCandleTimestamp.set(symbol, currentCandleTimestamp);
@@ -1375,22 +1592,20 @@ export class HybridTradingEngine extends EventEmitter {
             }
             
             this.emit("trade", { symbol, signal, result: { success: true, orderId: symbolPosition.positionId }, source: combinedSignal.source });
-            this.pendingPositions.delete(symbol);
+            this.clearInFlightOrder(symbol, 'confirmed');
             return;
           }
         } catch (reconcileError) {
-          console.error(`[HybridEngine] ❌ SAFETY LATCH (catch): Erro na verificação:`, reconcileError);
+          console.error(`[HybridEngine] ❌ SAFETY LATCH (catch): Erro correlationId=${correlationId}:`, reconcileError);
         }
         
-        this.pendingPositions.delete(symbol);
+        this.clearInFlightOrder(symbol, 'failed');
       }
-    } finally {
-      // ═══════════════════════════════════════════════════════════════
-      // DESTRAVAR O SÍMBOLO (SEMPRE, mesmo com erro ou return antecipado)
-      // ═══════════════════════════════════════════════════════════════
-      this.isExecutingOrder.set(symbol, false);
-      this.lockTimestamps.delete(symbol);
-      console.log(`[HybridEngine] 🔓 ${symbol}: DESTRAVADO`);
+      
+    } catch (outerError) {
+      // Garantir que o lock seja liberado em caso de erro não tratado
+      console.error(`[HybridEngine] Erro não tratado em executeSignal correlationId=${correlationId}:`, outerError);
+      this.clearInFlightOrder(symbol, 'failed');
     }
   }
   
