@@ -6,9 +6,11 @@
  * - Liberação de memória após cada combinação
  * - Monitoramento de memória integrado
  * - Processamento em lotes com GC entre lotes
+ * - Iteração lazy (Generator) para evitar materialização de combinações
+ * - Multitarefa cooperativa para evitar bloqueio do Event Loop
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 2.0.0 - Memory Optimized
+ * @version 2.1.0 - Memory Optimized & Generator Based
  */
 
 import { createHash } from "crypto";
@@ -24,9 +26,10 @@ import {
   OptimizationFinalResult,
 } from "./types/optimization.types";
 import { BacktestMetrics, BacktestResult, BacktestConfig, BacktestStrategyType } from "../types/backtest.types";
-import { BacktestRunner } from "../runners/BacktestRunner";
-import { BacktestRunnerOptimized } from "../runners/BacktestRunnerOptimized";
+import { LabBacktestRunner } from "../runners/LabBacktestRunner";
+import { LabBacktestRunnerOptimized } from "../runners/LabBacktestRunnerOptimized";
 import { candleDataCache } from "../utils/CandleDataCache";
+import { yieldToEventLoop } from "../utils/AsyncUtils";
 
 // ============================================================================
 // CONSTANTS - MEMORY OPTIMIZATION
@@ -34,9 +37,6 @@ import { candleDataCache } from "../utils/CandleDataCache";
 
 /** Número máximo de resultados a manter em memória */
 const MAX_TOP_RESULTS = 50;
-
-/** Tamanho do lote para processamento */
-const BATCH_SIZE = 10;
 
 /** Intervalo para forçar GC (em combinações) */
 const GC_INTERVAL = 20;
@@ -137,25 +137,6 @@ class TopNHeap {
 }
 
 // ============================================================================
-// LIGHTWEIGHT RESULT TYPE
-// ============================================================================
-
-/**
- * Versão leve do CombinationResult para armazenamento
- * CORREÇÃO OOM: Não armazena trades e equityCurve completos
- */
-interface LightweightResult {
-  combination: ParameterCombination;
-  inSampleMetrics: BacktestMetrics;
-  outSampleMetrics?: BacktestMetrics;
-  robustnessScore: number;
-  degradationPercent: number;
-  isRecommended: boolean;
-  warnings: string[];
-  tradeCount: number;
-}
-
-// ============================================================================
 // GRID SEARCH ENGINE OPTIMIZED CLASS
 // ============================================================================
 
@@ -171,41 +152,97 @@ export class GridSearchEngineOptimized {
   }
 
   /**
-   * Gerar todas as combinações de parâmetros
+   * Calcular o número total de combinações (sem gerar o array)
    */
-  generateCombinations(): ParameterCombination[] {
+  countCombinations(): number {
     const enabledParams = this.config.parameters.filter(p => p.enabled && !p.locked);
     
-    optimizationLogger.debug(`Parâmetros ativos: ${enabledParams.length}`, "GridSearchOpt");
-    
-    const parameterValues: Map<string, (number | string | boolean)[]> = new Map();
-    
+    let count = 1;
+
     for (const param of enabledParams) {
       if (param.values && param.values.length > 0) {
-        parameterValues.set(param.name, param.values);
+        count *= param.values.length;
       } else if (param.min !== undefined && param.max !== undefined && param.step !== undefined) {
-        const values = this.generateRange(param.min, param.max, param.step);
-        parameterValues.set(param.name, values);
+        const steps = Math.floor((param.max - param.min) / param.step) + 1;
+        count *= Math.max(1, steps);
+      }
+    }
+
+    return count;
+  }
+
+  /**
+   * Gerador lazy de combinações de parâmetros
+   * CORREÇÃO OOM: Evita materializar um array gigante de combinações
+   */
+  *generateCombinationsGenerator(): Generator<ParameterCombination> {
+    const enabledParams = this.config.parameters.filter(p => p.enabled && !p.locked);
+    const lockedParams = this.config.parameters.filter(p => p.locked || !p.enabled);
+    
+    // Preparar valores para cada parâmetro habilitado
+    const paramNames: string[] = [];
+    const paramValuesList: (number | string | boolean)[][] = [];
+    
+    for (const param of enabledParams) {
+      paramNames.push(param.name);
+      if (param.values && param.values.length > 0) {
+        paramValuesList.push(param.values);
+      } else if (param.min !== undefined && param.max !== undefined && param.step !== undefined) {
+        paramValuesList.push(this.generateRange(param.min, param.max, param.step));
       } else {
-        parameterValues.set(param.name, [param.default]);
+        paramValuesList.push([param.default]);
       }
     }
     
-    const lockedParams = this.config.parameters.filter(p => p.locked || !p.enabled);
+    // Mapa de valores fixos para parâmetros travados
+    const fixedParams: Record<string, number | string | boolean> = {};
     for (const param of lockedParams) {
-      parameterValues.set(param.name, [param.default]);
+      fixedParams[param.name] = param.default;
     }
     
-    const combinations = this.cartesianProduct(parameterValues);
+    // Gerar produto cartesiano de forma lazy
+    // Usamos índices para iterar sem recursão profunda
+    const indices = new Array(paramValuesList.length).fill(0);
+    const lengths = paramValuesList.map(list => list.length);
+    let done = false;
     
-    optimizationLogger.info(`Total de combinações: ${combinations.length}`, "GridSearchOpt");
-    
-    if (this.config.maxCombinations && combinations.length > this.config.maxCombinations) {
-      optimizationLogger.warn(`Limite de ${this.config.maxCombinations} combinações excedido. Amostrando...`, "GridSearchOpt");
-      return this.sampleCombinations(combinations, this.config.maxCombinations);
+    // Caso especial: nenhum parâmetro habilitado
+    if (paramValuesList.length === 0) {
+      const combinationId = this.hashParameters(fixedParams);
+      yield { combinationId, parameters: { ...fixedParams } };
+      return;
     }
     
-    return combinations;
+    let count = 0;
+    const maxCombinations = this.config.maxCombinations || Number.MAX_SAFE_INTEGER;
+
+    while (!done && count < maxCombinations) {
+      // Construir combinação atual
+      const currentParams: Record<string, number | string | boolean> = { ...fixedParams };
+
+      for (let i = 0; i < paramNames.length; i++) {
+        currentParams[paramNames[i]] = paramValuesList[i][indices[i]];
+      }
+
+      const combinationId = this.hashParameters(currentParams);
+      yield { combinationId, parameters: currentParams };
+      count++;
+
+      // Avançar índices
+      let i = indices.length - 1;
+      while (i >= 0) {
+        indices[i]++;
+        if (indices[i] < lengths[i]) {
+          break;
+        }
+        indices[i] = 0;
+        i--;
+      }
+
+      if (i < 0) {
+        done = true;
+      }
+    }
   }
 
   /**
@@ -216,6 +253,8 @@ export class GridSearchEngineOptimized {
    * - Libera memória após cada combinação
    * - Força GC periodicamente
    * - Monitora uso de memória
+   * - Usa Generator para evitar array gigante
+   * - Usa Yield para não bloquear Event Loop
    */
   async run(): Promise<OptimizationFinalResult> {
     const startTime = Date.now();
@@ -228,12 +267,26 @@ export class GridSearchEngineOptimized {
     memoryManager.startMonitoring();
     memoryManager.logMemoryStats("GridSearchOpt - Início");
     
-    optimizationLogger.info("CHECKPOINT: GridSearchOpt.generating_combinations", "GridSearchOpt");
-    const combinations = this.generateCombinations();
+    optimizationLogger.info("CHECKPOINT: GridSearchOpt.started", "GridSearchOpt");
+
+    // Calcular total estimado (sem gerar array)
+    const totalCombinations = this.countCombinations();
+    const effectiveCombinations = this.config.maxCombinations
+      ? Math.min(totalCombinations, this.config.maxCombinations)
+      : totalCombinations;
+
+    optimizationLogger.info(`Total estimado de combinações: ${totalCombinations}`, "GridSearchOpt");
+
+    // Guard Rail: maxCombinations
+    if (this.config.maxCombinations && totalCombinations > this.config.maxCombinations * 2) {
+      // Se for muito maior que o limite, avisa que será truncado
+      optimizationLogger.warn(`Combinações (${totalCombinations}) excedem limite. Serão processadas apenas as primeiras ${this.config.maxCombinations}`, "GridSearchOpt");
+    }
+
     const errors: string[] = [];
     
     optimizationLogger.startOperation("Grid Search Otimizado", { 
-      combinacoes: combinations.length,
+      combinacoes: effectiveCombinations,
       topN: MAX_TOP_RESULTS,
     });
     
@@ -255,30 +308,42 @@ export class GridSearchEngineOptimized {
     
     optimizationLogger.info("CHECKPOINT: GridSearchOpt.data_loaded", "GridSearchOpt");
     optimizationLogger.info(`In-Sample: ${inSamplePeriod.start.toISOString().split("T")[0]} - ${inSamplePeriod.end.toISOString().split("T")[0]}`, "GridSearchOpt");
-    optimizationLogger.info(`Out-Sample: ${outSamplePeriod.start.toISOString().split("T")[0]} - ${outSamplePeriod.end.toISOString().split("T")[0]}`, "GridSearchOpt");
     
     let completed = 0;
     let totalTrades = 0;
     let firstIterationLogged = false;
     let progress5PercentLogged = false;
     
-    // Processar combinações uma a uma com liberação de memória
-    for (const combination of combinations) {
+    // Usar Generator para iterar combinações lazy
+    const generator = this.generateCombinationsGenerator();
+
+    for (const combination of generator) {
       if (this.aborted) {
         optimizationLogger.warn("Otimização abortada pelo usuário", "GridSearchOpt");
         break;
       }
       
+      // COOPERATIVE MULTITASKING: Ceder controle ao Event Loop
+      // A cada X iterações para não bloquear servidor
+      if (completed % 5 === 0) {
+        await yieldToEventLoop();
+      }
+
       // Verificar memória antes de processar
       if (!hasEnoughMemory(30)) {
         optimizationLogger.warn("Memória baixa detectada, forçando GC...", "GridSearchOpt");
         memoryManager.tryFreeMemory();
         
-        // Se ainda não há memória suficiente, aguardar
+        // Se ainda não há memória suficiente, aguardar (backoff)
         if (!hasEnoughMemory(20)) {
-          optimizationLogger.error("Memória insuficiente para continuar", undefined, "GridSearchOpt");
-          errors.push("OOM: Memória insuficiente para continuar processamento");
-          break;
+          await yieldToEventLoop(); // Dar tempo para GC
+          memoryManager.tryFreeMemory();
+
+          if (!hasEnoughMemory(15)) {
+             optimizationLogger.error("Memória insuficiente para continuar", undefined, "GridSearchOpt");
+             errors.push("OOM: Memória insuficiente para continuar processamento");
+             break;
+          }
         }
       }
       
@@ -314,11 +379,11 @@ export class GridSearchEngineOptimized {
       
       // CHECKPOINT: first_iteration
       if (!firstIterationLogged && completed === 1) {
-        optimizationLogger.info(`CHECKPOINT: GridSearchOpt.first_iteration | combination=1/${combinations.length}`, "GridSearchOpt");
+        optimizationLogger.info(`CHECKPOINT: GridSearchOpt.first_iteration | combination=1`, "GridSearchOpt");
         firstIterationLogged = true;
       }
       
-      const percentComplete = (completed / combinations.length) * 100;
+      const percentComplete = (completed / effectiveCombinations) * 100;
       
       // CHECKPOINT: progress_5_percent
       if (!progress5PercentLogged && percentComplete >= 5) {
@@ -334,24 +399,24 @@ export class GridSearchEngineOptimized {
       // Atualizar progresso
       if (this.progressCallback) {
         const elapsed = (Date.now() - startTime) / 1000;
-        const avgTimePerCombination = elapsed / completed;
-        const remaining = (combinations.length - completed) * avgTimePerCombination;
+        const avgTimePerCombination = completed > 0 ? elapsed / completed : 0;
+        const remaining = (effectiveCombinations - completed) * avgTimePerCombination;
         
         this.progressCallback({
           phase: "TESTING",
           currentCombination: completed,
-          totalCombinations: combinations.length,
+          totalCombinations: effectiveCombinations,
           percentComplete,
           estimatedTimeRemaining: remaining,
           elapsedTime: elapsed,
           currentSymbol: this.config.symbols[0],
           currentParams: combination.parameters,
-          statusMessage: `Testando combinação ${completed}/${combinations.length}`,
+          statusMessage: `Testando combinação ${completed}/${effectiveCombinations}`,
         });
       }
       
       // Log de progresso usando throttling
-      optimizationLogger.progress(completed, combinations.length, "Testando combinações", "GridSearchOpt");
+      optimizationLogger.progress(completed, effectiveCombinations, "Testando combinações", "GridSearchOpt");
     }
     
     // Obter resultados finais do heap
@@ -374,6 +439,8 @@ export class GridSearchEngineOptimized {
       optimizationLogger.info("Cache de candles limpo", "GridSearchOpt");
     }
     
+    optimizationLogger.info(`CHECKPOINT: GridSearchOpt.completed | tested=${completed}`, "GridSearchOpt");
+
     optimizationLogger.endOperation("Grid Search Otimizado", true, {
       tempo: `${executionTime.toFixed(1)}s`,
       combinacoes: completed,
@@ -491,11 +558,17 @@ export class GridSearchEngineOptimized {
     };
     
     // CORREÇÃO OOM: Usar runner otimizado que usa cache compartilhado
+    // Usar APENAS os runners do laboratório (LabBacktestRunner*)
     const runner = USE_SHARED_CACHE 
-      ? new BacktestRunnerOptimized(config)
-      : new BacktestRunner(config);
+      ? new LabBacktestRunnerOptimized(config)
+      : new LabBacktestRunner(config);
     
     try {
+      // Injetar parâmetros customizados se suportado (LabBacktestRunner tem suporte)
+      if ('runWithParameters' in runner && typeof (runner as any).runWithParameters === 'function') {
+        return await (runner as any).runWithParameters(parameters);
+      }
+
       const result = await runner.run();
       return result;
     } finally {
@@ -652,48 +725,10 @@ export class GridSearchEngineOptimized {
     return values;
   }
 
-  private cartesianProduct(paramValues: Map<string, (number | string | boolean)[]>): ParameterCombination[] {
-    const keys = Array.from(paramValues.keys());
-    const values = Array.from(paramValues.values());
-    
-    if (keys.length === 0) {
-      return [];
-    }
-    
-    let combinations: (number | string | boolean)[][] = [[]];
-    
-    for (const valueArray of values) {
-      const temp: (number | string | boolean)[][] = [];
-      for (const combination of combinations) {
-        for (const value of valueArray) {
-          temp.push([...combination, value]);
-        }
-      }
-      combinations = temp;
-    }
-    
-    return combinations.map(combo => {
-      const params: Record<string, number | string | boolean> = {};
-      keys.forEach((key, i) => {
-        params[key] = combo[i];
-      });
-      
-      return {
-        combinationId: this.hashParameters(params),
-        parameters: params,
-      };
-    });
-  }
-
   private hashParameters(params: Record<string, number | string | boolean>): string {
     const hash = createHash("sha256");
     hash.update(JSON.stringify(params));
     return hash.digest("hex").substring(0, 16);
-  }
-
-  private sampleCombinations(combinations: ParameterCombination[], max: number): ParameterCombination[] {
-    const shuffled = [...combinations].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, max);
   }
 
   private splitPeriod(): {

@@ -23,7 +23,7 @@ import {
   OptimizationFinalResult,
 } from "./types/optimization.types";
 import { BacktestMetrics, BacktestResult, BacktestConfig, BacktestStrategyType } from "../types/backtest.types";
-import { BacktestRunner } from "../runners/BacktestRunner";
+import { LabBacktestRunner } from "../runners/LabBacktestRunner";
 
 // ============================================================================
 // WORKER POOL CLASS
@@ -360,10 +360,15 @@ export class GridSearchEngine {
       maxSpread: (parameters.maxSpreadPips as number) || 3,
     };
     
-    const runner = new BacktestRunner(config);
+    const runner = new LabBacktestRunner(config);
     
     // Injetar parâmetros customizados se o método existir
-    // Nota: Isso requer que BacktestRunner tenha o método runWithParameters
+    // Nota: Isso requer que LabBacktestRunner tenha o método runWithParameters
+    // Como agora estamos usando o runner específico do laboratório, podemos garantir que ele tem o método
+    if ('runWithParameters' in runner && typeof (runner as any).runWithParameters === 'function') {
+      return await (runner as any).runWithParameters(parameters);
+    }
+
     return await runner.run();
   }
   
