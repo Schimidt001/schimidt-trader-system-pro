@@ -19,7 +19,7 @@ import {
   ValidationProgress,
 } from "./types/validation.types";
 import { BacktestMetrics, BacktestResult, BacktestConfig, BacktestStrategyType } from "../types/backtest.types";
-import { BacktestRunner } from "../runners/BacktestRunner";
+import { LabBacktestRunner } from "../runners/LabBacktestRunner";
 import { validationLogger } from "../utils/LabLogger";
 
 // ============================================================================
@@ -211,7 +211,7 @@ export class WalkForwardValidator {
       maxSpread: (this.config.parameters.maxSpreadPips as number) || 3,
     };
     
-    const runner = new BacktestRunner(backtestConfig);
+    const runner = new LabBacktestRunner(backtestConfig);
     
     // Executar backtest
     // Nota: Idealmente usaríamos runWithParameters para injetar parâmetros customizados

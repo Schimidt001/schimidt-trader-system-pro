@@ -368,6 +368,9 @@ export const institutionalRouter = router({
       
       // CHECKPOINT: startOptimization.enter
       labLogger.info("CHECKPOINT: startOptimization.enter", "InstitutionalRouter");
+
+      // GUARD RAIL: Verificar isolamento
+      labGuard.assertLabMode();
       
       // Verificar se já há job em execução
       if (optimizationJobQueue.isRunning()) {
@@ -503,6 +506,12 @@ export const institutionalRouter = router({
     .query(() => {
       const jobStatus = optimizationJobQueue.getJobStatus();
       
+      // CHECKPOINT: status.poll.ok (throttled)
+      // Logar apenas se estiver rodando para não spammar quando idle
+      if (jobStatus.status === "RUNNING") {
+        labLogger.throttled("status.poll.ok", "debug", "CHECKPOINT: status.poll.ok", "InstitutionalRouter");
+      }
+
       // CORREÇÃO OOM: Retornar apenas campos essenciais do progress
       // Não retornar currentParams ou outros dados pesados
       const lightProgress = jobStatus.progress ? {
@@ -568,6 +577,9 @@ export const institutionalRouter = router({
   runWalkForward: protectedProcedure
     .input(walkForwardSchema)
     .mutation(async ({ input }) => {
+      // GUARD RAIL: Verificar isolamento
+      labGuard.assertLabMode();
+
       if (walkForwardState.isRunning) {
         throw new TRPCError({
           code: "CONFLICT",
@@ -677,6 +689,9 @@ export const institutionalRouter = router({
   runMonteCarlo: protectedProcedure
     .input(monteCarloSchema)
     .mutation(async ({ input }) => {
+      // GUARD RAIL: Verificar isolamento
+      labGuard.assertLabMode();
+
       if (monteCarloState.isRunning) {
         throw new TRPCError({
           code: "CONFLICT",
@@ -774,6 +789,9 @@ export const institutionalRouter = router({
   runRegimeDetection: protectedProcedure
     .input(regimeDetectionSchema)
     .mutation(async ({ input }) => {
+      // GUARD RAIL: Verificar isolamento
+      labGuard.assertLabMode();
+
       if (regimeDetectionState.isRunning) {
         throw new TRPCError({
           code: "CONFLICT",
@@ -894,6 +912,9 @@ export const institutionalRouter = router({
   runMultiAsset: protectedProcedure
     .input(multiAssetSchema)
     .mutation(async ({ input }) => {
+      // GUARD RAIL: Verificar isolamento
+      labGuard.assertLabMode();
+
       if (multiAssetState.isRunning) {
         throw new TRPCError({
           code: "CONFLICT",
@@ -1028,6 +1049,9 @@ export const institutionalRouter = router({
       seed: z.number().optional(),
     }))
     .mutation(async ({ input }) => {
+      // GUARD RAIL: Verificar isolamento
+      labGuard.assertLabMode();
+
       // Verificar dados
       const dataPath = path.join(process.cwd(), "data", "candles");
       const dataFile = path.join(dataPath, `${input.symbol}_M5.json`);
