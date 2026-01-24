@@ -155,6 +155,9 @@ export class LabBacktestRunner {
       if (!this.adapter.advanceBar(symbol, primaryTimeframe)) break;
     }
 
+    // Log de validação MTF após warmup (Anti-Lookahead Verification)
+    await this.logMTFSyncValidation(symbol, "Após Warmup");
+
     backtestLogger.debug("Warmup completo", "LabBacktestRunner");
 
     // Main simulation loop
@@ -206,6 +209,33 @@ export class LabBacktestRunner {
       equityCurve: this.adapter["equityCurve"] || [],
       drawdownCurve: this.adapter["drawdownCurve"] || [],
     };
+  }
+
+  /**
+   * Log de validação da sincronização MTF
+   * Verifica se os timestamps das últimas velas de cada timeframe
+   * estão corretamente alinhados com o timestamp simulado atual.
+   */
+  private async logMTFSyncValidation(symbol: string, context: string): Promise<void> {
+    if (!this.adapter) return;
+
+    const currentTimestamp = this.adapter.getCurrentSimulatedTimestamp();
+    const currentDate = new Date(currentTimestamp);
+
+    backtestLogger.debug(`Validação MTF (${context}): ${currentDate.toISOString()}`, "LabBacktestRunner");
+
+    for (const tf of this.config.timeframes) {
+      const candles = await this.adapter.getCandleHistory(symbol, tf, 1);
+      if (candles.length > 0) {
+        const lastCandle = candles[candles.length - 1];
+        // Verificar se o timestamp da vela é <= timestamp simulado
+        const isValid = lastCandle.timestamp <= currentTimestamp;
+
+        if (!isValid) {
+          backtestLogger.warn(`${tf}: Look-ahead bias detectado! Candle: ${new Date(lastCandle.timestamp).toISOString()} > Sim: ${currentDate.toISOString()}`, "LabBacktestRunner");
+        }
+      }
+    }
   }
 
   private async buildMTFData(symbol: string): Promise<{
