@@ -202,16 +202,19 @@ export const backtestRouter = router({
   downloadData: protectedProcedure
     .input(downloadDataSchema)
     .mutation(async ({ input }) => {
-      // GUARD RAIL: Bloqueio TOTAL em modo Lab
-      // Em modo Lab, não permitimos conexão com broker para download.
-      // Os dados devem ser importados manualmente ou estar presentes no disco.
-      if (labGuard.isLabMode()) {
+      // GUARD RAIL: Bloqueio TOTAL apenas se isolamento estrito estiver ativo (Ambiente Dedicado)
+      // Em modo híbrido (Servidor Único), permitimos que o Dashboard baixe dados.
+      // Se STRICT_LAB_ISOLATION=true, o bloqueio é absoluto.
+      if (labGuard.isStrictIsolation()) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "Lab cannot connect to broker. Data must be local.",
-          cause: { code: "LAB_OFFLINE_MODE_STRICT" }
+          message: "Strict Lab Isolation Active: Cannot connect to broker. Data must be local.",
+          cause: { code: "LAB_STRICT_ISOLATION" }
         });
       }
+
+      // Log de diagnóstico para debug
+      labLogger.info(`[downloadData] Iniciando download. LabMode=${labGuard.isLabMode()}, Strict=${labGuard.isStrictIsolation()}`, "BacktestRouter");
 
       // Check if already downloading
       if (downloadState.isDownloading) {
