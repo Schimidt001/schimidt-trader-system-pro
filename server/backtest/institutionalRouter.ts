@@ -9,7 +9,7 @@
  * - Backtest Multi-Asset
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 import { z } from "zod";
@@ -30,6 +30,7 @@ import { labLogger, optimizationLogger, validationLogger } from "./utils/LabLogg
 import { handleLabError, createDataNotFoundError, sanitizeResponse, withErrorHandling } from "./utils/LabErrors";
 import { labGuard } from "./utils/LabGuard";
 import { optimizationJobQueue, LAB_ERROR_CODES } from "./utils/OptimizationJobQueue";
+import { getLabMarketDataCollector } from "./collectors/LabMarketDataCollector";
 
 // Importar tipos
 import { BacktestStrategyType, BacktestTrade } from "./types/backtest.types";
@@ -267,72 +268,23 @@ export const institutionalRouter = router({
   /**
    * Get available datasets (symbols and timeframes with historical data)
    * 
-   * Suporta dois formatos de arquivo:
-   * 1. Formato HistoricalDataFile: { symbol, timeframe, bars: [...], totalBars, startDate, endDate }
-   * 2. Formato Array simples: [{ timestamp, open, high, low, close, volume }, ...]
+   * CORREÇÃO: Usa LabMarketDataCollector para ler apenas arquivos locais (Offline Safe)
    */
   getAvailableDatasets: protectedProcedure
     .query(() => {
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const datasets: Array<{
-        symbol: string;
-        timeframe: string;
-        recordCount: number;
-        startDate: string;
-        endDate: string;
-        lastUpdated: string;
-      }> = [];
-
-      // Verificar se o diretório existe
-      if (!fs.existsSync(dataPath)) {
-        return { datasets: [] };
-      }
-
-      // Listar arquivos de dados
-      const files = fs.readdirSync(dataPath);
+      // Usar coletor OFFLINE para listar arquivos
+      const collector = getLabMarketDataCollector();
+      const files = collector.getAvailableDataFiles();
       
-      for (const file of files) {
-        if (file.endsWith(".json")) {
-          const match = file.match(/^([A-Z]+)_([A-Z0-9]+)\.json$/);
-          if (match) {
-            const [, symbol, timeframe] = match;
-            const filePath = path.join(dataPath, file);
-            
-            try {
-              const stats = fs.statSync(filePath);
-              const content = fs.readFileSync(filePath, "utf-8");
-              const data = JSON.parse(content);
-              
-              // Formato 1: HistoricalDataFile (MarketDataCollector)
-              // { symbol, timeframe, bars: [...], totalBars, startDate, endDate, metadata }
-              if (data && typeof data === 'object' && !Array.isArray(data) && data.bars && Array.isArray(data.bars)) {
-                datasets.push({
-                  symbol: data.symbol || symbol,
-                  timeframe: data.timeframe || timeframe,
-                  recordCount: data.totalBars || data.bars.length,
-                  startDate: data.startDate || new Date(data.bars[0]?.timestamp).toISOString(),
-                  endDate: data.endDate || new Date(data.bars[data.bars.length - 1]?.timestamp).toISOString(),
-                  lastUpdated: stats.mtime.toISOString(),
-                });
-              }
-              // Formato 2: Array simples de candles
-              // [{ timestamp, open, high, low, close, volume }, ...]
-              else if (Array.isArray(data) && data.length > 0) {
-                datasets.push({
-                  symbol,
-                  timeframe,
-                  recordCount: data.length,
-                  startDate: new Date(data[0].timestamp).toISOString(),
-                  endDate: new Date(data[data.length - 1].timestamp).toISOString(),
-                  lastUpdated: stats.mtime.toISOString(),
-                });
-              }
-            } catch (error) {
-              labLogger.error(`Erro ao ler arquivo ${file}`, error as Error, "DataLoader");
-            }
-          }
-        }
-      }
+      // Transformar para o formato esperado pelo frontend
+      const datasets = files.map(f => ({
+        symbol: f.symbol,
+        timeframe: f.timeframe,
+        recordCount: 0, // LabCollector não lê o arquivo inteiro para contagem por performance
+        startDate: "", // Opcional, LabCollector pode ser estendido se necessário
+        endDate: "",
+        lastUpdated: f.lastModified.toISOString(),
+      }));
 
       return { datasets };
     }),
@@ -381,18 +333,19 @@ export const institutionalRouter = router({
         });
       }
 
-      // Verificar dados
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      for (const symbol of input.symbols) {
-        const dataFile = path.join(dataPath, `${symbol}_M5.json`);
-        if (!fs.existsSync(dataFile)) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: `Dados históricos não encontrados para ${symbol}. Baixe os dados primeiro.`,
-            cause: { code: LAB_ERROR_CODES.LAB_DATA_NOT_FOUND, symbol },
-          });
-        }
+      // Verificar dados LOCALMENTE usando LabCollector
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability(input.symbols, ["M5"]); // M5 é base para otimização
+
+      if (!availability.available) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Dados históricos não encontrados para: ${availability.missing.join(", ")}. Baixe os dados primeiro.`,
+          cause: { code: LAB_ERROR_CODES.LAB_DATA_NOT_FOUND, missing: availability.missing },
+        });
       }
+
+      const dataPath = path.join(process.cwd(), "data", "candles");
 
       // Construir configuração
       const config: OptimizationConfig = {
@@ -602,15 +555,18 @@ export const institutionalRouter = router({
         });
       }
 
-      // Verificar dados
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const dataFile = path.join(dataPath, `${input.symbol}_M5.json`);
-      if (!fs.existsSync(dataFile)) {
+      // Verificar dados LOCALMENTE
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability([input.symbol], ["M5"]);
+
+      if (!availability.available) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Dados históricos não encontrados para ${input.symbol}.`,
         });
       }
+
+      const dataPath = path.join(process.cwd(), "data", "candles");
 
       // Reset state
       walkForwardState.isRunning = true;
@@ -814,15 +770,19 @@ export const institutionalRouter = router({
         });
       }
 
-      // Verificar dados
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const dataFile = path.join(dataPath, `${input.symbol}_${input.timeframe}.json`);
-      if (!fs.existsSync(dataFile)) {
+      // Verificar dados LOCALMENTE
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability([input.symbol], [input.timeframe]);
+
+      if (!availability.available) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Dados históricos não encontrados para ${input.symbol} ${input.timeframe}.`,
         });
       }
+
+      const dataPath = path.join(process.cwd(), "data", "candles");
+      const dataFile = path.join(dataPath, `${input.symbol}_${input.timeframe}.json`);
 
       // Reset state
       regimeDetectionState.isRunning = true;
@@ -831,9 +791,10 @@ export const institutionalRouter = router({
       regimeDetectionState.error = null;
 
       try {
-        // Carregar dados
-        const rawData = fs.readFileSync(dataFile, "utf-8");
-        const candles = JSON.parse(rawData);
+        // Carregar dados (LabCollector loadDataFile seria melhor, mas manter leitura direta por consistência com outros métodos por enquanto, ou refatorar tudo)
+        // Usar LabCollector para leitura é mais seguro
+        const historicalData = labCollector.loadDataFile(input.symbol, input.timeframe);
+        const candles = historicalData.bars;
 
         // Filtrar por período
         const startTs = new Date(input.startDate).getTime();
@@ -937,17 +898,18 @@ export const institutionalRouter = router({
         });
       }
 
-      // Verificar dados para todos os símbolos
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      for (const symbol of input.symbols) {
-        const dataFile = path.join(dataPath, `${symbol}_M5.json`);
-        if (!fs.existsSync(dataFile)) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: `Dados históricos não encontrados para ${symbol}.`,
-          });
-        }
+      // Verificar dados LOCALMENTE
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability(input.symbols, ["M5"]);
+
+      if (!availability.available) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Dados históricos não encontrados para: ${availability.missing.join(", ")}.`,
+        });
       }
+
+      const dataPath = path.join(process.cwd(), "data", "candles");
 
       // Reset state
       multiAssetState.isRunning = true;
@@ -1067,15 +1029,18 @@ export const institutionalRouter = router({
       // GUARD RAIL: Verificar isolamento
       labGuard.assertLabMode();
 
-      // Verificar dados
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const dataFile = path.join(dataPath, `${input.symbol}_M5.json`);
-      if (!fs.existsSync(dataFile)) {
+      // Verificar dados LOCALMENTE
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability([input.symbol], ["M5"]);
+
+      if (!availability.available) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Dados históricos não encontrados para ${input.symbol}.`,
         });
       }
+
+      const dataPath = path.join(process.cwd(), "data", "candles");
 
       try {
         const seed = input.seed || seedFromTimestamp();

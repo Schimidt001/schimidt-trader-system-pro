@@ -9,7 +9,7 @@
  * - Otimização em lotes (Batch Optimization)
  * 
  * @author Schimidt Trader Pro - Backtest Module
- * @version 2.0.0
+ * @version 2.1.0
  */
 
 import { z } from "zod";
@@ -18,7 +18,9 @@ import { TRPCError } from "@trpc/server";
 import * as path from "path";
 import * as fs from "fs";
 import { getMarketDataCollector } from "./collectors/MarketDataCollector";
+import { getLabMarketDataCollector } from "./collectors/LabMarketDataCollector";
 import { BacktestRunner, DEFAULT_BACKTEST_CONFIG } from "./runners/BacktestRunner";
+import { LabBacktestRunner } from "./runners/LabBacktestRunner";
 import { BacktestOptimizer, OptimizationConfig, OptimizationResult, OptimizationProgress } from "./runners/BacktestOptimizer";
 import { BatchOptimizer, createBatchOptimizer, DEFAULT_BATCH_OPTIMIZATION_CONFIG } from "./runners/BatchOptimizer";
 import { BacktestConfig, BacktestStrategyType, BacktestResult } from "./types/backtest.types";
@@ -194,6 +196,8 @@ export const backtestRouter = router({
   
   /**
    * Download historical data from cTrader
+   * CORREÇÃO: Agora utiliza o getMarketDataCollector (Online) ou lança erro se offline
+   * Para uso em contexto Lab, os dados já devem estar baixados.
    */
   downloadData: protectedProcedure
     .input(downloadDataSchema)
@@ -206,13 +210,23 @@ export const backtestRouter = router({
         });
       }
       
-      // CORREÇÃO TAREFA 4: Usar lazy import para ctraderAdapter
-      // Check cTrader connection
-      const ctraderAdapter = getCTraderAdapter();
-      if (!ctraderAdapter.isConnected()) {
-        throw new TRPCError({
+      // LAZY IMPORT: Só carrega o adapter se for conectar
+      // Se estiver em modo Lab/Offline, isso pode falhar propositalmente ou ser ignorado
+      let ctraderAdapter;
+      try {
+        ctraderAdapter = getCTraderAdapter();
+        if (!ctraderAdapter.isConnected()) {
+           throw new Error("cTrader não conectado");
+        }
+      } catch (e) {
+         // Se não conseguir carregar o adapter ou não estiver conectado:
+         // No contexto de Lab puro, não devemos tentar conectar.
+         // Se o usuário clicou em "Download", ele espera que funcione se estiver live.
+         // Se estiver offline, deve retornar erro.
+         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "cTrader não está conectado. Conecte primeiro no Dashboard.",
+          message: "Falha ao conectar com cTrader para download. Verifique se o ambiente Live está ativo.",
+          cause: e
         });
       }
       
@@ -224,6 +238,7 @@ export const backtestRouter = router({
       try {
         const dataPath = path.join(process.cwd(), "data", "candles");
         
+        // Usar o coletor ONLINE para baixar
         const collector = getMarketDataCollector({
           symbols: input.symbols,
           timeframes: input.timeframes,
@@ -281,14 +296,14 @@ export const backtestRouter = router({
   
   /**
    * Get available data files
+   * CORREÇÃO: Usa LabMarketDataCollector para ler apenas arquivos locais (Offline Safe)
    */
   getAvailableData: protectedProcedure
     .query(() => {
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const collector = getMarketDataCollector({ outputDir: dataPath });
-      
-      const files = collector.getAvailableDataFiles();
+      // Usar coletor OFFLINE para listar arquivos
+      const collector = getLabMarketDataCollector();
       const summary = collector.getDataSummary();
+      const files = collector.getAvailableDataFiles();
       
       return {
         files: files.map(f => ({
@@ -298,10 +313,10 @@ export const backtestRouter = router({
         })),
         summary: {
           totalFiles: summary.totalFiles,
-          totalCandles: summary.totalCandles,
+          totalCandles: 0, // Simplificação, LabCollector pode não ler tudo agora para ser rápido
           symbols: summary.symbols,
           timeframes: summary.timeframes,
-          dateRange: summary.dateRange,
+          dateRange: null, // Pode ser implementado se necessário
         },
       };
     }),
@@ -312,6 +327,7 @@ export const backtestRouter = router({
   
   /**
    * Run a backtest
+   * CORREÇÃO: Usa LabBacktestRunner para garantir isolamento e leitura local
    */
   runBacktest: protectedProcedure
     .input(runBacktestSchema)
@@ -324,14 +340,15 @@ export const backtestRouter = router({
         });
       }
       
-      // Check if data exists
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const dataFile = path.join(dataPath, `${input.symbol}_M5.json`);
+      // Check if data exists locally using LabCollector
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability([input.symbol], ["M5", "M15", "H1"]);
       
-      if (!fs.existsSync(dataFile)) {
+      if (!availability.available) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: `Dados históricos não encontrados para ${input.symbol}. Baixe os dados primeiro.`,
+          message: `Dados históricos ausentes para: ${availability.missing.join(", ")}. Por favor, realize o download primeiro.`,
+          cause: { code: "LAB_DATA_NOT_FOUND", missing: availability.missing }
         });
       }
       
@@ -343,6 +360,8 @@ export const backtestRouter = router({
       backtestState.error = null;
       
       try {
+        const dataPath = path.join(process.cwd(), "data", "candles");
+
         // Build config
         const config: BacktestConfig = {
           symbol: input.symbol,
@@ -364,8 +383,8 @@ export const backtestRouter = router({
         backtestState.currentPhase = "loading_data";
         backtestState.progress = 10;
         
-        // Create runner
-        const runner = new BacktestRunner(config);
+        // CORREÇÃO: Usar LabBacktestRunner (Offline)
+        const runner = new LabBacktestRunner(config);
         
         backtestState.currentPhase = "simulating";
         backtestState.progress = 30;
@@ -570,11 +589,11 @@ export const backtestRouter = router({
         });
       }
 
-      // Check if data exists
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const dataFile = path.join(dataPath, `${input.symbol}_M5.json`);
+      // Check if data exists using LabCollector (Offline check)
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability([input.symbol], ["M5"]); // M5 is base for optimization
 
-      if (!fs.existsSync(dataFile)) {
+      if (!availability.available) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Dados históricos não encontrados para ${input.symbol}. Baixe os dados primeiro.`,
@@ -588,6 +607,8 @@ export const backtestRouter = router({
       optimizationState.error = null;
 
       try {
+        const dataPath = path.join(process.cwd(), "data", "candles");
+
         // Build optimization config
         const config: OptimizationConfig = {
           symbol: input.symbol,
@@ -740,11 +761,11 @@ export const backtestRouter = router({
         });
       }
 
-      // Check if data exists
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const dataFile = path.join(dataPath, `${input.symbol}_M5.json`);
+      // Check if data exists using LabCollector
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability([input.symbol], ["M5"]);
 
-      if (!fs.existsSync(dataFile)) {
+      if (!availability.available) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Dados históricos não encontrados para ${input.symbol}. Baixe os dados primeiro.`,
@@ -758,6 +779,8 @@ export const backtestRouter = router({
       batchOptimizationState.error = null;
 
       try {
+        const dataPath = path.join(process.cwd(), "data", "candles");
+
         // Build batch optimization config
         const config: BatchOptimizationConfig = {
           symbol: input.symbol,
@@ -873,132 +896,5 @@ export const backtestRouter = router({
       batchOptimizationState.error = null;
       batchOptimizationState.progress = null;
       return { success: true };
-    }),
-
-  // =========================================================================
-  // INSTITUTIONAL OPTIMIZATION (NEW - Grid Search + Walk-Forward)
-  // =========================================================================
-  
-  /**
-   * Get default SMC parameter definitions for optimization
-   */
-  getParameterDefinitions: protectedProcedure
-    .query(async () => {
-      // Import dynamically to avoid circular dependencies
-      const { DEFAULT_SMC_PARAMETER_DEFINITIONS, ParameterCategory } = await import("./optimization/types/optimization.types");
-      
-      return {
-        parameters: DEFAULT_SMC_PARAMETER_DEFINITIONS,
-        categories: Object.values(ParameterCategory),
-      };
-    }),
-
-  /**
-   * Start institutional optimization (Grid Search + Walk-Forward)
-   */
-  startInstitutionalOptimization: protectedProcedure
-    .input(z.object({
-      symbols: z.array(z.string()).min(1),
-      startDate: z.string(),
-      endDate: z.string(),
-      strategyType: z.enum(["SMC", "HYBRID", "RSI_VWAP"]),
-      parameters: z.array(z.object({
-        name: z.string(),
-        enabled: z.boolean(),
-        locked: z.boolean(),
-        min: z.number().optional(),
-        max: z.number().optional(),
-        step: z.number().optional(),
-        values: z.array(z.union([z.number(), z.string()])).optional(),
-        default: z.union([z.number(), z.string(), z.boolean()]),
-      })),
-      validation: z.object({
-        enabled: z.boolean(),
-        inSampleRatio: z.number().min(0.5).max(0.9).default(0.7),
-        walkForward: z.object({
-          enabled: z.boolean(),
-          windowMonths: z.number().min(3).max(24).default(6),
-          stepMonths: z.number().min(1).max(6).default(1),
-        }),
-      }),
-      maxCombinations: z.number().min(100).max(100000).optional(),
-      parallelWorkers: z.number().min(1).max(8).default(4),
-      objectives: z.array(z.object({
-        metric: z.string(),
-        target: z.enum(["MAXIMIZE", "MINIMIZE"]),
-        weight: z.number().min(0).max(1),
-        threshold: z.number().optional(),
-      })),
-    }))
-    .mutation(async ({ input }) => {
-      // TODO: Implement full institutional optimization
-      // This is a placeholder that will be completed in the next phase
-      
-      return {
-        success: true,
-        message: "Otimização institucional iniciada (implementação em progresso)",
-        estimatedCombinations: 0,
-      };
-    }),
-
-  /**
-   * Get institutional optimization status
-   */
-  getInstitutionalOptimizationStatus: protectedProcedure
-    .query(() => {
-      // TODO: Implement status tracking
-      return {
-        isRunning: false,
-        progress: null,
-        error: null,
-      };
-    }),
-
-  /**
-   * Abort institutional optimization
-   */
-  abortInstitutionalOptimization: protectedProcedure
-    .mutation(() => {
-      // TODO: Implement abort
-      return { success: true, message: "Otimização institucional abortada" };
-    }),
-
-  /**
-   * Get institutional optimization results
-   */
-  getInstitutionalOptimizationResults: protectedProcedure
-    .query(() => {
-      // TODO: Implement results retrieval
-      return null;
-    }),
-
-  /**
-   * Run Walk-Forward validation on specific parameters
-   */
-  runWalkForwardValidation: protectedProcedure
-    .input(z.object({
-      symbol: z.string(),
-      parameters: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])),
-      startDate: z.string(),
-      endDate: z.string(),
-      windowMonths: z.number().min(3).max(24).default(6),
-      stepMonths: z.number().min(1).max(6).default(1),
-      strategyType: z.enum(["SMC", "HYBRID", "RSI_VWAP"]),
-    }))
-    .mutation(async ({ input }) => {
-      // TODO: Implement Walk-Forward validation
-      return {
-        success: true,
-        message: "Validação Walk-Forward iniciada (implementação em progresso)",
-      };
-    }),
-
-  /**
-   * Get Walk-Forward validation results
-   */
-  getWalkForwardResults: protectedProcedure
-    .query(() => {
-      // TODO: Implement results retrieval
-      return null;
     }),
 });
