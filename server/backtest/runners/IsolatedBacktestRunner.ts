@@ -8,14 +8,10 @@
  * - P0 - Isolamento: 1 combinação = 1 instância isolada (runner/adapter/estado)
  * - P0 - Anti look-ahead: nenhum componente acessa candle futuro
  * 
- * Diferenças do BacktestRunner original:
- * - Cria nova instância de adapter e engine para cada execução
- * - Registra seed e hashes para reprodutibilidade
- * - Não reutiliza estado entre execuções
- * - Suporta abort idempotente
+ * CORREÇÃO: Usa LabMarketDataCollector para leitura de dados offline
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 import * as crypto from "crypto";
@@ -34,6 +30,7 @@ import { CandleData, PriceTick } from "../../adapters/IBrokerAdapter";
 import { backtestLogger } from "../utils/LabLogger";
 import { sanitizeMetrics } from "../utils/LabErrors";
 import { memoryManager, hasEnoughMemory } from "../utils/MemoryManager";
+import { getLabMarketDataCollector } from "../collectors/LabMarketDataCollector";
 
 // ============================================================================
 // TYPES
@@ -190,11 +187,8 @@ export class IsolatedBacktestRunner {
       this.adapter = new BacktestAdapter(this.config);
       
       // 2. Carregar dados históricos
-      await this.adapter.loadHistoricalData(
-        this.config.dataPath,
-        this.config.symbol,
-        this.config.timeframes
-      );
+      // CORREÇÃO: Usar LabMarketDataCollector para verificar dados offline
+      await this.loadOfflineData();
       
       // Calcular hash do dataset
       const datasetHash = this.calculateDatasetHash();
@@ -308,6 +302,28 @@ export class IsolatedBacktestRunner {
       this.cleanup();
       this.isRunning = false;
     }
+  }
+
+  /**
+   * Carrega dados usando LabMarketDataCollector (Offline) e injeta no adapter
+   */
+  private async loadOfflineData(): Promise<void> {
+    if (!this.adapter) return;
+
+    const labCollector = getLabMarketDataCollector();
+
+    // Verificar disponibilidade
+    const availability = labCollector.checkDataAvailability([this.config.symbol], this.config.timeframes);
+    if (!availability.available) {
+        throw new Error(`Dados offline incompletos para backtest isolado: ${availability.missing.join(", ")}`);
+    }
+
+    // Carregar arquivos
+    await this.adapter.loadHistoricalData(
+        this.config.dataPath,
+        this.config.symbol,
+        this.config.timeframes
+    );
   }
   
   /**

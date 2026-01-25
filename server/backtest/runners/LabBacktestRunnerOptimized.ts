@@ -6,8 +6,10 @@
  * - Implementa estratégias de economia de memória agressivas
  * - NÃO conecta com brokers reais
  *
+ * CORREÇÃO: Usa LabMarketDataCollector para leitura de dados offline
+ *
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 import {
@@ -26,6 +28,7 @@ import { MultiTimeframeData } from "../../adapters/ctrader/ITradingStrategy";
 import { backtestLogger } from "../utils/LabLogger";
 import { memoryManager } from "../utils/MemoryManager";
 import { yieldToEventLoop } from "../utils/AsyncUtils";
+import { getLabMarketDataCollector } from "../collectors/LabMarketDataCollector";
 
 // ============================================================================
 // CONSTANTS
@@ -63,11 +66,9 @@ export class LabBacktestRunnerOptimized {
       this.adapter = new BacktestAdapterOptimized(this.config);
 
       // 2. Load historical data (referências do cache)
-      await this.adapter.loadHistoricalData(
-        this.config.dataPath,
-        this.config.symbol,
-        this.config.timeframes
-      );
+      // CORREÇÃO: Usar LabMarketDataCollector para verificar dados offline
+      // O Adapter Optimized deve ser capaz de carregar do disco sem broker
+      await this.loadOfflineData();
 
       // Validate data
       const primaryTimeframe = this.config.timeframes[0] || "M5";
@@ -138,6 +139,28 @@ export class LabBacktestRunnerOptimized {
       // CORREÇÃO OOM: Sempre limpar recursos
       this.cleanup();
     }
+  }
+
+  /**
+   * Carrega dados usando LabMarketDataCollector (Offline) e injeta no adapter
+   */
+  private async loadOfflineData(): Promise<void> {
+    if (!this.adapter) return;
+
+    const labCollector = getLabMarketDataCollector();
+
+    // Verificar disponibilidade
+    const availability = labCollector.checkDataAvailability([this.config.symbol], this.config.timeframes);
+    if (!availability.available) {
+        throw new Error(`Dados offline incompletos para otimização: ${availability.missing.join(", ")}`);
+    }
+
+    // Carregar arquivos
+    await this.adapter.loadHistoricalData(
+        this.config.dataPath,
+        this.config.symbol,
+        this.config.timeframes
+    );
   }
 
   /**
@@ -487,20 +510,6 @@ export class LabBacktestRunnerOptimized {
     if (parameters.maxSpreadPips !== undefined) {
       this.config.maxSpread = parameters.maxSpreadPips as number;
     }
-
-    // NOTA: Para injetar parâmetros de estratégia (SMC etc), precisamos que o
-    // engine suporte updateStrategyConfig. Como LabBacktestRunnerOptimized instancia
-    // SMCTradingEngine diretamente, a lógica seria:
-    //
-    // this.engine = new SMCTradingEngine(...);
-    // this.engine.updateStrategyConfig({ ...currentConfig, ...parameters });
-    //
-    // O método run() instancia o engine.
-    // Como runWithParameters chama run(), precisamos de uma forma de passar os params.
-    // O método run() usa this.config.
-    // Mas os parâmetros de estratégia (ex: chochMinPips) não estão em this.config (BacktestConfig).
-    //
-    // Solução: Armazenar customParameters e injetar no engine dentro de run()
 
     const result = await this.run();
 

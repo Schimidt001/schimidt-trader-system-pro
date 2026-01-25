@@ -9,7 +9,7 @@
  * - Backtest Multi-Asset
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.2.0 - TRPC Hardening
  */
 
 import { z } from "zod";
@@ -30,6 +30,7 @@ import { labLogger, optimizationLogger, validationLogger } from "./utils/LabLogg
 import { handleLabError, createDataNotFoundError, sanitizeResponse, withErrorHandling } from "./utils/LabErrors";
 import { labGuard } from "./utils/LabGuard";
 import { optimizationJobQueue, LAB_ERROR_CODES } from "./utils/OptimizationJobQueue";
+import { getLabMarketDataCollector } from "./collectors/LabMarketDataCollector";
 
 // Importar tipos
 import { BacktestStrategyType, BacktestTrade } from "./types/backtest.types";
@@ -267,74 +268,31 @@ export const institutionalRouter = router({
   /**
    * Get available datasets (symbols and timeframes with historical data)
    * 
-   * Suporta dois formatos de arquivo:
-   * 1. Formato HistoricalDataFile: { symbol, timeframe, bars: [...], totalBars, startDate, endDate }
-   * 2. Formato Array simples: [{ timestamp, open, high, low, close, volume }, ...]
+   * CORREÇÃO: Usa LabMarketDataCollector para ler apenas arquivos locais (Offline Safe)
+   * TRPC HARDENING: Try/Catch wrapper para evitar 502
    */
   getAvailableDatasets: protectedProcedure
     .query(() => {
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const datasets: Array<{
-        symbol: string;
-        timeframe: string;
-        recordCount: number;
-        startDate: string;
-        endDate: string;
-        lastUpdated: string;
-      }> = [];
+      try {
+        // Usar coletor OFFLINE para listar arquivos
+        const collector = getLabMarketDataCollector();
+        const files = collector.getAvailableDataFiles();
 
-      // Verificar se o diretório existe
-      if (!fs.existsSync(dataPath)) {
+        // Transformar para o formato esperado pelo frontend
+        const datasets = files.map(f => ({
+          symbol: f.symbol,
+          timeframe: f.timeframe,
+          recordCount: 0, // LabCollector não lê o arquivo inteiro para contagem por performance
+          startDate: "", // Opcional, LabCollector pode ser estendido se necessário
+          endDate: "",
+          lastUpdated: f.lastModified.toISOString(),
+        }));
+
+        return { datasets };
+      } catch (error) {
+        // Fallback seguro
         return { datasets: [] };
       }
-
-      // Listar arquivos de dados
-      const files = fs.readdirSync(dataPath);
-      
-      for (const file of files) {
-        if (file.endsWith(".json")) {
-          const match = file.match(/^([A-Z]+)_([A-Z0-9]+)\.json$/);
-          if (match) {
-            const [, symbol, timeframe] = match;
-            const filePath = path.join(dataPath, file);
-            
-            try {
-              const stats = fs.statSync(filePath);
-              const content = fs.readFileSync(filePath, "utf-8");
-              const data = JSON.parse(content);
-              
-              // Formato 1: HistoricalDataFile (MarketDataCollector)
-              // { symbol, timeframe, bars: [...], totalBars, startDate, endDate, metadata }
-              if (data && typeof data === 'object' && !Array.isArray(data) && data.bars && Array.isArray(data.bars)) {
-                datasets.push({
-                  symbol: data.symbol || symbol,
-                  timeframe: data.timeframe || timeframe,
-                  recordCount: data.totalBars || data.bars.length,
-                  startDate: data.startDate || new Date(data.bars[0]?.timestamp).toISOString(),
-                  endDate: data.endDate || new Date(data.bars[data.bars.length - 1]?.timestamp).toISOString(),
-                  lastUpdated: stats.mtime.toISOString(),
-                });
-              }
-              // Formato 2: Array simples de candles
-              // [{ timestamp, open, high, low, close, volume }, ...]
-              else if (Array.isArray(data) && data.length > 0) {
-                datasets.push({
-                  symbol,
-                  timeframe,
-                  recordCount: data.length,
-                  startDate: new Date(data[0].timestamp).toISOString(),
-                  endDate: new Date(data[data.length - 1].timestamp).toISOString(),
-                  lastUpdated: stats.mtime.toISOString(),
-                });
-              }
-            } catch (error) {
-              labLogger.error(`Erro ao ler arquivo ${file}`, error as Error, "DataLoader");
-            }
-          }
-        }
-      }
-
-      return { datasets };
     }),
 
   // =========================================================================
@@ -381,18 +339,19 @@ export const institutionalRouter = router({
         });
       }
 
-      // Verificar dados
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      for (const symbol of input.symbols) {
-        const dataFile = path.join(dataPath, `${symbol}_M5.json`);
-        if (!fs.existsSync(dataFile)) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: `Dados históricos não encontrados para ${symbol}. Baixe os dados primeiro.`,
-            cause: { code: LAB_ERROR_CODES.LAB_DATA_NOT_FOUND, symbol },
-          });
-        }
+      // Verificar dados LOCALMENTE usando LabCollector
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability(input.symbols, ["M5"]); // M5 é base para otimização
+
+      if (!availability.available) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Dados históricos não encontrados para: ${availability.missing.join(", ")}. Baixe os dados primeiro.`,
+          cause: { code: LAB_ERROR_CODES.LAB_DATA_NOT_FOUND, missing: availability.missing },
+        });
       }
+
+      const dataPath = path.join(process.cwd(), "data", "candles");
 
       // Construir configuração
       const config: OptimizationConfig = {
@@ -503,51 +462,66 @@ export const institutionalRouter = router({
    * Inclui runId, lastProgressAt para monitoramento de heartbeat
    *
    * CORREÇÃO RESILIÊNCIA: Valida runId para detectar jobs perdidos
+   *
+   * TRPC HARDENING: Garante retorno de objeto válido com defaults em caso de falha
    */
   getOptimizationStatus: protectedProcedure
     .input(z.object({ runId: z.string().optional() }).optional())
     .query(({ input }) => {
-      const jobStatus = optimizationJobQueue.getJobStatus();
-      
-      // Validação de job perdido/expirado
-      // Se um runId foi solicitado, mas não há job ou o ID é diferente, retornar erro explícito
-      if (input?.runId) {
-        if (!jobStatus.hasJob || (jobStatus.runId && jobStatus.runId !== input.runId)) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: `Job ${input.runId} not found (server restart or job expired)`,
-            cause: { code: LAB_ERROR_CODES.LAB_JOB_NOT_FOUND },
-          });
+      try {
+        const jobStatus = optimizationJobQueue.getJobStatus();
+
+        // Validação de job perdido/expirado
+        // Se um runId foi solicitado, mas não há job ou o ID é diferente, retornar erro explícito
+        if (input?.runId) {
+          if (!jobStatus.hasJob || (jobStatus.runId && jobStatus.runId !== input.runId)) {
+            // Em vez de throw, retornamos um status de erro controlado para o frontend processar
+            // Throwing 404 is good, but ensuring clean JSON structure avoids "transformation error" if TRPC client is finicky
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: `Job ${input.runId} not found (server restart or job expired)`,
+              cause: { code: LAB_ERROR_CODES.LAB_JOB_NOT_FOUND },
+            });
+          }
         }
-      }
 
-      // CHECKPOINT: status.poll.ok (throttled)
-      // Logar apenas se estiver rodando para não spammar quando idle
-      if (jobStatus.status === "RUNNING") {
-        labLogger.throttled("status.poll.ok", "debug", "CHECKPOINT: status.poll.ok", "InstitutionalRouter");
-      }
+        // CHECKPOINT: status.poll.ok (throttled)
+        if (jobStatus.status === "RUNNING") {
+          labLogger.throttled("status.poll.ok", "debug", "CHECKPOINT: status.poll.ok", "InstitutionalRouter");
+        }
 
-      // CORREÇÃO OOM: Retornar apenas campos essenciais do progress
-      // Não retornar currentParams ou outros dados pesados
-      const lightProgress = jobStatus.progress ? {
-        phase: jobStatus.progress.phase,
-        currentCombination: jobStatus.progress.currentCombination,
-        totalCombinations: jobStatus.progress.totalCombinations,
-        percentComplete: jobStatus.progress.percentComplete,
-        estimatedTimeRemaining: jobStatus.progress.estimatedTimeRemaining,
-        elapsedTime: jobStatus.progress.elapsedTime,
-        statusMessage: jobStatus.progress.statusMessage,
-        // NÃO incluir currentParams para reduzir payload
-      } : null;
-      
-      return {
-        isRunning: jobStatus.status === "RUNNING" || jobStatus.status === "QUEUED",
-        runId: jobStatus.runId,
-        status: jobStatus.status,
-        progress: lightProgress,
-        error: jobStatus.error,
-        lastProgressAt: jobStatus.lastProgressAt?.toISOString() || null,
-      };
+        const lightProgress = jobStatus.progress ? {
+          phase: jobStatus.progress.phase,
+          currentCombination: jobStatus.progress.currentCombination,
+          totalCombinations: jobStatus.progress.totalCombinations,
+          percentComplete: jobStatus.progress.percentComplete,
+          estimatedTimeRemaining: jobStatus.progress.estimatedTimeRemaining,
+          elapsedTime: jobStatus.progress.elapsedTime,
+          statusMessage: jobStatus.progress.statusMessage,
+        } : null;
+
+        return {
+          isRunning: jobStatus.status === "RUNNING" || jobStatus.status === "QUEUED",
+          runId: jobStatus.runId || null,
+          status: jobStatus.status || "IDLE", // Ensure string, never null
+          progress: lightProgress,
+          error: jobStatus.error || null,
+          lastProgressAt: jobStatus.lastProgressAt?.toISOString() || null,
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+
+        // Fallback seguro em caso de erro interno no Queue
+        labLogger.error("Erro interno ao obter status", error as Error, "InstitutionalRouter");
+        return {
+          isRunning: false,
+          runId: null,
+          status: "ERROR",
+          progress: null,
+          error: (error as Error).message || "Internal Status Error",
+          lastProgressAt: null,
+        };
+      }
     }),
 
   /**
@@ -557,7 +531,11 @@ export const institutionalRouter = router({
    */
   getOptimizationResults: protectedProcedure
     .query(() => {
-      return optimizationJobQueue.getJobResult();
+      try {
+        return optimizationJobQueue.getJobResult();
+      } catch (error) {
+        return null; // Safe fallback
+      }
     }),
 
   /**
@@ -602,15 +580,18 @@ export const institutionalRouter = router({
         });
       }
 
-      // Verificar dados
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const dataFile = path.join(dataPath, `${input.symbol}_M5.json`);
-      if (!fs.existsSync(dataFile)) {
+      // Verificar dados LOCALMENTE
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability([input.symbol], ["M5"]);
+
+      if (!availability.available) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Dados históricos não encontrados para ${input.symbol}.`,
         });
       }
+
+      const dataPath = path.join(process.cwd(), "data", "candles");
 
       // Reset state
       walkForwardState.isRunning = true;
@@ -814,15 +795,19 @@ export const institutionalRouter = router({
         });
       }
 
-      // Verificar dados
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const dataFile = path.join(dataPath, `${input.symbol}_${input.timeframe}.json`);
-      if (!fs.existsSync(dataFile)) {
+      // Verificar dados LOCALMENTE
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability([input.symbol], [input.timeframe]);
+
+      if (!availability.available) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Dados históricos não encontrados para ${input.symbol} ${input.timeframe}.`,
         });
       }
+
+      const dataPath = path.join(process.cwd(), "data", "candles");
+      const dataFile = path.join(dataPath, `${input.symbol}_${input.timeframe}.json`);
 
       // Reset state
       regimeDetectionState.isRunning = true;
@@ -831,9 +816,10 @@ export const institutionalRouter = router({
       regimeDetectionState.error = null;
 
       try {
-        // Carregar dados
-        const rawData = fs.readFileSync(dataFile, "utf-8");
-        const candles = JSON.parse(rawData);
+        // Carregar dados (LabCollector loadDataFile seria melhor, mas manter leitura direta por consistência com outros métodos por enquanto, ou refatorar tudo)
+        // Usar LabCollector para leitura é mais seguro
+        const historicalData = labCollector.loadDataFile(input.symbol, input.timeframe);
+        const candles = historicalData.bars;
 
         // Filtrar por período
         const startTs = new Date(input.startDate).getTime();
@@ -937,17 +923,18 @@ export const institutionalRouter = router({
         });
       }
 
-      // Verificar dados para todos os símbolos
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      for (const symbol of input.symbols) {
-        const dataFile = path.join(dataPath, `${symbol}_M5.json`);
-        if (!fs.existsSync(dataFile)) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: `Dados históricos não encontrados para ${symbol}.`,
-          });
-        }
+      // Verificar dados LOCALMENTE
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability(input.symbols, ["M5"]);
+
+      if (!availability.available) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Dados históricos não encontrados para: ${availability.missing.join(", ")}.`,
+        });
       }
+
+      const dataPath = path.join(process.cwd(), "data", "candles");
 
       // Reset state
       multiAssetState.isRunning = true;
@@ -1067,15 +1054,18 @@ export const institutionalRouter = router({
       // GUARD RAIL: Verificar isolamento
       labGuard.assertLabMode();
 
-      // Verificar dados
-      const dataPath = path.join(process.cwd(), "data", "candles");
-      const dataFile = path.join(dataPath, `${input.symbol}_M5.json`);
-      if (!fs.existsSync(dataFile)) {
+      // Verificar dados LOCALMENTE
+      const labCollector = getLabMarketDataCollector();
+      const availability = labCollector.checkDataAvailability([input.symbol], ["M5"]);
+
+      if (!availability.available) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Dados históricos não encontrados para ${input.symbol}.`,
         });
       }
+
+      const dataPath = path.join(process.cwd(), "data", "candles");
 
       try {
         const seed = input.seed || seedFromTimestamp();

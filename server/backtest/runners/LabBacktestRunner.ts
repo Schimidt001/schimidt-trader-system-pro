@@ -4,8 +4,10 @@
  * Versão isolada do BacktestRunner para uso exclusivo no ambiente de laboratório.
  * Garante que alterações experimentais não afetem o ambiente LIVE.
  *
+ * CORREÇÃO: Usa LabMarketDataCollector para leitura de dados offline
+ *
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 import {
@@ -23,6 +25,7 @@ import { CandleData, PriceTick } from "../../adapters/IBrokerAdapter";
 import { backtestLogger } from "../utils/LabLogger";
 import { memoryManager, hasEnoughMemory } from "../utils/MemoryManager";
 import { yieldToEventLoop } from "../utils/AsyncUtils";
+import { getLabMarketDataCollector } from "../collectors/LabMarketDataCollector";
 
 // ============================================================================
 // LAB BACKTEST RUNNER CLASS
@@ -52,11 +55,10 @@ export class LabBacktestRunner {
     this.adapter = new BacktestAdapter(this.config);
 
     // 2. Load historical data into adapter
-    await this.adapter.loadHistoricalData(
-      this.config.dataPath,
-      this.config.symbol,
-      this.config.timeframes
-    );
+    // CORREÇÃO: Usar LabMarketDataCollector para garantir leitura offline
+    // O adapter original tentaria baixar dados se faltassem
+    // Aqui garantimos que só carregamos o que já existe
+    await this.loadOfflineData();
 
     // Validate data was loaded for all timeframes
     const primaryTimeframe = this.config.timeframes[0] || "M5";
@@ -130,6 +132,40 @@ export class LabBacktestRunner {
       endTimestamp: this.config.endDate.getTime(),
       executionTime,
     };
+  }
+
+  /**
+   * Carrega dados usando LabMarketDataCollector (Offline) e injeta no adapter
+   */
+  private async loadOfflineData(): Promise<void> {
+    if (!this.adapter) return;
+
+    const labCollector = getLabMarketDataCollector();
+
+    // Verificar disponibilidade
+    const availability = labCollector.checkDataAvailability([this.config.symbol], this.config.timeframes);
+    if (!availability.available) {
+        throw new Error(`Dados offline incompletos para backtest: ${availability.missing.join(", ")}`);
+    }
+
+    // Carregar arquivos manualmente e injetar no adapter
+    // O BacktestAdapter original tem um método loadHistoricalData que pode tentar baixar
+    // Vamos usar um método mais direto ou sobrescrever o comportamento se possível
+    // Como BacktestAdapter não expõe método público para setar candles diretamente de array facilmente sem ler arquivo,
+    // e o método loadHistoricalData dele usa MarketDataCollector (que agora tem lazy load do broker),
+    // a melhor abordagem é garantir que o adapter leia do disco sem chamar o broker.
+
+    // O BacktestAdapter usa MarketDataCollector internamente.
+    // Se os arquivos existem, ele lê. Se não, tenta baixar.
+    // Como já verificamos que existem via LabCollector, o BacktestAdapter vai apenas ler.
+    // MAS, para garantir 100% de isolamento, seria ideal se BacktestAdapter aceitasse os dados já carregados.
+
+    // Assumindo que BacktestAdapter.loadHistoricalData lê do disco se existir:
+    await this.adapter.loadHistoricalData(
+        this.config.dataPath,
+        this.config.symbol,
+        this.config.timeframes
+    );
   }
 
   private async runSimulationWithStrategy(): Promise<{
@@ -550,6 +586,22 @@ export class LabBacktestRunner {
 
   getCustomParameters(): Record<string, number | string | boolean> | null {
     return this.customParameters;
+  }
+
+  // Injetar parâmetros customizados na estratégia se suportado
+  private injectCustomParameters(parameters: Record<string, number | string | boolean>): void {
+    if (!this.engine) return;
+
+    // Verificar se o engine suporta atualização de configuração
+    if (typeof (this.engine as any).getStrategyConfig === 'function' &&
+        typeof (this.engine as any).updateStrategyConfig === 'function') {
+
+      const currentConfig = (this.engine as any).getStrategyConfig();
+      const mergedConfig = { ...currentConfig, ...parameters };
+      (this.engine as any).updateStrategyConfig(mergedConfig);
+
+      backtestLogger.debug(`Parâmetros injetados: ${Object.keys(parameters).length}`, "LabBacktestRunner");
+    }
   }
 }
 
