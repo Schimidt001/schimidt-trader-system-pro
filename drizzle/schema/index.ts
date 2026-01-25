@@ -38,3 +38,12 @@ export {
   MarketRegimeType,
   type MarketRegimeTypeValue,
 } from "./market-regimes";
+
+// Optimization Jobs (Persistência de Estado)
+export {
+  optimizationJobs,
+  type OptimizationJob,
+  type NewOptimizationJob,
+  OptimizationJobStatus,
+  type OptimizationJobStatusType,
+} from "./optimization-jobs";
