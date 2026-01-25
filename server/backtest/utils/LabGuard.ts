@@ -13,7 +13,7 @@
  * - Verificação de ambiente antes de cada operação crítica
  * 
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0 - Hybrid Context Support
  */
 
 import { TRPCError } from "@trpc/server";
@@ -79,10 +79,23 @@ export class LabGuard {
   }
   
   /**
-   * Verifica se o sistema está em modo LAB
+   * Verifica se o sistema está em modo LAB (Lógico)
+   * Usado para validar se funcionalidades do Lab podem rodar.
    */
   isLabMode(): boolean {
     return this.config.forceLabMode || this.config.mode === "LAB";
+  }
+
+  /**
+   * Verifica se o isolamento estrito está ativado.
+   * Isso só deve ser verdade se estivermos rodando em uma instância DEDICADA de Lab
+   * (via variável de ambiente), onde conexões externas são proibidas fisicamente.
+   *
+   * Em modo híbrido (Servidor Único com Dashboard + Lab), isso retorna false
+   * para permitir que o Dashboard baixe dados.
+   */
+  isStrictIsolation(): boolean {
+    return process.env.STRICT_LAB_ISOLATION === "true";
   }
   
   /**
