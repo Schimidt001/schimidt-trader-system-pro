@@ -9,8 +9,10 @@
  * - Iteração lazy (Generator) para evitar materialização de combinações
  * - Multitarefa cooperativa para evitar bloqueio do Event Loop
  * 
+ * MELHORIA: Estimativa de tempo real baseada em média móvel (Tarefa 3)
+ *
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 2.1.0 - Memory Optimized & Generator Based
+ * @version 2.2.0 - Real-time Estimation
  */
 
 import { createHash } from "crypto";
@@ -43,6 +45,9 @@ const GC_INTERVAL = 20;
 
 /** Flag para usar cache compartilhado de candles */
 const USE_SHARED_CACHE = true;
+
+/** Limite de tempo (ms) para considerar uma combinação lenta */
+const SLOW_COMBINATION_THRESHOLD_MS = 30000;
 
 // ============================================================================
 // TOP-N HEAP CLASS
@@ -255,6 +260,8 @@ export class GridSearchEngineOptimized {
    * - Monitora uso de memória
    * - Usa Generator para evitar array gigante
    * - Usa Yield para não bloquear Event Loop
+   *
+   * MELHORIA (Tarefa 3): Estimativa de tempo baseada em média móvel
    */
   async run(): Promise<OptimizationFinalResult> {
     const startTime = Date.now();
@@ -313,6 +320,7 @@ export class GridSearchEngineOptimized {
     let totalTrades = 0;
     let firstIterationLogged = false;
     let progress5PercentLogged = false;
+    let totalTimeAccumulator = 0; // Acumulador de tempo para média real
     
     // Usar Generator para iterar combinações lazy
     const generator = this.generateCombinationsGenerator();
@@ -323,6 +331,8 @@ export class GridSearchEngineOptimized {
         break;
       }
       
+      const iterStartTime = Date.now();
+
       // COOPERATIVE MULTITASKING: Ceder controle ao Event Loop
       // A cada X iterações para não bloquear servidor
       if (completed % 5 === 0) {
@@ -375,8 +385,15 @@ export class GridSearchEngineOptimized {
         errors.push(`Erro na combinação ${combination.combinationId}: ${(error as Error).message}`);
       }
       
+      const iterTime = Date.now() - iterStartTime;
+      totalTimeAccumulator += iterTime;
       completed++;
       
+      // TAREFA 3: Logar combinações muito lentas
+      if (iterTime > SLOW_COMBINATION_THRESHOLD_MS) {
+        optimizationLogger.warn(`Combinação lenta detectada: ${(iterTime/1000).toFixed(1)}s`, "GridSearchOpt");
+      }
+
       // CHECKPOINT: first_iteration
       if (!firstIterationLogged && completed === 1) {
         optimizationLogger.info(`CHECKPOINT: GridSearchOpt.first_iteration | combination=1`, "GridSearchOpt");
@@ -396,19 +413,22 @@ export class GridSearchEngineOptimized {
         memoryManager.tryFreeMemory();
       }
       
-      // Atualizar progresso
+      // Atualizar progresso com estimativa baseada em média móvel real
       if (this.progressCallback) {
-        const elapsed = (Date.now() - startTime) / 1000;
-        const avgTimePerCombination = completed > 0 ? elapsed / completed : 0;
-        const remaining = (effectiveCombinations - completed) * avgTimePerCombination;
+        // Média de tempo por combinação (ms)
+        const avgTimePerCombination = totalTimeAccumulator / completed;
+
+        // Tempo restante estimado (s)
+        const remainingCombinations = effectiveCombinations - completed;
+        const remainingTimeSeconds = (remainingCombinations * avgTimePerCombination) / 1000;
         
         this.progressCallback({
           phase: "TESTING",
           currentCombination: completed,
           totalCombinations: effectiveCombinations,
           percentComplete,
-          estimatedTimeRemaining: remaining,
-          elapsedTime: elapsed,
+          estimatedTimeRemaining: remainingTimeSeconds,
+          elapsedTime: (Date.now() - startTime) / 1000,
           currentSymbol: this.config.symbols[0],
           currentParams: combination.parameters,
           statusMessage: `Testando combinação ${completed}/${effectiveCombinations}`,
