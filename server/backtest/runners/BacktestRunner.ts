@@ -22,8 +22,12 @@
  * - getCandleHistory respeita o alinhamento temporal
  * - Eliminado Look-ahead Bias na leitura de H1/M15
  * 
+ * CORREÇÃO EVENT LOOP (2026-01-25):
+ * - Adicionado yieldToEventLoop() no loop principal de simulação
+ * - Isso evita 502 Bad Gateway e desconexão do broker live por timeout
+ *
  * @author Schimidt Trader Pro - Backtest Module
- * @version 2.1.0 - MTF Timestamp Synchronization
+ * @version 2.2.0 - Event Loop Friendly
  */
 
 import {
@@ -40,6 +44,7 @@ import { ITradingAdapter } from "../adapters/ITradingAdapter";
 import { CandleData, PriceTick } from "../../adapters/IBrokerAdapter";
 import { backtestLogger } from "../utils/LabLogger";
 import { memoryManager, hasEnoughMemory } from "../utils/MemoryManager";
+import { yieldToEventLoop } from "../utils/AsyncUtils";
 
 // ============================================================================
 // BACKTEST RUNNER CLASS
@@ -204,6 +209,12 @@ export class BacktestRunner {
     while (this.adapter.advanceBar(symbol, primaryTimeframe)) {
       barCount++;
       
+      // COOPERATIVE MULTITASKING: Yield every 200 iterations
+      // This is CRITICAL to prevent 502 timeouts and cTrader disconnects
+      if (barCount % 200 === 0) {
+        await yieldToEventLoop();
+      }
+
       // CORREÇÃO OOM: Verificar memória periodicamente
       if (barCount % 500 === 0 && !hasEnoughMemory(30)) {
         memoryManager.tryFreeMemory();
