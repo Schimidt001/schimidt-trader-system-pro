@@ -282,9 +282,9 @@ export const institutionalRouter = router({
         const datasets = files.map(f => ({
           symbol: f.symbol,
           timeframe: f.timeframe,
-          recordCount: 0, // LabCollector não lê o arquivo inteiro para contagem por performance
-          startDate: "", // Opcional, LabCollector pode ser estendido se necessário
-          endDate: "",
+          recordCount: f.recordCount || 0,
+          startDate: f.startDate || new Date().toISOString(), // Fallback para data atual se inválido
+          endDate: f.endDate || new Date().toISOString(),
           lastUpdated: f.lastModified.toISOString(),
         }));
 
@@ -509,16 +509,20 @@ export const institutionalRouter = router({
           lastProgressAt: jobStatus.lastProgressAt?.toISOString() || null,
         };
       } catch (error) {
-        if (error instanceof TRPCError) throw error;
+        // CORREÇÃO: Capturar TUDO, inclusive TRPCError, para garantir retorno JSON válido
+        // Isso evita "TRPCClientError: Unable to transform response" no frontend
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
-        // Fallback seguro em caso de erro interno no Queue
-        labLogger.error("Erro interno ao obter status", error as Error, "InstitutionalRouter");
+        if (!(error instanceof TRPCError)) {
+           labLogger.error("Erro interno ao obter status", error as Error, "InstitutionalRouter");
+        }
+
         return {
           isRunning: false,
           runId: null,
           status: "ERROR",
           progress: null,
-          error: (error as Error).message || "Internal Status Error",
+          error: errorMessage,
           lastProgressAt: null,
         };
       }

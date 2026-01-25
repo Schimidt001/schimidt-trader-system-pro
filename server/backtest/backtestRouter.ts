@@ -202,6 +202,17 @@ export const backtestRouter = router({
   downloadData: protectedProcedure
     .input(downloadDataSchema)
     .mutation(async ({ input }) => {
+      // GUARD RAIL: Bloqueio TOTAL em modo Lab
+      // Em modo Lab, não permitimos conexão com broker para download.
+      // Os dados devem ser importados manualmente ou estar presentes no disco.
+      if (labGuard.isLabMode()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Lab cannot connect to broker. Data must be local.",
+          cause: { code: "LAB_OFFLINE_MODE_STRICT" }
+        });
+      }
+
       // Check if already downloading
       if (downloadState.isDownloading) {
         throw new TRPCError({
@@ -219,10 +230,6 @@ export const backtestRouter = router({
            throw new Error("cTrader não conectado");
         }
       } catch (e) {
-         // Se não conseguir carregar o adapter ou não estiver conectado:
-         // No contexto de Lab puro, não devemos tentar conectar.
-         // Se o usuário clicou em "Download", ele espera que funcione se estiver live.
-         // Se estiver offline, deve retornar erro.
          throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "Falha ao conectar com cTrader para download. Verifique se o ambiente Live está ativo.",
@@ -439,12 +446,21 @@ export const backtestRouter = router({
    */
   getBacktestStatus: protectedProcedure
     .query(() => {
-      return {
-        isRunning: backtestState.isRunning,
-        progress: backtestState.progress,
-        currentPhase: backtestState.currentPhase,
-        error: backtestState.error,
-      };
+      try {
+        return {
+          isRunning: backtestState.isRunning,
+          progress: backtestState.progress,
+          currentPhase: backtestState.currentPhase,
+          error: backtestState.error,
+        };
+      } catch (error) {
+        return {
+          isRunning: false,
+          progress: 0,
+          currentPhase: "error",
+          error: error instanceof Error ? error.message : "Unknown Status Error",
+        };
+      }
     }),
   
   /**

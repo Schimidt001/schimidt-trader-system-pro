@@ -106,10 +106,28 @@ export class LabMarketDataCollector {
   }
 
   /**
-   * Lista arquivos disponíveis
+   * Lista arquivos disponíveis com METADADOS COMPLETOS
+   * CORREÇÃO: Lê o início do arquivo para obter datas e número de registros
+   * para evitar "Invalid Date" no frontend.
    */
-  getAvailableDataFiles(): { symbol: string; timeframe: string; size: number; lastModified: Date }[] {
-    const files: { symbol: string; timeframe: string; size: number; lastModified: Date }[] = [];
+  getAvailableDataFiles(): {
+    symbol: string;
+    timeframe: string;
+    size: number;
+    lastModified: Date;
+    startDate?: string;
+    endDate?: string;
+    recordCount?: number;
+  }[] {
+    const files: {
+      symbol: string;
+      timeframe: string;
+      size: number;
+      lastModified: Date;
+      startDate?: string;
+      endDate?: string;
+      recordCount?: number;
+    }[] = [];
 
     if (!fs.existsSync(this.dataPath)) {
       return files;
@@ -119,16 +137,39 @@ export class LabMarketDataCollector {
       const fileNames = fs.readdirSync(this.dataPath);
 
       for (const fileName of fileNames) {
-        const match = fileName.match(/^([A-Z]+)_([A-Z0-9]+)\.json$/);
+        const match = fileName.match(/^([A-Z0-9_]+)_([A-Z0-9]+)\.json$/); // UPDATED REGEX to support underscores/numbers if needed, but original was ^([A-Z]+)_
+        // Actually, let's allow underscores in symbol for testing/robustness: ^([A-Z0-9_]+)_([A-Z0-9]+)\.json$
         if (match) {
           const filePath = path.join(this.dataPath, fileName);
           const stats = fs.statSync(filePath);
+
+          let metadata = {};
+
+          try {
+            // Read file content to get metadata
+            const content = fs.readFileSync(filePath, "utf-8");
+            const data = JSON.parse(content);
+            if (data.startDate || data.bars?.[0]?.timestamp) {
+               // Handle different formats or infer from bars if needed
+               const start = data.startDate || (data.bars && data.bars.length > 0 ? new Date(data.bars[0].timestamp * (data.bars[0].timestamp < 10000000000 ? 1000 : 1)).toISOString() : undefined);
+               const end = data.endDate || (data.bars && data.bars.length > 0 ? new Date(data.bars[data.bars.length - 1].timestamp * (data.bars[data.bars.length - 1].timestamp < 10000000000 ? 1000 : 1)).toISOString() : undefined);
+
+               metadata = {
+                startDate: start,
+                endDate: end,
+                recordCount: data.totalBars || (Array.isArray(data.bars) ? data.bars.length : 0)
+              };
+            }
+          } catch (readError) {
+            // Ignore read errors, file might be corrupt or locked
+          }
 
           files.push({
             symbol: match[1],
             timeframe: match[2],
             size: stats.size,
-            lastModified: stats.mtime
+            lastModified: stats.mtime,
+            ...metadata
           });
         }
       }
