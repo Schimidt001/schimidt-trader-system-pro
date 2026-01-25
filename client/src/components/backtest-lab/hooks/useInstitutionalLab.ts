@@ -9,8 +9,13 @@
  * - Backtest Multi-Asset
  * - Backtest Isolado
  * 
+ * IMPLEMENTAÇÃO DE PERSISTÊNCIA E RESILIÊNCIA (TAREFA 2):
+ * - Persistência do runId no localStorage
+ * - Recuperação automática de estado após recarregamento (F5) ou troca de aba
+ * - Tratamento robusto de erros 404/JobNotFound (reset automático)
+ *
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 2.0.0
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -63,6 +68,12 @@ export interface PipelineState<TResult = unknown> {
   result: TResult | null;
   error: PipelineError | null;
 }
+
+// ============================================================================
+// PERSISTENCE UTILS (LocalStorage)
+// ============================================================================
+
+import { saveRunId, loadRunId, clearRunId } from "./persistenceUtils";
 
 // ============================================================================
 // INITIAL STATES
@@ -139,29 +150,42 @@ export function useInstitutionalLab() {
     try {
       const status = await utils.institutional.getOptimizationStatus.fetch();
       
+      // VERIFICAÇÃO DE INTEGRIDADE: Se runId mudar ou for nulo, pode ser um reset do servidor
+      // Mas o backend agora retorna runId no status, então podemos comparar
+
       // Determinar o status baseado no estado atual
       let newStatus: PipelineStatus = "IDLE";
       if (status.isRunning) {
         newStatus = "RUNNING";
       } else if (status.error) {
         newStatus = "ERROR";
+      } else if (status.status === "COMPLETED") {
+        newStatus = "COMPLETED";
       }
       
-      setOptimizationState(prev => ({
-        ...prev,
-        status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : prev.status),
-        progress: status.progress ? {
-          percentComplete: status.progress.percentComplete,
-          currentPhase: status.progress.phase || "RUNNING",
-          message: status.progress.statusMessage || "Processando...",
-          estimatedTimeRemaining: status.progress.estimatedTimeRemaining,
-          elapsedTime: status.progress.elapsedTime,
-        } : prev.progress,
-        error: status.error ? { code: "OPTIMIZATION_ERROR", message: status.error } : null,
-      }));
+      setOptimizationState(prev => {
+        // Se o status mudou para não rodando, limpar persistência
+        if (!status.isRunning && status.status !== "QUEUED") {
+          clearRunId();
+        }
+
+        return {
+          ...prev,
+          runId: status.runId || prev.runId, // Atualizar runId se disponível
+          status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : (status.status === "COMPLETED" ? "COMPLETED" : prev.status)),
+          progress: status.progress ? {
+            percentComplete: status.progress.percentComplete,
+            currentPhase: status.progress.phase || "RUNNING",
+            message: status.progress.statusMessage || "Processando...",
+            estimatedTimeRemaining: status.progress.estimatedTimeRemaining,
+            elapsedTime: status.progress.elapsedTime,
+          } : prev.progress,
+          error: status.error ? { code: "OPTIMIZATION_ERROR", message: status.error } : null,
+        };
+      });
 
       // Se completou ou erro, buscar resultados separadamente e parar polling
-      if (!status.isRunning) {
+      if (!status.isRunning && status.status !== "QUEUED") {
         if (optimizationPollRef.current) {
           clearInterval(optimizationPollRef.current);
           optimizationPollRef.current = null;
@@ -182,8 +206,19 @@ export function useInstitutionalLab() {
           console.error("Erro ao buscar resultados da otimizacao:", resultError);
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao buscar status da otimizacao:", error);
+
+      // RESILIÊNCIA: Se erro 404 ou job not found, resetar estado e limpar persistência
+      if (error?.data?.code === "NOT_FOUND" || error?.message?.includes("Job not found")) {
+        console.warn("Job perdido ou expirado. Resetando estado.");
+        clearRunId();
+        if (optimizationPollRef.current) {
+          clearInterval(optimizationPollRef.current);
+          optimizationPollRef.current = null;
+        }
+        setOptimizationState(createInitialState());
+      }
     }
   }, [utils]);
 
@@ -348,10 +383,29 @@ export function useInstitutionalLab() {
   }, [utils]);
 
   // =========================================================================
-  // CLEANUP
+  // PERSISTENCE EFFECT (ON MOUNT)
   // =========================================================================
 
   useEffect(() => {
+    // Tentar recuperar estado de otimização salvo
+    const savedRunId = loadRunId();
+
+    if (savedRunId) {
+      console.log(`[useInstitutionalLab] Estado persistido encontrado: ${savedRunId}. Retomando polling...`);
+
+      // Restaurar estado inicial e iniciar polling
+      setOptimizationState(prev => ({
+        ...prev,
+        runId: savedRunId,
+        status: "RUNNING", // Assumir rodando até que o polling diga o contrário
+        startedAt: new Date(), // Estimativa
+      }));
+
+      // Iniciar polling imediatamente
+      optimizationPollRef.current = setInterval(pollOptimizationStatus, POLL_INTERVAL);
+      pollOptimizationStatus(); // Executar uma vez imediatamente
+    }
+
     return () => {
       // Limpar todos os intervals ao desmontar
       if (optimizationPollRef.current) clearInterval(optimizationPollRef.current);
@@ -360,7 +414,7 @@ export function useInstitutionalLab() {
       if (regimeDetectionPollRef.current) clearInterval(regimeDetectionPollRef.current);
       if (multiAssetPollRef.current) clearInterval(multiAssetPollRef.current);
     };
-  }, []);
+  }, []); // Executar apenas na montagem
 
   // =========================================================================
   // OPTIMIZATION HANDLERS
@@ -384,10 +438,15 @@ export function useInstitutionalLab() {
     objectives: any[];
     seed?: number;
   }) => {
-    const runId = `opt-${Date.now()}`;
+    // Resetar estado anterior
+    if (optimizationPollRef.current) {
+      clearInterval(optimizationPollRef.current);
+      optimizationPollRef.current = null;
+    }
+    clearRunId();
     
     setOptimizationState({
-      runId,
+      runId: null,
       status: "STARTING",
       progress: null,
       startedAt: new Date(),
@@ -397,17 +456,27 @@ export function useInstitutionalLab() {
     });
 
     try {
-      await startOptimizationMutation.mutateAsync(config);
+      const result = await startOptimizationMutation.mutateAsync(config);
       
-      setOptimizationState(prev => ({
-        ...prev,
-        status: "RUNNING",
-      }));
+      if (result.success && result.runId) {
+        const runId = result.runId;
 
-      // Iniciar polling
-      optimizationPollRef.current = setInterval(pollOptimizationStatus, POLL_INTERVAL);
-      
-      return { success: true, runId };
+        // Salvar runId para persistência
+        saveRunId(runId);
+
+        setOptimizationState(prev => ({
+          ...prev,
+          runId,
+          status: "RUNNING",
+        }));
+
+        // Iniciar polling
+        optimizationPollRef.current = setInterval(pollOptimizationStatus, POLL_INTERVAL);
+
+        return { success: true, runId };
+      } else {
+        throw new Error("Falha ao iniciar otimização: runId não retornado");
+      }
     } catch (error: any) {
       // CORREÇÃO TAREFA 5: Extrair código de erro estruturado do backend
       const errorCode = error.data?.code || 
@@ -441,6 +510,9 @@ export function useInstitutionalLab() {
         clearInterval(optimizationPollRef.current);
         optimizationPollRef.current = null;
       }
+
+      // Limpar persistência ao abortar
+      clearRunId();
 
       setOptimizationState(prev => ({
         ...prev,
@@ -768,6 +840,7 @@ export function useInstitutionalLab() {
       clearInterval(optimizationPollRef.current);
       optimizationPollRef.current = null;
     }
+    clearRunId();
     setOptimizationState(createInitialState());
   }, []);
 

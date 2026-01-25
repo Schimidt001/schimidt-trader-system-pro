@@ -501,11 +501,26 @@ export const institutionalRouter = router({
    * CORREÇÃO 502: Agora usa JobQueue para status
    * CORREÇÃO OOM: Retorna apenas metadata leve, sem dados pesados
    * Inclui runId, lastProgressAt para monitoramento de heartbeat
+   *
+   * CORREÇÃO RESILIÊNCIA: Valida runId para detectar jobs perdidos
    */
   getOptimizationStatus: protectedProcedure
-    .query(() => {
+    .input(z.object({ runId: z.string().optional() }).optional())
+    .query(({ input }) => {
       const jobStatus = optimizationJobQueue.getJobStatus();
       
+      // Validação de job perdido/expirado
+      // Se um runId foi solicitado, mas não há job ou o ID é diferente, retornar erro explícito
+      if (input?.runId) {
+        if (!jobStatus.hasJob || (jobStatus.runId && jobStatus.runId !== input.runId)) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `Job ${input.runId} not found (server restart or job expired)`,
+            cause: { code: LAB_ERROR_CODES.LAB_JOB_NOT_FOUND },
+          });
+        }
+      }
+
       // CHECKPOINT: status.poll.ok (throttled)
       // Logar apenas se estiver rodando para não spammar quando idle
       if (jobStatus.status === "RUNNING") {
