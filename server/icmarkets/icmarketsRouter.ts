@@ -10,7 +10,7 @@ import { TRPCError } from "@trpc/server";
 import { ctraderAdapter } from "../adapters/CTraderAdapter";
 import { CTraderCredentials } from "../adapters/IBrokerAdapter";
 import { getTradingEngine } from "../adapters/ctrader/TradingEngine";
-import { getSMCTradingEngine } from "../adapters/ctrader/SMCTradingEngine";
+import { getSMCTradingEngine } from "../adapters/ctrader/SMCTradingEngineManager";
 import { getHybridTradingEngine, HybridMode } from "../adapters/ctrader/HybridTradingEngine";
 import {
   getICMarketsConfig,

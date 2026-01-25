@@ -14,7 +14,7 @@
  */
 
 import { EventEmitter } from "events";
-import { ctraderAdapter } from "../CTraderAdapter";
+// REMOVIDO: import { ctraderAdapter } from "../CTraderAdapter"; - ISOLAMENTO GARANTIDO
 import { ITradingAdapter } from "../../backtest/adapters/ITradingAdapter";
 import { TrendbarPeriod, TradeSide } from "./CTraderClient";
 import { ITradingStrategy, IMultiTimeframeStrategy, StrategyType, SignalResult, MultiTimeframeData } from "./ITradingStrategy";
@@ -179,8 +179,6 @@ export class SMCTradingEngine extends EventEmitter {
    * Adapter de trading injetado via construtor.
    * Em produção: CTraderAdapter (singleton global)
    * Em backtest: BacktestAdapter (instância isolada)
-   * 
-   * IMPORTANTE: Se não for fornecido, usa o ctraderAdapter global (retrocompatibilidade)
    */
   private adapter: ITradingAdapter;
   
@@ -190,13 +188,13 @@ export class SMCTradingEngine extends EventEmitter {
    * @param userId - ID do usuário
    * @param botId - ID do bot
    * @param config - Configurações parciais do engine
-   * @param adapter - Adapter de trading (opcional, usa ctraderAdapter se não fornecido)
+   * @param adapter - Adapter de trading OBRIGATÓRIO (sem fallback global)
    */
   constructor(
     userId: number, 
     botId: number, 
     config: Partial<SMCTradingEngineConfig> = {},
-    adapter?: ITradingAdapter
+    adapter: ITradingAdapter // OBRIGATÓRIO PARA ISOLAMENTO
   ) {
     super();
     this.config = {
@@ -206,9 +204,11 @@ export class SMCTradingEngine extends EventEmitter {
       ...config,
     };
     
-    // INJEÇÃO DE DEPENDÊNCIA: Usar adapter injetado ou fallback para singleton global
-    // Isso permite que o mesmo engine seja usado em produção e backtest
-    this.adapter = adapter || (ctraderAdapter as unknown as ITradingAdapter);
+    // INJEÇÃO DE DEPENDÊNCIA: OBRIGATÓRIA
+    if (!adapter) {
+      throw new Error("Adapter de trading obrigatório no construtor do SMCTradingEngine");
+    }
+    this.adapter = adapter;
     
     console.log("[SMCTradingEngine] Instância criada para usuário", userId, "bot", botId);
   }
@@ -2079,58 +2079,4 @@ export class SMCTradingEngine extends EventEmitter {
       return undefined;
     }
   }
-}
-
-// ============= GERENCIADOR DE INSTÂNCIAS =============
-
-const activeSMCEngines = new Map<string, SMCTradingEngine>();
-
-function getEngineKey(userId: number, botId: number): string {
-  return `${userId}-${botId}`;
-}
-
-/**
- * Obtém ou cria uma instância do SMCTradingEngine
- */
-export function getSMCTradingEngine(userId: number, botId: number = 1): SMCTradingEngine {
-  const key = getEngineKey(userId, botId);
-  if (!activeSMCEngines.has(key)) {
-    console.log(`[SMCTradingEngineManager] Criando nova instância para usuário ${userId}, bot ${botId}`);
-    activeSMCEngines.set(key, new SMCTradingEngine(userId, botId));
-  }
-  return activeSMCEngines.get(key)!;
-}
-
-/**
- * Remove uma instância do SMCTradingEngine
- */
-export async function removeSMCTradingEngine(userId: number, botId: number = 1): Promise<void> {
-  const key = getEngineKey(userId, botId);
-  const engine = activeSMCEngines.get(key);
-  if (engine) {
-    if (engine.isRunning) {
-      await engine.stop();
-    }
-    activeSMCEngines.delete(key);
-    console.log(`[SMCTradingEngineManager] Instância removida para usuário ${userId}, bot ${botId}`);
-  }
-}
-
-/**
- * Obtém status de todos os engines ativos
- */
-export function getAllSMCEnginesStatus(): Array<{ userId: number; botId: number; status: SMCBotStatus }> {
-  const result: Array<{ userId: number; botId: number; status: SMCBotStatus }> = [];
-  
-  const entries = Array.from(activeSMCEngines.entries());
-  for (const [key, engine] of entries) {
-    const [userId, botId] = key.split("-").map(Number);
-    result.push({
-      userId,
-      botId,
-      status: engine.getStatus(),
-    });
-  }
-  
-  return result;
 }
