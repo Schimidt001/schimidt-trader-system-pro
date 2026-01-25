@@ -475,13 +475,16 @@ export const institutionalRouter = router({
         // Se um runId foi solicitado, mas não há job ou o ID é diferente, retornar erro explícito
         if (input?.runId) {
           if (!jobStatus.hasJob || (jobStatus.runId && jobStatus.runId !== input.runId)) {
-            // Em vez de throw, retornamos um status de erro controlado para o frontend processar
-            // Throwing 404 is good, but ensuring clean JSON structure avoids "transformation error" if TRPC client is finicky
-            throw new TRPCError({
-              code: "NOT_FOUND",
-              message: `Job ${input.runId} not found (server restart or job expired)`,
-              cause: { code: LAB_ERROR_CODES.LAB_JOB_NOT_FOUND },
-            });
+            // RETORNO GRACIOSO: Em vez de erro 404/500, retornar status 'NOT_FOUND'
+            // Isso permite que o frontend limpe o estado e resete a UI sem travar com exceção.
+            return {
+              isRunning: false,
+              runId: input.runId,
+              status: "NOT_FOUND", // Status especial para o frontend detectar
+              progress: null,
+              error: "Job not found (server restart or job expired)",
+              lastProgressAt: null,
+            };
           }
         }
 

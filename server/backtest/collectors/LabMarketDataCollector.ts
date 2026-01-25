@@ -8,7 +8,7 @@
  * - Retorna erros explícitos se dados faltarem, em vez de tentar baixar
  *
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 1.0.0
+ * @version 1.1.0 - Robust Metadata Parsing
  */
 
 import * as fs from "fs";
@@ -70,6 +70,8 @@ export class LabMarketDataCollector {
   /**
    * Lê arquivo de dados histórico local
    * NÃO tenta baixar se não existir
+   *
+   * CORREÇÃO: Calcula startDate/endDate se estiverem faltando no JSON
    */
   loadDataFile(symbol: string, timeframe: string): HistoricalDataFile {
     const filePath = this.getFilePath(symbol, timeframe);
@@ -92,7 +94,28 @@ export class LabMarketDataCollector {
 
     try {
       const content = fs.readFileSync(filePath, "utf-8");
-      return JSON.parse(content) as HistoricalDataFile;
+      const data = JSON.parse(content) as HistoricalDataFile;
+
+      // CORREÇÃO ROBUSTEZ: Garantir que startDate e endDate existam
+      if (!data.startDate && data.bars && data.bars.length > 0) {
+        const firstTimestamp = data.bars[0].timestamp;
+        // Auto-detectar se é ms ou seg (cTrader usa seg as vezes, mas internal é ms)
+        // Se < 10bi, provavelmente é segundos (válido até 2286)
+        const ts = firstTimestamp < 10000000000 ? firstTimestamp * 1000 : firstTimestamp;
+        data.startDate = new Date(ts).toISOString();
+      }
+
+      if (!data.endDate && data.bars && data.bars.length > 0) {
+        const lastTimestamp = data.bars[data.bars.length - 1].timestamp;
+        const ts = lastTimestamp < 10000000000 ? lastTimestamp * 1000 : lastTimestamp;
+        data.endDate = new Date(ts).toISOString();
+      }
+
+      // Fallback final se ainda undefined (array vazio)
+      if (!data.startDate) data.startDate = new Date().toISOString();
+      if (!data.endDate) data.endDate = new Date().toISOString();
+
+      return data;
     } catch (error) {
       const errorMsg = `Erro ao ler arquivo de dados ${symbol} ${timeframe}: ${(error as Error).message}`;
       labLogger.error(errorMsg, error as Error, "LabDataCollector");
@@ -107,8 +130,6 @@ export class LabMarketDataCollector {
 
   /**
    * Lista arquivos disponíveis com METADADOS COMPLETOS
-   * CORREÇÃO: Lê o início do arquivo para obter datas e número de registros
-   * para evitar "Invalid Date" no frontend.
    */
   getAvailableDataFiles(): {
     symbol: string;
@@ -137,8 +158,8 @@ export class LabMarketDataCollector {
       const fileNames = fs.readdirSync(this.dataPath);
 
       for (const fileName of fileNames) {
-        const match = fileName.match(/^([A-Z0-9_]+)_([A-Z0-9]+)\.json$/); // UPDATED REGEX to support underscores/numbers if needed, but original was ^([A-Z]+)_
-        // Actually, let's allow underscores in symbol for testing/robustness: ^([A-Z0-9_]+)_([A-Z0-9]+)\.json$
+        // Regex mais permissivo para símbolos (letras, números, underscore)
+        const match = fileName.match(/^([A-Z0-9_]+)_([A-Z0-9]+)\.json$/);
         if (match) {
           const filePath = path.join(this.dataPath, fileName);
           const stats = fs.statSync(filePath);
@@ -149,11 +170,21 @@ export class LabMarketDataCollector {
             // Read file content to get metadata
             const content = fs.readFileSync(filePath, "utf-8");
             const data = JSON.parse(content);
-            if (data.startDate || data.bars?.[0]?.timestamp) {
-               // Handle different formats or infer from bars if needed
-               const start = data.startDate || (data.bars && data.bars.length > 0 ? new Date(data.bars[0].timestamp * (data.bars[0].timestamp < 10000000000 ? 1000 : 1)).toISOString() : undefined);
-               const end = data.endDate || (data.bars && data.bars.length > 0 ? new Date(data.bars[data.bars.length - 1].timestamp * (data.bars[data.bars.length - 1].timestamp < 10000000000 ? 1000 : 1)).toISOString() : undefined);
 
+            let start = data.startDate;
+            let end = data.endDate;
+
+            // Fallback calculation if dates missing
+            if (!start && data.bars && data.bars.length > 0) {
+               const ts = data.bars[0].timestamp;
+               start = new Date(ts < 10000000000 ? ts * 1000 : ts).toISOString();
+            }
+            if (!end && data.bars && data.bars.length > 0) {
+               const ts = data.bars[data.bars.length - 1].timestamp;
+               end = new Date(ts < 10000000000 ? ts * 1000 : ts).toISOString();
+            }
+
+            if (start || end) {
                metadata = {
                 startDate: start,
                 endDate: end,
