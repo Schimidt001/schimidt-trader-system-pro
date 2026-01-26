@@ -609,7 +609,7 @@ export class HybridTradingEngine extends EventEmitter {
    */
   private async loadConfigFromDB(): Promise<void> {
     try {
-      const db = getDb();
+      const db = await getDb();
       
       // Carregar configuração do ICMarkets
       const icConfig = await db
@@ -657,7 +657,7 @@ export class HybridTradingEngine extends EventEmitter {
    * Inicializa estratégias baseado no modo
    */
   private async initializeStrategies(): Promise<void> {
-    const db = getDb();
+    const db = await getDb();
     
     // Inicializar SMC se necessário
     if (this.config.mode === HybridMode.SMC_ONLY || this.config.mode === HybridMode.HYBRID) {
@@ -733,7 +733,7 @@ export class HybridTradingEngine extends EventEmitter {
    * Inicializa o Risk Manager
    */
   private async initializeRiskManager(): Promise<void> {
-    const db = getDb();
+    const db = await getDb();
     
     let smcConfig: any = null;
     if (this.config.mode === HybridMode.SMC_ONLY || this.config.mode === HybridMode.HYBRID) {
