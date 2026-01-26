@@ -14,8 +14,14 @@
  * - Recuperação automática de estado após recarregamento (F5) ou troca de aba
  * - Tratamento robusto de erros 404/JobNotFound (reset automático)
  *
+ * CORREÇÃO v2.1.0 - ERROS 502 E PERSISTÊNCIA:
+ * - Implementação de retry automático com backoff exponencial para erros 502
+ * - Contador de erros consecutivos para evitar loops infinitos
+ * - Persistência do estado de polling mesmo ao sair da aba
+ * - Isolamento completo do laboratório (não afeta conexão live)
+ *
  * @author Schimidt Trader Pro - Backtest Lab Institucional Plus
- * @version 2.0.0
+ * @version 2.1.0
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -73,7 +79,31 @@ export interface PipelineState<TResult = unknown> {
 // PERSISTENCE UTILS (LocalStorage)
 // ============================================================================
 
-import { saveRunId, loadRunId, clearRunId } from "./persistenceUtils";
+import { 
+  saveRunId, 
+  loadRunId, 
+  clearRunId,
+  saveLabState,
+  loadLabState,
+  clearLabState,
+  LabPersistenceState,
+} from "./persistenceUtils";
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/** Intervalo base de polling em ms */
+const POLL_INTERVAL = 1000;
+
+/** Número máximo de erros consecutivos antes de parar o polling */
+const MAX_CONSECUTIVE_ERRORS = 10;
+
+/** Tempo máximo de backoff em ms (30 segundos) */
+const MAX_BACKOFF_MS = 30000;
+
+/** Erros que devem acionar retry automático */
+const RETRYABLE_ERROR_CODES = [502, 503, 504, 'FETCH_ERROR', 'TIMEOUT', 'NETWORK_ERROR'];
 
 // ============================================================================
 // INITIAL STATES
@@ -88,6 +118,55 @@ const createInitialState = <T>(): PipelineState<T> => ({
   result: null,
   error: null,
 });
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Verifica se um erro é retentável (502, 503, 504, network errors)
+ */
+function isRetryableError(error: any): boolean {
+  if (!error) return false;
+  
+  // Verificar código HTTP
+  const httpCode = error.data?.httpStatus || error.status || error.code;
+  if (typeof httpCode === 'number' && RETRYABLE_ERROR_CODES.includes(httpCode)) {
+    return true;
+  }
+  
+  // Verificar código de erro string
+  const errorCode = error.data?.code || error.code;
+  if (typeof errorCode === 'string' && RETRYABLE_ERROR_CODES.includes(errorCode)) {
+    return true;
+  }
+  
+  // Verificar mensagem de erro
+  const message = error.message || '';
+  if (
+    message.includes('502') ||
+    message.includes('503') ||
+    message.includes('504') ||
+    message.includes('Bad Gateway') ||
+    message.includes('Service Unavailable') ||
+    message.includes('Gateway Timeout') ||
+    message.includes('fetch failed') ||
+    message.includes('network')
+  ) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Calcula o tempo de backoff exponencial
+ */
+function calculateBackoff(errorCount: number): number {
+  const baseDelay = POLL_INTERVAL;
+  const exponentialDelay = baseDelay * Math.pow(2, Math.min(errorCount, 5));
+  return Math.min(exponentialDelay, MAX_BACKOFF_MS);
+}
 
 // ============================================================================
 // HOOK
@@ -109,8 +188,15 @@ export function useInstitutionalLab() {
   const regimeDetectionPollRef = useRef<NodeJS.Timeout | null>(null);
   const multiAssetPollRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Polling interval (ms)
-  const POLL_INTERVAL = 1000;
+  // Refs para contadores de erros consecutivos (para retry com backoff)
+  const optimizationErrorCountRef = useRef<number>(0);
+  const walkForwardErrorCountRef = useRef<number>(0);
+  const monteCarloErrorCountRef = useRef<number>(0);
+  const regimeDetectionErrorCountRef = useRef<number>(0);
+  const multiAssetErrorCountRef = useRef<number>(0);
+
+  // Ref para controlar se o componente está montado
+  const isMountedRef = useRef<boolean>(true);
 
   // =========================================================================
   // tRPC MUTATIONS
@@ -143,24 +229,58 @@ export function useInstitutionalLab() {
   const utils = trpc.useUtils();
 
   // =========================================================================
-  // POLLING FUNCTIONS
+  // POLLING FUNCTIONS COM RETRY AUTOMÁTICO
   // =========================================================================
 
+  /**
+   * Agenda o próximo poll com backoff se necessário
+   */
+  const scheduleNextPoll = useCallback((
+    pollRef: React.MutableRefObject<NodeJS.Timeout | null>,
+    errorCountRef: React.MutableRefObject<number>,
+    pollFn: () => Promise<void>
+  ) => {
+    if (!isMountedRef.current) return;
+    
+    // Limpar interval anterior
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
+    
+    // Calcular delay com backoff se houver erros
+    const delay = errorCountRef.current > 0 
+      ? calculateBackoff(errorCountRef.current)
+      : POLL_INTERVAL;
+    
+    // Agendar próximo poll
+    pollRef.current = setTimeout(async () => {
+      if (isMountedRef.current) {
+        await pollFn();
+      }
+    }, delay);
+  }, []);
+
   const pollOptimizationStatus = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       const status = await utils.institutional.getOptimizationStatus.fetch();
       
-      // VERIFICAÇÃO DE INTEGRIDADE: Se runId mudar ou for nulo, pode ser um reset do servidor
-      // Mas o backend agora retorna runId no status, então podemos comparar
-
-      // Determinar o status baseado no estado atual
-      let newStatus: PipelineStatus = "IDLE";
-      if (status.isRunning) {
-        newStatus = "RUNNING";
-      } else if (status.error) {
-        newStatus = "ERROR";
-      } else if (status.status === "COMPLETED") {
-        newStatus = "COMPLETED";
+      // Reset contador de erros em caso de sucesso
+      optimizationErrorCountRef.current = 0;
+      
+      // Verificar se job foi perdido (NOT_FOUND)
+      if (status.status === "NOT_FOUND") {
+        console.warn("[Lab] Job de otimização não encontrado. Resetando estado.");
+        clearRunId();
+        clearLabState();
+        if (optimizationPollRef.current) {
+          clearTimeout(optimizationPollRef.current);
+          optimizationPollRef.current = null;
+        }
+        setOptimizationState(createInitialState());
+        return;
       }
       
       setOptimizationState(prev => {
@@ -171,7 +291,7 @@ export function useInstitutionalLab() {
 
         return {
           ...prev,
-          runId: status.runId || prev.runId, // Atualizar runId se disponível
+          runId: status.runId || prev.runId,
           status: status.isRunning ? "RUNNING" : (status.error ? "ERROR" : (status.status === "COMPLETED" ? "COMPLETED" : prev.status)),
           progress: status.progress ? {
             percentComplete: status.progress.percentComplete,
@@ -187,7 +307,7 @@ export function useInstitutionalLab() {
       // Se completou ou erro, buscar resultados separadamente e parar polling
       if (!status.isRunning && status.status !== "QUEUED") {
         if (optimizationPollRef.current) {
-          clearInterval(optimizationPollRef.current);
+          clearTimeout(optimizationPollRef.current);
           optimizationPollRef.current = null;
         }
 
@@ -203,28 +323,63 @@ export function useInstitutionalLab() {
             }));
           }
         } catch (resultError) {
-          console.error("Erro ao buscar resultados da otimizacao:", resultError);
+          console.error("Erro ao buscar resultados da otimização:", resultError);
+        }
+        return;
+      }
+
+      // Continuar polling se ainda estiver rodando
+      if (status.isRunning || status.status === "QUEUED") {
+        scheduleNextPoll(optimizationPollRef, optimizationErrorCountRef, pollOptimizationStatus);
+      }
+
+    } catch (error: any) {
+      console.error("Erro ao buscar status da otimização:", error);
+
+      // CORREÇÃO: Verificar se é erro retentável (502, etc)
+      if (isRetryableError(error)) {
+        optimizationErrorCountRef.current++;
+        console.warn(`[Lab] Erro retentável (${optimizationErrorCountRef.current}/${MAX_CONSECUTIVE_ERRORS}). Tentando novamente com backoff...`);
+        
+        // Se ainda não atingiu o limite, continuar tentando
+        if (optimizationErrorCountRef.current < MAX_CONSECUTIVE_ERRORS) {
+          scheduleNextPoll(optimizationPollRef, optimizationErrorCountRef, pollOptimizationStatus);
+          return;
+        } else {
+          console.error("[Lab] Limite de erros consecutivos atingido. Parando polling.");
+          setOptimizationState(prev => ({
+            ...prev,
+            error: {
+              code: "MAX_RETRIES_EXCEEDED",
+              message: `Falha após ${MAX_CONSECUTIVE_ERRORS} tentativas. Verifique a conexão e tente novamente.`,
+              context: { lastError: error.message },
+            },
+          }));
         }
       }
-    } catch (error: any) {
-      console.error("Erro ao buscar status da otimizacao:", error);
 
       // RESILIÊNCIA: Se erro 404 ou job not found, resetar estado e limpar persistência
       if (error?.data?.code === "NOT_FOUND" || error?.message?.includes("Job not found")) {
         console.warn("Job perdido ou expirado. Resetando estado.");
         clearRunId();
+        clearLabState();
         if (optimizationPollRef.current) {
-          clearInterval(optimizationPollRef.current);
+          clearTimeout(optimizationPollRef.current);
           optimizationPollRef.current = null;
         }
         setOptimizationState(createInitialState());
       }
     }
-  }, [utils]);
+  }, [utils, scheduleNextPoll]);
 
   const pollWalkForwardStatus = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       const status = await utils.institutional.getWalkForwardStatus.fetch();
+      
+      // Reset contador de erros em caso de sucesso
+      walkForwardErrorCountRef.current = 0;
       
       setWalkForwardState(prev => ({
         ...prev,
@@ -239,7 +394,7 @@ export function useInstitutionalLab() {
 
       if (!status.isRunning) {
         if (walkForwardPollRef.current) {
-          clearInterval(walkForwardPollRef.current);
+          clearTimeout(walkForwardPollRef.current);
           walkForwardPollRef.current = null;
         }
 
@@ -256,15 +411,33 @@ export function useInstitutionalLab() {
         } catch (resultError) {
           console.error("Erro ao buscar resultados do Walk-Forward:", resultError);
         }
+        return;
       }
-    } catch (error) {
+
+      // Continuar polling
+      scheduleNextPoll(walkForwardPollRef, walkForwardErrorCountRef, pollWalkForwardStatus);
+
+    } catch (error: any) {
       console.error("Erro ao buscar status do Walk-Forward:", error);
+      
+      if (isRetryableError(error)) {
+        walkForwardErrorCountRef.current++;
+        if (walkForwardErrorCountRef.current < MAX_CONSECUTIVE_ERRORS) {
+          scheduleNextPoll(walkForwardPollRef, walkForwardErrorCountRef, pollWalkForwardStatus);
+          return;
+        }
+      }
     }
-  }, [utils]);
+  }, [utils, scheduleNextPoll]);
 
   const pollMonteCarloStatus = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       const status = await utils.institutional.getMonteCarloStatus.fetch();
+      
+      // Reset contador de erros em caso de sucesso
+      monteCarloErrorCountRef.current = 0;
       
       setMonteCarloState(prev => ({
         ...prev,
@@ -279,7 +452,7 @@ export function useInstitutionalLab() {
 
       if (!status.isRunning) {
         if (monteCarloPollRef.current) {
-          clearInterval(monteCarloPollRef.current);
+          clearTimeout(monteCarloPollRef.current);
           monteCarloPollRef.current = null;
         }
 
@@ -296,15 +469,33 @@ export function useInstitutionalLab() {
         } catch (resultError) {
           console.error("Erro ao buscar resultados do Monte Carlo:", resultError);
         }
+        return;
       }
-    } catch (error) {
+
+      // Continuar polling
+      scheduleNextPoll(monteCarloPollRef, monteCarloErrorCountRef, pollMonteCarloStatus);
+
+    } catch (error: any) {
       console.error("Erro ao buscar status do Monte Carlo:", error);
+      
+      if (isRetryableError(error)) {
+        monteCarloErrorCountRef.current++;
+        if (monteCarloErrorCountRef.current < MAX_CONSECUTIVE_ERRORS) {
+          scheduleNextPoll(monteCarloPollRef, monteCarloErrorCountRef, pollMonteCarloStatus);
+          return;
+        }
+      }
     }
-  }, [utils]);
+  }, [utils, scheduleNextPoll]);
 
   const pollRegimeDetectionStatus = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       const status = await utils.institutional.getRegimeDetectionStatus.fetch();
+      
+      // Reset contador de erros em caso de sucesso
+      regimeDetectionErrorCountRef.current = 0;
       
       setRegimeDetectionState(prev => ({
         ...prev,
@@ -319,7 +510,7 @@ export function useInstitutionalLab() {
 
       if (!status.isRunning) {
         if (regimeDetectionPollRef.current) {
-          clearInterval(regimeDetectionPollRef.current);
+          clearTimeout(regimeDetectionPollRef.current);
           regimeDetectionPollRef.current = null;
         }
 
@@ -334,17 +525,35 @@ export function useInstitutionalLab() {
             }));
           }
         } catch (resultError) {
-          console.error("Erro ao buscar resultados da deteccao de regimes:", resultError);
+          console.error("Erro ao buscar resultados da detecção de regimes:", resultError);
+        }
+        return;
+      }
+
+      // Continuar polling
+      scheduleNextPoll(regimeDetectionPollRef, regimeDetectionErrorCountRef, pollRegimeDetectionStatus);
+
+    } catch (error: any) {
+      console.error("Erro ao buscar status da detecção de regimes:", error);
+      
+      if (isRetryableError(error)) {
+        regimeDetectionErrorCountRef.current++;
+        if (regimeDetectionErrorCountRef.current < MAX_CONSECUTIVE_ERRORS) {
+          scheduleNextPoll(regimeDetectionPollRef, regimeDetectionErrorCountRef, pollRegimeDetectionStatus);
+          return;
         }
       }
-    } catch (error) {
-      console.error("Erro ao buscar status da deteccao de regimes:", error);
     }
-  }, [utils]);
+  }, [utils, scheduleNextPoll]);
 
   const pollMultiAssetStatus = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       const status = await utils.institutional.getMultiAssetStatus.fetch();
+      
+      // Reset contador de erros em caso de sucesso
+      multiAssetErrorCountRef.current = 0;
       
       setMultiAssetState(prev => ({
         ...prev,
@@ -359,7 +568,7 @@ export function useInstitutionalLab() {
 
       if (!status.isRunning) {
         if (multiAssetPollRef.current) {
-          clearInterval(multiAssetPollRef.current);
+          clearTimeout(multiAssetPollRef.current);
           multiAssetPollRef.current = null;
         }
 
@@ -376,43 +585,131 @@ export function useInstitutionalLab() {
         } catch (resultError) {
           console.error("Erro ao buscar resultados do Multi-Asset:", resultError);
         }
+        return;
       }
-    } catch (error) {
+
+      // Continuar polling
+      scheduleNextPoll(multiAssetPollRef, multiAssetErrorCountRef, pollMultiAssetStatus);
+
+    } catch (error: any) {
       console.error("Erro ao buscar status do Multi-Asset:", error);
+      
+      if (isRetryableError(error)) {
+        multiAssetErrorCountRef.current++;
+        if (multiAssetErrorCountRef.current < MAX_CONSECUTIVE_ERRORS) {
+          scheduleNextPoll(multiAssetPollRef, multiAssetErrorCountRef, pollMultiAssetStatus);
+          return;
+        }
+      }
     }
-  }, [utils]);
+  }, [utils, scheduleNextPoll]);
 
   // =========================================================================
   // PERSISTENCE EFFECT (ON MOUNT)
   // =========================================================================
 
   useEffect(() => {
-    // Tentar recuperar estado de otimização salvo
-    const savedRunId = loadRunId();
-
-    if (savedRunId) {
-      console.log(`[useInstitutionalLab] Estado persistido encontrado: ${savedRunId}. Retomando polling...`);
-
-      // Restaurar estado inicial e iniciar polling
-      setOptimizationState(prev => ({
-        ...prev,
-        runId: savedRunId,
-        status: "RUNNING", // Assumir rodando até que o polling diga o contrário
-        startedAt: new Date(), // Estimativa
-      }));
-
-      // Iniciar polling imediatamente
-      optimizationPollRef.current = setInterval(pollOptimizationStatus, POLL_INTERVAL);
-      pollOptimizationStatus(); // Executar uma vez imediatamente
+    isMountedRef.current = true;
+    
+    // Tentar recuperar estado completo do laboratório
+    const savedState = loadLabState();
+    
+    if (savedState) {
+      console.log(`[useInstitutionalLab] Estado persistido encontrado. Retomando polling...`);
+      
+      // Restaurar estado de otimização se houver
+      if (savedState.optimizationRunId) {
+        setOptimizationState(prev => ({
+          ...prev,
+          runId: savedState.optimizationRunId!,
+          status: "RUNNING",
+          startedAt: new Date(savedState.timestamp),
+        }));
+        
+        // Iniciar polling imediatamente
+        pollOptimizationStatus();
+      }
+      
+      // Restaurar estado de walk-forward se houver
+      if (savedState.walkForwardRunning) {
+        setWalkForwardState(prev => ({
+          ...prev,
+          status: "RUNNING",
+          startedAt: new Date(savedState.timestamp),
+        }));
+        pollWalkForwardStatus();
+      }
+      
+      // Restaurar estado de monte carlo se houver
+      if (savedState.monteCarloRunning) {
+        setMonteCarloState(prev => ({
+          ...prev,
+          status: "RUNNING",
+          startedAt: new Date(savedState.timestamp),
+        }));
+        pollMonteCarloStatus();
+      }
+      
+      // Restaurar estado de regime detection se houver
+      if (savedState.regimeDetectionRunning) {
+        setRegimeDetectionState(prev => ({
+          ...prev,
+          status: "RUNNING",
+          startedAt: new Date(savedState.timestamp),
+        }));
+        pollRegimeDetectionStatus();
+      }
+      
+      // Restaurar estado de multi-asset se houver
+      if (savedState.multiAssetRunning) {
+        setMultiAssetState(prev => ({
+          ...prev,
+          status: "RUNNING",
+          startedAt: new Date(savedState.timestamp),
+        }));
+        pollMultiAssetStatus();
+      }
+    } else {
+      // Fallback: tentar recuperar apenas runId de otimização (compatibilidade)
+      const savedRunId = loadRunId();
+      if (savedRunId) {
+        console.log(`[useInstitutionalLab] RunId persistido encontrado: ${savedRunId}. Retomando polling...`);
+        setOptimizationState(prev => ({
+          ...prev,
+          runId: savedRunId,
+          status: "RUNNING",
+          startedAt: new Date(),
+        }));
+        pollOptimizationStatus();
+      }
     }
 
     return () => {
-      // Limpar todos os intervals ao desmontar
-      if (optimizationPollRef.current) clearInterval(optimizationPollRef.current);
-      if (walkForwardPollRef.current) clearInterval(walkForwardPollRef.current);
-      if (monteCarloPollRef.current) clearInterval(monteCarloPollRef.current);
-      if (regimeDetectionPollRef.current) clearInterval(regimeDetectionPollRef.current);
-      if (multiAssetPollRef.current) clearInterval(multiAssetPollRef.current);
+      isMountedRef.current = false;
+      
+      // NÃO limpar os intervals aqui - queremos que o polling continue em background
+      // Os intervals serão limpos apenas quando o job terminar ou for abortado
+      
+      // Salvar estado atual para persistência
+      const currentState: LabPersistenceState = {
+        optimizationRunId: optimizationState.runId || undefined,
+        walkForwardRunning: walkForwardState.status === "RUNNING",
+        monteCarloRunning: monteCarloState.status === "RUNNING",
+        regimeDetectionRunning: regimeDetectionState.status === "RUNNING",
+        multiAssetRunning: multiAssetState.status === "RUNNING",
+        timestamp: Date.now(),
+      };
+      
+      // Só salvar se houver algo rodando
+      if (
+        currentState.optimizationRunId ||
+        currentState.walkForwardRunning ||
+        currentState.monteCarloRunning ||
+        currentState.regimeDetectionRunning ||
+        currentState.multiAssetRunning
+      ) {
+        saveLabState(currentState);
+      }
     };
   }, []); // Executar apenas na montagem
 
@@ -440,10 +737,12 @@ export function useInstitutionalLab() {
   }) => {
     // Resetar estado anterior
     if (optimizationPollRef.current) {
-      clearInterval(optimizationPollRef.current);
+      clearTimeout(optimizationPollRef.current);
       optimizationPollRef.current = null;
     }
     clearRunId();
+    clearLabState();
+    optimizationErrorCountRef.current = 0;
     
     setOptimizationState({
       runId: null,
@@ -463,6 +762,10 @@ export function useInstitutionalLab() {
 
         // Salvar runId para persistência
         saveRunId(runId);
+        saveLabState({
+          optimizationRunId: runId,
+          timestamp: Date.now(),
+        });
 
         setOptimizationState(prev => ({
           ...prev,
@@ -471,7 +774,7 @@ export function useInstitutionalLab() {
         }));
 
         // Iniciar polling
-        optimizationPollRef.current = setInterval(pollOptimizationStatus, POLL_INTERVAL);
+        scheduleNextPoll(optimizationPollRef, optimizationErrorCountRef, pollOptimizationStatus);
 
         return { success: true, runId };
       } else {
@@ -500,19 +803,20 @@ export function useInstitutionalLab() {
       
       return { success: false, error: errorMessage, code: errorCode };
     }
-  }, [startOptimizationMutation, pollOptimizationStatus]);
+  }, [startOptimizationMutation, pollOptimizationStatus, scheduleNextPoll]);
 
   const abortOptimization = useCallback(async () => {
     try {
       await abortOptimizationMutation.mutateAsync();
       
       if (optimizationPollRef.current) {
-        clearInterval(optimizationPollRef.current);
+        clearTimeout(optimizationPollRef.current);
         optimizationPollRef.current = null;
       }
 
       // Limpar persistência ao abortar
       clearRunId();
+      clearLabState();
 
       setOptimizationState(prev => ({
         ...prev,
@@ -542,6 +846,7 @@ export function useInstitutionalLab() {
     leverage?: number;
   }) => {
     const runId = `wf-${Date.now()}`;
+    walkForwardErrorCountRef.current = 0;
     
     setWalkForwardState({
       runId,
@@ -561,8 +866,12 @@ export function useInstitutionalLab() {
         status: "RUNNING",
       }));
 
+      // Salvar estado para persistência
+      const currentState = loadLabState() || { timestamp: Date.now() };
+      saveLabState({ ...currentState, walkForwardRunning: true });
+
       // Iniciar polling
-      walkForwardPollRef.current = setInterval(pollWalkForwardStatus, POLL_INTERVAL);
+      scheduleNextPoll(walkForwardPollRef, walkForwardErrorCountRef, pollWalkForwardStatus);
       
       return { success: true, runId };
     } catch (error: any) {
@@ -579,7 +888,7 @@ export function useInstitutionalLab() {
       
       return { success: false, error: error.message };
     }
-  }, [runWalkForwardMutation, pollWalkForwardStatus]);
+  }, [runWalkForwardMutation, pollWalkForwardStatus, scheduleNextPoll]);
 
   // =========================================================================
   // MONTE CARLO HANDLERS
@@ -596,6 +905,7 @@ export function useInstitutionalLab() {
     seed?: number;
   }) => {
     const runId = `mc-${Date.now()}`;
+    monteCarloErrorCountRef.current = 0;
     
     setMonteCarloState({
       runId,
@@ -615,8 +925,12 @@ export function useInstitutionalLab() {
         status: "RUNNING",
       }));
 
+      // Salvar estado para persistência
+      const currentState = loadLabState() || { timestamp: Date.now() };
+      saveLabState({ ...currentState, monteCarloRunning: true });
+
       // Iniciar polling
-      monteCarloPollRef.current = setInterval(pollMonteCarloStatus, POLL_INTERVAL);
+      scheduleNextPoll(monteCarloPollRef, monteCarloErrorCountRef, pollMonteCarloStatus);
       
       return { success: true, runId };
     } catch (error: any) {
@@ -633,7 +947,7 @@ export function useInstitutionalLab() {
       
       return { success: false, error: error.message };
     }
-  }, [runMonteCarloMutation, pollMonteCarloStatus]);
+  }, [runMonteCarloMutation, pollMonteCarloStatus, scheduleNextPoll]);
 
   // =========================================================================
   // REGIME DETECTION HANDLERS
@@ -650,6 +964,7 @@ export function useInstitutionalLab() {
     rangeThreshold?: number;
   }) => {
     const runId = `rd-${Date.now()}`;
+    regimeDetectionErrorCountRef.current = 0;
     
     setRegimeDetectionState({
       runId,
@@ -669,8 +984,12 @@ export function useInstitutionalLab() {
         status: "RUNNING",
       }));
 
+      // Salvar estado para persistência
+      const currentState = loadLabState() || { timestamp: Date.now() };
+      saveLabState({ ...currentState, regimeDetectionRunning: true });
+
       // Iniciar polling
-      regimeDetectionPollRef.current = setInterval(pollRegimeDetectionStatus, POLL_INTERVAL);
+      scheduleNextPoll(regimeDetectionPollRef, regimeDetectionErrorCountRef, pollRegimeDetectionStatus);
       
       return { success: true, runId };
     } catch (error: any) {
@@ -687,7 +1006,7 @@ export function useInstitutionalLab() {
       
       return { success: false, error: error.message };
     }
-  }, [runRegimeDetectionMutation, pollRegimeDetectionStatus]);
+  }, [runRegimeDetectionMutation, pollRegimeDetectionStatus, scheduleNextPoll]);
 
   // =========================================================================
   // MULTI-ASSET HANDLERS
@@ -707,6 +1026,7 @@ export function useInstitutionalLab() {
     seed?: number;
   }) => {
     const runId = `ma-${Date.now()}`;
+    multiAssetErrorCountRef.current = 0;
     
     setMultiAssetState({
       runId,
@@ -726,8 +1046,12 @@ export function useInstitutionalLab() {
         status: "RUNNING",
       }));
 
+      // Salvar estado para persistência
+      const currentState = loadLabState() || { timestamp: Date.now() };
+      saveLabState({ ...currentState, multiAssetRunning: true });
+
       // Iniciar polling
-      multiAssetPollRef.current = setInterval(pollMultiAssetStatus, POLL_INTERVAL);
+      scheduleNextPoll(multiAssetPollRef, multiAssetErrorCountRef, pollMultiAssetStatus);
       
       return { success: true, runId };
     } catch (error: any) {
@@ -744,14 +1068,14 @@ export function useInstitutionalLab() {
       
       return { success: false, error: error.message };
     }
-  }, [runMultiAssetMutation, pollMultiAssetStatus]);
+  }, [runMultiAssetMutation, pollMultiAssetStatus, scheduleNextPoll]);
 
   const abortMultiAsset = useCallback(async () => {
     try {
       await abortMultiAssetMutation.mutateAsync();
       
       if (multiAssetPollRef.current) {
-        clearInterval(multiAssetPollRef.current);
+        clearTimeout(multiAssetPollRef.current);
         multiAssetPollRef.current = null;
       }
 
@@ -837,42 +1161,48 @@ export function useInstitutionalLab() {
 
   const resetOptimization = useCallback(() => {
     if (optimizationPollRef.current) {
-      clearInterval(optimizationPollRef.current);
+      clearTimeout(optimizationPollRef.current);
       optimizationPollRef.current = null;
     }
+    optimizationErrorCountRef.current = 0;
     clearRunId();
+    clearLabState();
     setOptimizationState(createInitialState());
   }, []);
 
   const resetWalkForward = useCallback(() => {
     if (walkForwardPollRef.current) {
-      clearInterval(walkForwardPollRef.current);
+      clearTimeout(walkForwardPollRef.current);
       walkForwardPollRef.current = null;
     }
+    walkForwardErrorCountRef.current = 0;
     setWalkForwardState(createInitialState());
   }, []);
 
   const resetMonteCarlo = useCallback(() => {
     if (monteCarloPollRef.current) {
-      clearInterval(monteCarloPollRef.current);
+      clearTimeout(monteCarloPollRef.current);
       monteCarloPollRef.current = null;
     }
+    monteCarloErrorCountRef.current = 0;
     setMonteCarloState(createInitialState());
   }, []);
 
   const resetRegimeDetection = useCallback(() => {
     if (regimeDetectionPollRef.current) {
-      clearInterval(regimeDetectionPollRef.current);
+      clearTimeout(regimeDetectionPollRef.current);
       regimeDetectionPollRef.current = null;
     }
+    regimeDetectionErrorCountRef.current = 0;
     setRegimeDetectionState(createInitialState());
   }, []);
 
   const resetMultiAsset = useCallback(() => {
     if (multiAssetPollRef.current) {
-      clearInterval(multiAssetPollRef.current);
+      clearTimeout(multiAssetPollRef.current);
       multiAssetPollRef.current = null;
     }
+    multiAssetErrorCountRef.current = 0;
     setMultiAssetState(createInitialState());
   }, []);
 
