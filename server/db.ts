@@ -1,5 +1,6 @@
 import { eq, and, desc, gte, lte, sql, not, inArray, asc, lt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
 import {
   InsertUser,
   users,
@@ -34,17 +35,34 @@ import {
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _pool: mysql.Pool | null = null;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _pool = mysql.createPool(process.env.DATABASE_URL);
+      _db = drizzle(_pool);
+      console.log("[Database] Connection pool created successfully");
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
+      _pool = null;
     }
   }
   return _db;
+}
+
+export async function closeDb() {
+  if (_pool) {
+    try {
+      await _pool.end();
+      _pool = null;
+      _db = null;
+      console.log("[Database] Connection pool closed");
+    } catch (error) {
+      console.error("[Database] Error closing pool:", error);
+    }
+  }
 }
 
 // ============= USER QUERIES =============
