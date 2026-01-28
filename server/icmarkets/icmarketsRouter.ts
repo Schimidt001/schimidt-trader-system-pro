@@ -338,6 +338,25 @@ export const icmarketsRouter = router({
         orbRiskPercentage: "ORB Risco por Trade (%)",
         orbMaxOpenTrades: "ORB Máx Trades Abertos",
         orbMaxSpreadPips: "ORB Max Spread (pips)",
+        // RSI + VWAP
+        rsiPeriod: "RSI Período",
+        rsiOversold: "RSI Oversold",
+        rsiOverbought: "RSI Overbought",
+        vwapEnabled: "VWAP Ativado",
+        rsiRiskPercentage: "RSI Risco (%)",
+        rsiStopLossPips: "RSI Stop Loss (pips)",
+        rsiTakeProfitPips: "RSI Take Profit (pips)",
+        rsiRewardRiskRatio: "RSI R:R Ratio",
+        rsiMinCandleBodyPercent: "RSI Min Candle Body (%)",
+        rsiSpreadFilterEnabled: "RSI Filtro Spread",
+        rsiMaxSpreadPips: "RSI Max Spread (pips)",
+        rsiSessionFilterEnabled: "RSI Filtro Sessão",
+        rsiSessionStart: "RSI Início Sessão",
+        rsiSessionEnd: "RSI Fim Sessão",
+        rsiTrailingEnabled: "RSI Trailing Stop",
+        rsiTrailingTriggerPips: "RSI Trailing Trigger (pips)",
+        rsiTrailingStepPips: "RSI Trailing Step (pips)",
+        rsiVerboseLogging: "RSI Logging Detalhado",
       };
       
       const formatValue = (key: string, value: any): string => {
@@ -364,37 +383,56 @@ export const icmarketsRouter = router({
         }
       }
       
-      // Verificar campos SMC Strategy
-      const smcFields = ["activeSymbols", "structureTimeframe", "swingH1Lookback", "fractalLeftBars", "fractalRightBars", "sweepBufferPips", "sweepValidationMinutes", "chochM15Lookback", "chochMinPips", "orderBlockLookback", "orderBlockExtensionPips", "entryConfirmationType", "rejectionWickPercent", "spreadFilterEnabled", "maxSpreadPips", "riskPercentage", "maxOpenTrades", "dailyLossLimitPercent", "stopLossBufferPips", "rewardRiskRatio", "sessionFilterEnabled", "londonSessionStart", "londonSessionEnd", "nySessionStart", "nySessionEnd", "smcTrailingEnabled", "smcTrailingTriggerPips", "smcTrailingStepPips", "circuitBreakerEnabled", "verboseLogging"];
-      for (const field of smcFields) {
-        const inputValue = (input as any)[field];
-        if (inputValue === undefined) continue;
-        const currentValue = currentSMCConfig ? (currentSMCConfig as any)[field] : undefined;
-        const currentStr = formatValue(field, currentValue);
-        const newStr = formatValue(field, inputValue);
-        if (currentStr !== newStr) {
-          changes.push(`${fieldLabels[field] || field}: ${currentStr} → ${newStr}`);
+      // MODO HÍBRIDO ou SMC_ONLY -> Logar campos SMC
+      if (input.hybridMode === "HYBRID" || input.hybridMode === "SMC_ONLY") {
+        const smcFields = ["activeSymbols", "structureTimeframe", "swingH1Lookback", "fractalLeftBars", "fractalRightBars", "sweepBufferPips", "sweepValidationMinutes", "chochM15Lookback", "chochMinPips", "orderBlockLookback", "orderBlockExtensionPips", "entryConfirmationType", "rejectionWickPercent", "spreadFilterEnabled", "maxSpreadPips", "riskPercentage", "maxOpenTrades", "dailyLossLimitPercent", "stopLossBufferPips", "rewardRiskRatio", "sessionFilterEnabled", "londonSessionStart", "londonSessionEnd", "nySessionStart", "nySessionEnd", "smcTrailingEnabled", "smcTrailingTriggerPips", "smcTrailingStepPips", "circuitBreakerEnabled", "verboseLogging"];
+        for (const field of smcFields) {
+          const inputValue = (input as any)[field];
+          if (inputValue === undefined) continue;
+          const currentValue = currentSMCConfig ? (currentSMCConfig as any)[field] : undefined;
+          const currentStr = formatValue(field, currentValue);
+          const newStr = formatValue(field, inputValue);
+          if (currentStr !== newStr) {
+            changes.push(`${fieldLabels[field] || field}: ${currentStr} → ${newStr}`);
+          }
         }
       }
 
-      // Verificar campos ORB Trend
-      const orbFields = ["orbActiveSymbols", "orbOpeningCandles", "orbEmaPeriod", "orbSlopeLookbackCandles", "orbMinSlope", "orbStopType", "orbAtrMult", "orbAtrPeriod", "orbRiskReward", "orbMaxTradesPerDayPerSymbol", "orbRiskPercentage", "orbMaxOpenTrades", "orbMaxSpreadPips"];
-      for (const field of orbFields) {
-        const inputValue = (input as any)[field];
-        if (inputValue === undefined) continue;
-        const currentValue = currentORBConfig ? (currentORBConfig as any)[field.replace('orb', '').charAt(0).toLowerCase() + field.replace('orb', '').slice(1)] : undefined;
-        
-        // Mapeamento especial para campos que no DB não tem o prefixo 'orb'
-        let dbValue = currentValue;
-        if (currentORBConfig) {
-           const dbField = field.replace('orb', '').charAt(0).toLowerCase() + field.replace('orb', '').slice(1);
-           dbValue = (currentORBConfig as any)[dbField];
-        }
+      // MODO ORB_ONLY -> Logar campos ORB
+      if (input.hybridMode === "ORB_ONLY") {
+        const orbFields = ["orbActiveSymbols", "orbOpeningCandles", "orbEmaPeriod", "orbSlopeLookbackCandles", "orbMinSlope", "orbStopType", "orbAtrMult", "orbAtrPeriod", "orbRiskReward", "orbMaxTradesPerDayPerSymbol", "orbRiskPercentage", "orbMaxOpenTrades", "orbMaxSpreadPips"];
+        for (const field of orbFields) {
+          const inputValue = (input as any)[field];
+          if (inputValue === undefined) continue;
+          
+          // Mapeamento especial para campos que no DB não tem o prefixo 'orb'
+          const dbField = field.replace('orb', '').charAt(0).toLowerCase() + field.replace('orb', '').slice(1);
+          const dbValue = currentORBConfig ? (currentORBConfig as any)[dbField] : undefined;
 
-        const currentStr = formatValue(field, dbValue);
-        const newStr = formatValue(field, inputValue);
-        if (currentStr !== newStr) {
-          changes.push(`${fieldLabels[field] || field}: ${currentStr} → ${newStr}`);
+          const currentStr = formatValue(field, dbValue);
+          const newStr = formatValue(field, inputValue);
+          if (currentStr !== newStr) {
+            changes.push(`${fieldLabels[field] || field}: ${currentStr} → ${newStr}`);
+          }
+        }
+      }
+
+      // MODO RSI_VWAP_ONLY -> Logar campos RSI
+      if (input.hybridMode === "RSI_VWAP_ONLY") {
+        const rsiFields = ["rsiPeriod", "rsiOversold", "rsiOverbought", "vwapEnabled", "rsiRiskPercentage", "rsiStopLossPips", "rsiTakeProfitPips", "rsiRewardRiskRatio", "rsiMinCandleBodyPercent", "rsiSpreadFilterEnabled", "rsiMaxSpreadPips", "rsiSessionFilterEnabled", "rsiSessionStart", "rsiSessionEnd", "rsiTrailingEnabled", "rsiTrailingTriggerPips", "rsiTrailingStepPips", "rsiVerboseLogging"];
+        for (const field of rsiFields) {
+          const inputValue = (input as any)[field];
+          if (inputValue === undefined) continue;
+          
+          // Buscar do config RSI
+          const rsiConfig = await getRsiVwapConfig(ctx.user.id);
+          const dbValue = rsiConfig ? (rsiConfig as any)[field] : undefined;
+
+          const currentStr = formatValue(field, dbValue);
+          const newStr = formatValue(field, inputValue);
+          if (currentStr !== newStr) {
+            changes.push(`${fieldLabels[field] || field}: ${currentStr} → ${newStr}`);
+          }
         }
       }
       // ============= FIM DO SISTEMA DE LOG =============
