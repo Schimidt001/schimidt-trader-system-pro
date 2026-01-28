@@ -272,6 +272,7 @@ export const icmarketsRouter = router({
       // ============= SISTEMA DE LOG DE ALTERAÇÕES IC MARKETS =============
       const currentConfig = await getICMarketsConfig(ctx.user.id);
       const currentSMCConfig = await getSMCStrategyConfig(ctx.user.id);
+      const currentORBConfig = await getORBTrendConfig(ctx.user.id);
       
       const fieldLabels: Record<string, string> = {
         // IC Markets básico
@@ -323,6 +324,20 @@ export const icmarketsRouter = router({
         verboseLogging: "Logging Detalhado",
         compoundingEnabled: "Compounding",
         baseRisk: "Risco Base",
+        // ORB Trend
+        orbActiveSymbols: "ORB Símbolos Ativos",
+        orbOpeningCandles: "ORB Opening Candles",
+        orbEmaPeriod: "ORB EMA Período",
+        orbSlopeLookbackCandles: "ORB Slope Lookback",
+        orbMinSlope: "ORB Min Slope",
+        orbStopType: "ORB Tipo de Stop",
+        orbAtrMult: "ORB ATR Multiplicador",
+        orbAtrPeriod: "ORB ATR Período",
+        orbRiskReward: "ORB Risk:Reward",
+        orbMaxTradesPerDayPerSymbol: "ORB Máx Trades/Dia",
+        orbRiskPercentage: "ORB Risco por Trade (%)",
+        orbMaxOpenTrades: "ORB Máx Trades Abertos",
+        orbMaxSpreadPips: "ORB Max Spread (pips)",
       };
       
       const formatValue = (key: string, value: any): string => {
@@ -356,6 +371,27 @@ export const icmarketsRouter = router({
         if (inputValue === undefined) continue;
         const currentValue = currentSMCConfig ? (currentSMCConfig as any)[field] : undefined;
         const currentStr = formatValue(field, currentValue);
+        const newStr = formatValue(field, inputValue);
+        if (currentStr !== newStr) {
+          changes.push(`${fieldLabels[field] || field}: ${currentStr} → ${newStr}`);
+        }
+      }
+
+      // Verificar campos ORB Trend
+      const orbFields = ["orbActiveSymbols", "orbOpeningCandles", "orbEmaPeriod", "orbSlopeLookbackCandles", "orbMinSlope", "orbStopType", "orbAtrMult", "orbAtrPeriod", "orbRiskReward", "orbMaxTradesPerDayPerSymbol", "orbRiskPercentage", "orbMaxOpenTrades", "orbMaxSpreadPips"];
+      for (const field of orbFields) {
+        const inputValue = (input as any)[field];
+        if (inputValue === undefined) continue;
+        const currentValue = currentORBConfig ? (currentORBConfig as any)[field.replace('orb', '').charAt(0).toLowerCase() + field.replace('orb', '').slice(1)] : undefined;
+        
+        // Mapeamento especial para campos que no DB não tem o prefixo 'orb'
+        let dbValue = currentValue;
+        if (currentORBConfig) {
+           const dbField = field.replace('orb', '').charAt(0).toLowerCase() + field.replace('orb', '').slice(1);
+           dbValue = (currentORBConfig as any)[dbField];
+        }
+
+        const currentStr = formatValue(field, dbValue);
         const newStr = formatValue(field, inputValue);
         if (currentStr !== newStr) {
           changes.push(`${fieldLabels[field] || field}: ${currentStr} → ${newStr}`);

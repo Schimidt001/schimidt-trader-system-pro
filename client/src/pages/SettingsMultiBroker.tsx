@@ -462,6 +462,30 @@ export default function SettingsMultiBroker() {
       if (icConfig.rsiTrailingTriggerPips) setRsiTrailingTriggerPips(icConfig.rsiTrailingTriggerPips.toString());
       if (icConfig.rsiTrailingStepPips) setRsiTrailingStepPips(icConfig.rsiTrailingStepPips.toString());
       if (icConfig.rsiVerboseLogging !== undefined) setRsiVerboseLogging(icConfig.rsiVerboseLogging);
+      
+      // ORB Trend
+      if (icConfig.orbActiveSymbols) {
+        try {
+          const symbols = typeof icConfig.orbActiveSymbols === 'string' 
+            ? JSON.parse(icConfig.orbActiveSymbols) 
+            : icConfig.orbActiveSymbols;
+          setOrbActiveSymbols(symbols);
+        } catch (e) {
+          setOrbActiveSymbols(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+        }
+      }
+      if (icConfig.orbOpeningCandles) setOrbOpeningCandles(icConfig.orbOpeningCandles.toString());
+      if (icConfig.orbEmaPeriod) setOrbEmaPeriod(icConfig.orbEmaPeriod.toString());
+      if (icConfig.orbSlopeLookbackCandles) setOrbSlopeLookbackCandles(icConfig.orbSlopeLookbackCandles.toString());
+      if (icConfig.orbMinSlope) setOrbMinSlope(icConfig.orbMinSlope.toString());
+      if (icConfig.orbStopType) setOrbStopType(icConfig.orbStopType as "rangeOpposite" | "atr");
+      if (icConfig.orbAtrMult) setOrbAtrMult(icConfig.orbAtrMult.toString());
+      if (icConfig.orbAtrPeriod) setOrbAtrPeriod(icConfig.orbAtrPeriod.toString());
+      if (icConfig.orbRiskReward) setOrbRiskReward(icConfig.orbRiskReward.toString());
+      if (icConfig.orbMaxTradesPerDayPerSymbol) setOrbMaxTradesPerDayPerSymbol(icConfig.orbMaxTradesPerDayPerSymbol.toString());
+      if (icConfig.orbRiskPercentage) setOrbRiskPercentage(icConfig.orbRiskPercentage.toString());
+      if (icConfig.orbMaxOpenTrades) setOrbMaxOpenTrades(icConfig.orbMaxOpenTrades.toString());
+      if (icConfig.orbMaxSpreadPips) setOrbMaxSpreadPips(icConfig.orbMaxSpreadPips.toString());
     }
   }, [icConfig]);
 
