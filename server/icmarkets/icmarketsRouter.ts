@@ -26,6 +26,9 @@ import {
   // RSI + VWAP Config
   upsertRsiVwapConfig,
   getRsiVwapConfig,
+  // ORB Trend Config
+  upsertORBTrendConfig,
+  getORBTrendConfig,
   // System Logs
   insertSystemLog,
   getRecentSystemLogs,
@@ -112,6 +115,20 @@ const icmarketsConfigSchema = z.object({
   rsiTrailingTriggerPips: z.number().default(15),
   rsiTrailingStepPips: z.number().default(5),
   rsiVerboseLogging: z.boolean().default(true),
+  // ORB Trend Config
+  orbActiveSymbols: z.string().default('["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]'),
+  orbOpeningCandles: z.number().default(3),
+  orbEmaPeriod: z.number().default(200),
+  orbSlopeLookbackCandles: z.number().default(10),
+  orbMinSlope: z.number().default(0.0001),
+  orbStopType: z.string().default("rangeOpposite"),
+  orbAtrMult: z.number().default(1.5),
+  orbAtrPeriod: z.number().default(14),
+  orbRiskReward: z.number().default(1.0),
+  orbMaxTradesPerDayPerSymbol: z.number().default(1),
+  orbRiskPercentage: z.number().default(1.0),
+  orbMaxOpenTrades: z.number().default(3),
+  orbMaxSpreadPips: z.number().default(3.0),
 });
 
 // Schema para ordem
@@ -141,7 +158,10 @@ export const icmarketsRouter = router({
     // Buscar configuração RSI+VWAP do banco de dados
     const rsiConfig = await getRsiVwapConfig(ctx.user.id);
     
-    // Mesclar configurações IC Markets + SMC Strategy + RSI+VWAP
+    // Buscar configuração ORB Trend do banco de dados
+    const orbConfig = await getORBTrendConfig(ctx.user.id);
+    
+    // Mesclar configurações IC Markets + SMC Strategy + RSI+VWAP + ORB Trend
     return {
       ...config,
       // Garantir que strategyType venha do banco
@@ -225,6 +245,21 @@ export const icmarketsRouter = router({
       rsiTrailingTriggerPips: rsiConfig?.trailingTriggerPips ? Number(rsiConfig.trailingTriggerPips) : 15,
       rsiTrailingStepPips: rsiConfig?.trailingStepPips ? Number(rsiConfig.trailingStepPips) : 5,
       rsiVerboseLogging: rsiConfig?.verboseLogging ?? true,
+      
+      // ORB Trend - Carregar do banco de dados (orbTrendConfig)
+      orbActiveSymbols: orbConfig?.activeSymbols || JSON.stringify(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
+      orbOpeningCandles: orbConfig?.openingCandles ?? 3,
+      orbEmaPeriod: orbConfig?.emaPeriod ?? 200,
+      orbSlopeLookbackCandles: orbConfig?.slopeLookbackCandles ?? 10,
+      orbMinSlope: orbConfig?.minSlope ? Number(orbConfig.minSlope) : 0.0001,
+      orbStopType: orbConfig?.stopType ?? "rangeOpposite",
+      orbAtrMult: orbConfig?.atrMult ? Number(orbConfig.atrMult) : 1.5,
+      orbAtrPeriod: orbConfig?.atrPeriod ?? 14,
+      orbRiskReward: orbConfig?.riskReward ? Number(orbConfig.riskReward) : 1.0,
+      orbMaxTradesPerDayPerSymbol: orbConfig?.maxTradesPerDayPerSymbol ?? 1,
+      orbRiskPercentage: orbConfig?.riskPercentage ? Number(orbConfig.riskPercentage) : 1.0,
+      orbMaxOpenTrades: orbConfig?.maxOpenTrades ?? 3,
+      orbMaxSpreadPips: orbConfig?.maxSpreadPips ? Number(orbConfig.maxSpreadPips) : 3.0,
     };
   }),
   
@@ -414,6 +449,28 @@ export const icmarketsRouter = router({
       });
       
       console.log(`[ICMARKETS_CONFIG] Configuração RSI+VWAP salva para usuário ${ctx.user.id}`);
+      
+      // ============= SALVAR CONFIGURAÇÃO ORB TREND =============
+      await upsertORBTrendConfig({
+        userId: ctx.user.id,
+        botId: 1,
+        activeSymbols: input.orbActiveSymbols,
+        openingCandles: input.orbOpeningCandles,
+        emaPeriod: input.orbEmaPeriod,
+        slopeLookbackCandles: input.orbSlopeLookbackCandles,
+        minSlope: input.orbMinSlope.toString(),
+        stopType: input.orbStopType,
+        atrMult: input.orbAtrMult.toString(),
+        atrPeriod: input.orbAtrPeriod,
+        riskReward: input.orbRiskReward.toString(),
+        maxTradesPerDayPerSymbol: input.orbMaxTradesPerDayPerSymbol,
+        riskPercentage: input.orbRiskPercentage.toString(),
+        maxOpenTrades: input.orbMaxOpenTrades,
+        maxSpreadPips: input.orbMaxSpreadPips.toString(),
+        verboseLogging: true,
+      });
+      
+      console.log(`[ICMARKETS_CONFIG] Configuração ORB Trend salva para usuário ${ctx.user.id}`);
       
       // Atualizar configuracao da estrategia TrendSniper (legado)
       ctraderAdapter.configureStrategy({

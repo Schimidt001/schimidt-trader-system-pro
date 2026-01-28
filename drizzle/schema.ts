@@ -354,3 +354,12 @@ export {
   type RsiVwapConfig,
   type InsertRsiVwapConfig
 } from "./rsi-vwap-config";
+
+// ============= ORB TREND STRATEGY TABLES =============
+// Re-exported from orb-config.ts for unified schema access
+
+export {
+  orbTrendConfig,
+  type ORBTrendConfig,
+  type InsertORBTrendConfig
+} from "./orb-config";

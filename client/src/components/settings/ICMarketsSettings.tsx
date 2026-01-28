@@ -20,8 +20,8 @@ interface ICMarketsSettingsProps {
   isDemo: boolean; setIsDemo: (v: boolean) => void;
   
   // -- NOVOS CAMPOS SMC (Obrigatório Implementar no Pai) --
-  strategyType: "TREND_SNIPER" | "SMC_SWARM";
-  setStrategyType: (v: "TREND_SNIPER" | "SMC_SWARM") => void;
+  strategyType: "TREND_SNIPER" | "SMC_SWARM" | "RSI_VWAP" | "ORB_TREND";
+  setStrategyType: (v: "TREND_SNIPER" | "SMC_SWARM" | "RSI_VWAP" | "ORB_TREND") => void;
   
   riskPercent: string; setRiskPercent: (v: string) => void;
   maxOpenTrades: string; setMaxOpenTrades: (v: string) => void;
@@ -62,10 +62,10 @@ export function ICMarketsSettings(props: ICMarketsSettingsProps) {
           <CardDescription>Defina qual inteligência o robô deve utilizar.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div 
               onClick={() => props.setStrategyType("TREND_SNIPER")}
-              className={`cursor-pointer p-4 rounded-lg border flex-1 transition-all ${
+              className={`cursor-pointer p-4 rounded-lg border transition-all ${
                 props.strategyType === "TREND_SNIPER" 
                 ? "bg-blue-500/20 border-blue-500" 
                 : "bg-slate-800 border-slate-700 opacity-50"
@@ -77,7 +77,7 @@ export function ICMarketsSettings(props: ICMarketsSettingsProps) {
             
             <div 
               onClick={() => props.setStrategyType("SMC_SWARM")}
-              className={`cursor-pointer p-4 rounded-lg border flex-1 transition-all ${
+              className={`cursor-pointer p-4 rounded-lg border transition-all ${
                 props.strategyType === "SMC_SWARM" 
                 ? "bg-purple-500/20 border-purple-500" 
                 : "bg-slate-800 border-slate-700 opacity-50"
@@ -88,6 +88,33 @@ export function ICMarketsSettings(props: ICMarketsSettingsProps) {
                 <Badge className="bg-purple-600">Recomendado</Badge>
               </div>
               <p className="text-xs text-slate-300 mt-1">Risco % • Multi-Ativos (Enxame)</p>
+            </div>
+            
+            <div 
+              onClick={() => props.setStrategyType("RSI_VWAP")}
+              className={`cursor-pointer p-4 rounded-lg border transition-all ${
+                props.strategyType === "RSI_VWAP" 
+                ? "bg-green-500/20 border-green-500" 
+                : "bg-slate-800 border-slate-700 opacity-50"
+              }`}
+            >
+              <h3 className="font-bold text-green-400">RSI + VWAP</h3>
+              <p className="text-xs text-slate-300 mt-1">Reversão • Alta Frequência</p>
+            </div>
+            
+            <div 
+              onClick={() => props.setStrategyType("ORB_TREND")}
+              className={`cursor-pointer p-4 rounded-lg border transition-all ${
+                props.strategyType === "ORB_TREND" 
+                ? "bg-orange-500/20 border-orange-500" 
+                : "bg-slate-800 border-slate-700 opacity-50"
+              }`}
+            >
+              <div className="flex justify-between">
+                <h3 className="font-bold text-orange-400">ORB Trend</h3>
+                <Badge className="bg-orange-600">Novo</Badge>
+              </div>
+              <p className="text-xs text-slate-300 mt-1">Opening Range • M15 • 1 Trade/Dia</p>
             </div>
           </div>
         </CardContent>

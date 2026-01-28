@@ -1117,6 +1117,7 @@ export async function getForexMonthlyStats(userId: number, botId: number = 1): P
 
 import { smcStrategyConfig, InsertSMCStrategyConfig, SMCStrategyConfig } from "../drizzle/schema";
 import { rsiVwapConfig, InsertRsiVwapConfig, RsiVwapConfig } from "../drizzle/schema";
+import { orbTrendConfig, InsertORBTrendConfig, ORBTrendConfig } from "../drizzle/schema";
 
 /**
  * Obtém configuração SMC Strategy de um usuário
@@ -1190,6 +1191,45 @@ export async function upsertRsiVwapConfig(data: InsertRsiVwapConfig): Promise<vo
       .where(and(eq(rsiVwapConfig.userId, data.userId), eq(rsiVwapConfig.botId, botId)));
   } else {
     await db.insert(rsiVwapConfig).values({ ...data, botId });
+  }
+}
+
+
+// ============= ORB TREND CONFIG QUERIES =============
+
+/**
+ * Obtém configuração ORB Trend de um usuário
+ */
+export async function getORBTrendConfig(userId: number, botId: number = 1): Promise<ORBTrendConfig | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db
+    .select()
+    .from(orbTrendConfig)
+    .where(and(eq(orbTrendConfig.userId, userId), eq(orbTrendConfig.botId, botId)))
+    .limit(1);
+  
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Cria ou atualiza configuração ORB Trend
+ */
+export async function upsertORBTrendConfig(data: InsertORBTrendConfig): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const botId = data.botId ?? 1;
+  const existing = await getORBTrendConfig(data.userId, botId);
+  
+  if (existing) {
+    await db
+      .update(orbTrendConfig)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(orbTrendConfig.userId, data.userId), eq(orbTrendConfig.botId, botId)));
+  } else {
+    await db.insert(orbTrendConfig).values({ ...data, botId });
   }
 }
 

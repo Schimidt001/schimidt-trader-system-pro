@@ -17,6 +17,7 @@ export enum StrategyType {
   TREND_SNIPER = "TREND_SNIPER",
   SMC_SWARM = "SMC_SWARM",
   RSI_VWAP_REVERSAL = "RSI_VWAP_REVERSAL",
+  ORB_TREND = "ORB_TREND",
 }
 
 /**

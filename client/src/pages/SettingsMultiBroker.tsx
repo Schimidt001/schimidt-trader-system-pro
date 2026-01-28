@@ -34,6 +34,7 @@ import { OperationModeSelector } from "@/components/settings/OperationModeSelect
 import { GlobalExposureSettings } from "@/components/settings/GlobalExposureSettings";
 import { SMCStrategySettingsClean } from "@/components/settings/SMCStrategySettingsClean";
 import { RsiVwapSettingsClean } from "@/components/settings/RsiVwapSettingsClean";
+import { ORBSettings } from "@/components/settings/ORBSettings";
 
 /**
  * SettingsMultiBroker v2.0 - Refatorado
@@ -195,6 +196,21 @@ export default function SettingsMultiBroker() {
   const [rsiTrailingTriggerPips, setRsiTrailingTriggerPips] = useState("15");
   const [rsiTrailingStepPips, setRsiTrailingStepPips] = useState("5");
   const [rsiVerboseLogging, setRsiVerboseLogging] = useState(true);
+
+  // ============= ESTADOS ORB TREND (Single Source of Truth) =============
+  const [orbActiveSymbols, setOrbActiveSymbols] = useState<string[]>(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+  const [orbOpeningCandles, setOrbOpeningCandles] = useState("3");
+  const [orbEmaPeriod, setOrbEmaPeriod] = useState("200");
+  const [orbSlopeLookbackCandles, setOrbSlopeLookbackCandles] = useState("10");
+  const [orbMinSlope, setOrbMinSlope] = useState("0.0001");
+  const [orbStopType, setOrbStopType] = useState<"rangeOpposite" | "atr">("rangeOpposite");
+  const [orbAtrMult, setOrbAtrMult] = useState("1.5");
+  const [orbAtrPeriod, setOrbAtrPeriod] = useState("14");
+  const [orbRiskReward, setOrbRiskReward] = useState("1.0");
+  const [orbMaxTradesPerDayPerSymbol, setOrbMaxTradesPerDayPerSymbol] = useState("1");
+  const [orbRiskPercentage, setOrbRiskPercentage] = useState("1.0");
+  const [orbMaxOpenTrades, setOrbMaxOpenTrades] = useState("3");
+  const [orbMaxSpreadPips, setOrbMaxSpreadPips] = useState("3.0");
 
   // ============= QUERIES =============
   const { data: config, isLoading } = trpc.config.get.useQuery(
@@ -639,6 +655,20 @@ export default function SettingsMultiBroker() {
         rsiTrailingTriggerPips: parseInt(rsiTrailingTriggerPips) || 15,
         rsiTrailingStepPips: parseInt(rsiTrailingStepPips) || 5,
         rsiVerboseLogging: rsiVerboseLogging,
+        // ORB Trend Config
+        orbActiveSymbols: JSON.stringify(orbActiveSymbols),
+        orbOpeningCandles: parseInt(orbOpeningCandles) || 3,
+        orbEmaPeriod: parseInt(orbEmaPeriod) || 200,
+        orbSlopeLookbackCandles: parseInt(orbSlopeLookbackCandles) || 10,
+        orbMinSlope: parseFloat(orbMinSlope) || 0.0001,
+        orbStopType: orbStopType,
+        orbAtrMult: parseFloat(orbAtrMult) || 1.5,
+        orbAtrPeriod: parseInt(orbAtrPeriod) || 14,
+        orbRiskReward: parseFloat(orbRiskReward) || 1.0,
+        orbMaxTradesPerDayPerSymbol: parseInt(orbMaxTradesPerDayPerSymbol) || 1,
+        orbRiskPercentage: parseFloat(orbRiskPercentage) || 1.0,
+        orbMaxOpenTrades: parseInt(orbMaxOpenTrades) || 3,
+        orbMaxSpreadPips: parseFloat(orbMaxSpreadPips) || 3.0,
       });
     }
   };
@@ -1158,6 +1188,38 @@ export default function SettingsMultiBroker() {
                   setTrailingStepPips={setRsiTrailingStepPips}
                   verboseLogging={rsiVerboseLogging}
                   setVerboseLogging={setRsiVerboseLogging}
+                />
+              )}
+
+              {/* MODO ORB_ONLY: Mostra apenas painel ORB Trend */}
+              {operationMode === "ORB_ONLY" && (
+                <ORBSettings
+                  activeSymbols={orbActiveSymbols}
+                  setActiveSymbols={setOrbActiveSymbols}
+                  openingCandles={orbOpeningCandles}
+                  setOpeningCandles={setOrbOpeningCandles}
+                  emaPeriod={orbEmaPeriod}
+                  setEmaPeriod={setOrbEmaPeriod}
+                  slopeLookbackCandles={orbSlopeLookbackCandles}
+                  setSlopeLookbackCandles={setOrbSlopeLookbackCandles}
+                  minSlope={orbMinSlope}
+                  setMinSlope={setOrbMinSlope}
+                  stopType={orbStopType}
+                  setStopType={setOrbStopType}
+                  atrMult={orbAtrMult}
+                  setAtrMult={setOrbAtrMult}
+                  atrPeriod={orbAtrPeriod}
+                  setAtrPeriod={setOrbAtrPeriod}
+                  riskReward={orbRiskReward}
+                  setRiskReward={setOrbRiskReward}
+                  maxTradesPerDayPerSymbol={orbMaxTradesPerDayPerSymbol}
+                  setMaxTradesPerDayPerSymbol={setOrbMaxTradesPerDayPerSymbol}
+                  riskPercentage={orbRiskPercentage}
+                  setRiskPercentage={setOrbRiskPercentage}
+                  maxOpenTrades={orbMaxOpenTrades}
+                  setMaxOpenTrades={setOrbMaxOpenTrades}
+                  maxSpreadPips={orbMaxSpreadPips}
+                  setMaxSpreadPips={setOrbMaxSpreadPips}
                 />
               )}
             </>

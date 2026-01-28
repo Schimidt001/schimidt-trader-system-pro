@@ -57,6 +57,23 @@ const OPERATION_MODES = [
       "Apenas RSI+VWAP com sinal = usar RSI+VWAP"
     ]
   },
+  { 
+    value: "ORB_ONLY", 
+    label: "Apenas ORB Trend", 
+    description: "Usa apenas a estratégia Opening Range Breakout",
+    badge: "NOVO",
+    badgeColor: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+    icon: TrendingUp,
+    iconColor: "text-purple-400",
+    borderColor: "border-purple-500",
+    bgActive: "bg-purple-500/20",
+    characteristics: [
+      "Breakout do Opening Range (primeiros 3 candles M15)",
+      "Filtro de regime com EMA200 + Slope",
+      "Máximo de 1 trade por dia por símbolo",
+      "Risk:Reward configurável (padrão 1:1)"
+    ]
+  },
 ];
 
 /**
@@ -95,7 +112,7 @@ export function OperationModeSelector({
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Cards de Seleção de Modo */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {OPERATION_MODES.map((mode) => {
             const isSelected = selectedMode === mode.value;
             const Icon = mode.icon;

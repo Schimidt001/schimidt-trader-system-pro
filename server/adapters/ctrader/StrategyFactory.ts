@@ -16,11 +16,12 @@ import {
 import { SMCStrategy, SMCStrategyConfig, createSMCStrategy } from "./SMCStrategy";
 import { TrendSniperStrategyAdapter, TrendSniperAdapterConfig, createTrendSniperAdapter } from "./TrendSniperStrategyAdapter";
 import { RsiVwapStrategy, RsiVwapStrategyConfig, createRsiVwapStrategy } from "./RsiVwapStrategy";
+import { ORBStrategy, ORBStrategyConfig, createORBStrategy } from "./ORBStrategy";
 
 /**
  * Configuração unificada para qualquer estratégia
  */
-export type UnifiedStrategyConfig = Partial<SMCStrategyConfig> | Partial<TrendSniperAdapterConfig> | Partial<RsiVwapStrategyConfig>;
+export type UnifiedStrategyConfig = Partial<SMCStrategyConfig> | Partial<TrendSniperAdapterConfig> | Partial<RsiVwapStrategyConfig> | Partial<ORBStrategyConfig>;
 
 /**
  * Factory para criar estratégias de trading
@@ -40,6 +41,9 @@ export class StrategyFactory implements IStrategyFactory {
       case StrategyType.RSI_VWAP_REVERSAL:
         return createRsiVwapStrategy(config as Partial<RsiVwapStrategyConfig>);
       
+      case StrategyType.ORB_TREND:
+        return createORBStrategy(config as Partial<ORBStrategyConfig>);
+      
       default:
         console.warn(`[StrategyFactory] Tipo de estratégia desconhecido: ${type}, usando SMC_SWARM como padrão`);
         return createSMCStrategy(config as Partial<SMCStrategyConfig>);
@@ -57,6 +61,8 @@ export class StrategyFactory implements IStrategyFactory {
         return "Trend Sniper (EMA + RSI)";
       case StrategyType.RSI_VWAP_REVERSAL:
         return "RSI + VWAP Reversal";
+      case StrategyType.ORB_TREND:
+        return "ORB Trend (Opening Range Breakout)";
       default:
         return "Desconhecido";
     }
@@ -78,6 +84,10 @@ export class StrategyFactory implements IStrategyFactory {
         return "Estratégia de reversão à média baseada em RSI + VWAP. " +
                "Identifica pontos de sobrevenda/sobrecompra com confirmação de VWAP " +
                "para operações de alta frequência com R:R 1:2.";
+      case StrategyType.ORB_TREND:
+        return "Estratégia de breakout do Opening Range com filtro de regime EMA200. " +
+               "Opera em M15 com máximo de 1 trade por dia por símbolo. " +
+               "Identifica breakouts do range de abertura com confirmação de tendência.";
       default:
         return "Estratégia não documentada.";
     }
@@ -107,6 +117,11 @@ export class StrategyFactory implements IStrategyFactory {
         name: this.getStrategyName(StrategyType.RSI_VWAP_REVERSAL),
         description: this.getStrategyDescription(StrategyType.RSI_VWAP_REVERSAL),
       },
+      {
+        type: StrategyType.ORB_TREND,
+        name: this.getStrategyName(StrategyType.ORB_TREND),
+        description: this.getStrategyDescription(StrategyType.ORB_TREND),
+      },
     ];
   }
   
@@ -135,6 +150,9 @@ export class StrategyFactory implements IStrategyFactory {
     }
     if (upperType === "RSI_VWAP_REVERSAL" || upperType === "RSI_VWAP" || upperType === "RSIVWAP") {
       return StrategyType.RSI_VWAP_REVERSAL;
+    }
+    if (upperType === "ORB_TREND" || upperType === "ORB") {
+      return StrategyType.ORB_TREND;
     }
     
     // Default
