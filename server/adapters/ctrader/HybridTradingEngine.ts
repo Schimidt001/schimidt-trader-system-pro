@@ -28,9 +28,10 @@ import { ITradingStrategy, IMultiTimeframeStrategy, StrategyType, SignalResult, 
 import { strategyFactory } from "./StrategyFactory";
 import { SMCStrategy, SMCStrategyConfig } from "./SMCStrategy";
 import { RsiVwapStrategy, RsiVwapStrategyConfig } from "./RsiVwapStrategy";
+import { ORBStrategy, ORBStrategyConfig } from "./ORBStrategy";
 import { RiskManager, createRiskManager, RiskManagerConfig, DEFAULT_RISK_CONFIG } from "./RiskManager";
 import { getDb, insertSystemLog, type LogLevel, type LogCategory } from "../../db";
-import { smcStrategyConfig, icmarketsConfig, rsiVwapConfig } from "../../../drizzle/schema";
+import { smcStrategyConfig, icmarketsConfig, rsiVwapConfig, orbTrendConfig } from "../../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { getPipValue as getCentralizedPipValue, calculateSpreadPips, calculateMonetaryPipValue, ConversionRates } from "../../../shared/normalizationUtils";
 
@@ -43,6 +44,7 @@ export enum HybridMode {
   SMC_ONLY = "SMC_ONLY",           // Apenas SMC
   RSI_VWAP_ONLY = "RSI_VWAP_ONLY", // Apenas RSI+VWAP
   HYBRID = "HYBRID",               // Ambas com priorização
+  ORB_ONLY = "ORB_ONLY",           // Apenas ORB (Opening Range Breakout)
 }
 
 /**
@@ -68,8 +70,9 @@ export interface HybridEngineConfig {
 interface CombinedSignal {
   smcSignal: SignalResult | null;
   rsiVwapSignal: SignalResult | null;
+  orbSignal: SignalResult | null;
   finalSignal: SignalResult | null;
-  source: "SMC" | "RSI_VWAP" | "NONE";
+  source: "SMC" | "RSI_VWAP" | "ORB" | "NONE";
   conflictDetected: boolean;
   conflictReason?: string;
 }
@@ -130,6 +133,7 @@ export class HybridTradingEngine extends EventEmitter {
   // Estratégias
   private smcStrategy: ITradingStrategy | null = null;
   private rsiVwapStrategy: ITradingStrategy | null = null;
+  private orbStrategy: IMultiTimeframeStrategy | null = null;
   
   // Risk Manager
   private riskManager: RiskManager | null = null;
@@ -727,6 +731,81 @@ export class HybridTradingEngine extends EventEmitter {
         console.error("[HybridEngine] Erro ao inicializar RSI+VWAP:", error);
       }
     }
+    
+    // Inicializar ORB se necessário (modo exclusivo ORB_ONLY)
+    if (this.config.mode === HybridMode.ORB_ONLY) {
+      try {
+        const orbConfigs = await db!
+          .select()
+          .from(orbTrendConfig)
+          .where(
+            and(
+              eq(orbTrendConfig.userId, this.config.userId),
+              eq(orbTrendConfig.botId, this.config.botId)
+            )
+          )
+          .limit(1);
+        
+        const orbConfig = orbConfigs[0];
+        
+        // Parsear activeSymbols (pode vir como string JSON)
+        let activeSymbols = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"];
+        if (orbConfig?.activeSymbols) {
+          try {
+            activeSymbols = typeof orbConfig.activeSymbols === 'string' 
+              ? JSON.parse(orbConfig.activeSymbols) 
+              : orbConfig.activeSymbols;
+          } catch (e) {
+            console.warn("[HybridEngine] Erro ao parsear activeSymbols ORB, usando default");
+          }
+        }
+        
+        const strategyConfig: Partial<ORBStrategyConfig> = {
+          strategyType: StrategyType.ORB_TREND,
+          activeSymbols: activeSymbols,
+          openingCandles: orbConfig?.openingCandles ?? 3,
+          emaPeriod: orbConfig?.emaPeriod ?? 200,
+          slopeLookbackCandles: orbConfig?.slopeLookbackCandles ?? 10,
+          minSlope: orbConfig?.minSlope ? Number(orbConfig.minSlope) : 0.0001,
+          stopType: (orbConfig?.stopType as "rangeOpposite" | "atr") ?? "rangeOpposite",
+          atrMult: orbConfig?.atrMult ? Number(orbConfig.atrMult) : 1.5,
+          atrPeriod: orbConfig?.atrPeriod ?? 14,
+          riskReward: orbConfig?.riskReward ? Number(orbConfig.riskReward) : 1.0,
+          maxTradesPerDayPerSymbol: orbConfig?.maxTradesPerDayPerSymbol ?? 1,
+          riskPercentage: orbConfig?.riskPercentage ? Number(orbConfig.riskPercentage) : 1.0,
+          maxOpenTrades: orbConfig?.maxOpenTrades ?? 3,
+          maxSpreadPips: orbConfig?.maxSpreadPips ? Number(orbConfig.maxSpreadPips) : 3.0,
+          verboseLogging: orbConfig?.verboseLogging ?? true,
+        };
+        
+        this.orbStrategy = strategyFactory.createStrategy(StrategyType.ORB_TREND, strategyConfig) as IMultiTimeframeStrategy;
+        
+        // Log de confirmação obrigatório
+        console.log("[HybridEngine] ✅ STRATEGY_ACTIVE=ORB_ONLY");
+        console.log(`[HybridEngine] ✅ Estratégia ORB inicializada | Símbolos: ${activeSymbols.join(', ')}`);
+        
+        // Log estruturado para UI
+        await insertSystemLog({
+          userId: this.config.userId,
+          botId: this.config.botId,
+          level: "INFO",
+          category: "STRATEGY",
+          source: "HybridEngine",
+          message: `STRATEGY_ACTIVE=ORB_ONLY | Símbolos: ${activeSymbols.join(', ')}`,
+          data: {
+            strategyType: "ORB_TREND",
+            activeSymbols: activeSymbols,
+            openingCandles: strategyConfig.openingCandles,
+            emaPeriod: strategyConfig.emaPeriod,
+            stopType: strategyConfig.stopType,
+            riskReward: strategyConfig.riskReward,
+          },
+        });
+        
+      } catch (error) {
+        console.error("[HybridEngine] Erro ao inicializar ORB:", error);
+      }
+    }
   }
   
   /**
@@ -1199,6 +1278,37 @@ export class HybridTradingEngine extends EventEmitter {
   private getCombinedSignal(symbol: string, mtfData: MultiTimeframeData): CombinedSignal {
     let smcSignal: SignalResult | null = null;
     let rsiVwapSignal: SignalResult | null = null;
+    let orbSignal: SignalResult | null = null;
+    
+    // ============= MODO ORB_ONLY: CHAMAR EXCLUSIVAMENTE ORBStrategy =============
+    if (this.config.mode === HybridMode.ORB_ONLY && this.orbStrategy) {
+      // Setar símbolo atual na ORB
+      if (this.orbStrategy instanceof ORBStrategy) {
+        this.orbStrategy.setCurrentSymbol(symbol);
+      }
+      
+      // Atualizar dados multi-timeframe (ORB usa M15)
+      if ("updateTimeframeData" in this.orbStrategy) {
+        this.orbStrategy.updateTimeframeData("H1", mtfData.h1!);
+        this.orbStrategy.updateTimeframeData("M15", mtfData.m15!);
+        this.orbStrategy.updateTimeframeData("M5", mtfData.m5!);
+      }
+      
+      // Chamar analyzeSignal da ORB (usa M15 internamente)
+      orbSignal = this.orbStrategy.analyzeSignal(mtfData.m15!, mtfData);
+      
+      // Retornar sinal ORB diretamente (modo exclusivo, sem priorização)
+      return {
+        smcSignal: null,
+        rsiVwapSignal: null,
+        orbSignal: orbSignal,
+        finalSignal: orbSignal && orbSignal.signal !== "NONE" ? orbSignal : null,
+        source: orbSignal && orbSignal.signal !== "NONE" ? "ORB" : "NONE",
+        conflictDetected: false,
+      };
+    }
+    
+    // ============= MODOS SMC/RSI_VWAP/HYBRID: LÓGICA ORIGINAL =============
     
     // Obter sinal SMC
     if (this.smcStrategy) {
@@ -1224,7 +1334,7 @@ export class HybridTradingEngine extends EventEmitter {
       rsiVwapSignal = this.rsiVwapStrategy.analyzeSignal(mtfData.m5!, mtfData);
     }
     
-    // Aplicar lógica de priorização
+    // Aplicar lógica de priorização (SMC/RSI_VWAP/HYBRID)
     return this.applyPrioritization(smcSignal, rsiVwapSignal);
   }
   
@@ -1241,6 +1351,7 @@ export class HybridTradingEngine extends EventEmitter {
     const result: CombinedSignal = {
       smcSignal,
       rsiVwapSignal,
+      orbSignal: null, // ORB não participa da priorização SMC/RSI_VWAP
       finalSignal: null,
       source: "NONE",
       conflictDetected: false,

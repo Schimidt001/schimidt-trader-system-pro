@@ -1116,6 +1116,61 @@ export const icmarketsRouter = router({
         if (strategyType === "SMC_SWARM") {
           
           // ============= VERIFICAR SE DEVE USAR HYBRID ENGINE =============
+          
+          // ===== ORB_ONLY: USAR HYBRID ENGINE COM MODO ORB_ONLY =====
+          if (hybridMode === "ORB_ONLY") {
+            const orbEngine = getHybridTradingEngine(
+              ctx.user.id, 
+              botId, 
+              hybridMode as HybridMode
+            );
+            
+            // Verificar se já está rodando
+            if (orbEngine.isRunning) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: `O robô ORB ${botId} já está em execução`,
+              });
+            }
+            
+            // Iniciar o robô ORB
+            await orbEngine.start();
+            
+            console.log(`[ICMarketsRouter] 🟢 Robô ORB ${botId} iniciado por usuário ${ctx.user.id}`);
+            console.log(`[ICMarketsRouter] ✅ STRATEGY_ACTIVE=ORB_ONLY`);
+            
+            // ========== LOG DE INÍCIO PARA UI ==========
+            const orbConfig = await getORBTrendConfig(ctx.user.id, botId);
+            const activeSymbolsOrb = orbConfig?.activeSymbols ? JSON.parse(orbConfig.activeSymbols) : ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"];
+            
+            await insertSystemLog({
+              userId: ctx.user.id,
+              botId: botId,
+              level: "INFO",
+              category: "SYSTEM",
+              source: "UI",
+              message: `🚀 ROBÔ ORB INICIADO | STRATEGY_ACTIVE=ORB_ONLY | Símbolos: ${activeSymbolsOrb.join(', ')}`,
+              data: {
+                strategyType: "ORB_TREND",
+                hybridMode: "ORB_ONLY",
+                activeSymbols: activeSymbolsOrb,
+                openingCandles: orbConfig?.openingCandles ?? 3,
+                emaPeriod: orbConfig?.emaPeriod ?? 200,
+                stopType: orbConfig?.stopType ?? "rangeOpposite",
+                riskReward: orbConfig?.riskReward ?? 1.0,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            
+            return {
+              success: true,
+              message: `Robô ORB ${botId} iniciado com sucesso`,
+              status: orbEngine.getStatus(),
+              strategyType: "ORB_TREND",
+              hybridMode: "ORB_ONLY",
+            };
+          }
+          
           if (hybridMode === "HYBRID" || hybridMode === "RSI_VWAP_ONLY") {
             // ===== HYBRID TRADING ENGINE (SMC + RSI/VWAP) =====
             const hybridEngine = getHybridTradingEngine(
