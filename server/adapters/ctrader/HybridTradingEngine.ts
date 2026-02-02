@@ -679,6 +679,27 @@ export class HybridTradingEngine extends EventEmitter {
         
         const smcConfig = smcConfigs[0];
         
+        // CORREÇÃO BUG #1: Parsear activeSymbols do banco de dados
+        // Segue o mesmo padrão robusto usado na estratégia ORB
+        let smcActiveSymbols = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]; // Default
+        if (smcConfig?.activeSymbols) {
+          try {
+            const parsed = typeof smcConfig.activeSymbols === 'string' 
+              ? JSON.parse(smcConfig.activeSymbols) 
+              : smcConfig.activeSymbols;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              smcActiveSymbols = parsed;
+              console.log(`[HybridEngine] ✅ activeSymbols SMC carregados do banco: ${smcActiveSymbols.join(', ')}`);
+            } else {
+              console.warn("[HybridEngine] ⚠️ activeSymbols SMC inválido (não é array ou está vazio), usando default");
+            }
+          } catch (e) {
+            console.warn("[HybridEngine] ⚠️ Erro ao parsear activeSymbols SMC, usando default:", e);
+          }
+        } else {
+          console.log(`[HybridEngine] ℹ️ activeSymbols SMC não encontrado no banco, usando default: ${smcActiveSymbols.join(', ')}`);
+        }
+        
         const strategyConfig: SMCStrategyConfig = {
           lookbackPeriod: smcConfig?.lookbackPeriod ?? 50,
           swingStrength: smcConfig?.swingStrength ?? 3,
@@ -689,10 +710,11 @@ export class HybridTradingEngine extends EventEmitter {
           riskRewardRatio: smcConfig?.riskRewardRatio ? Number(smcConfig.riskRewardRatio) : 2.0,
           useTrailingStop: smcConfig?.useTrailingStop ?? false,
           trailingStopPips: smcConfig?.trailingStopPips ?? 10,
+          activeSymbols: smcActiveSymbols, // CORREÇÃO: Passar activeSymbols para a estratégia
         };
         
         this.smcStrategy = strategyFactory.createStrategy(StrategyType.SMC, strategyConfig);
-        console.log("[HybridEngine] ✅ Estratégia SMC inicializada");
+        console.log(`[HybridEngine] ✅ Estratégia SMC inicializada | Símbolos ativos: ${smcActiveSymbols.join(', ')}`);
       } catch (error) {
         console.error("[HybridEngine] Erro ao inicializar SMC:", error);
       }
@@ -714,6 +736,14 @@ export class HybridTradingEngine extends EventEmitter {
         
         const rsiConfig = rsiConfigs[0];
         
+        // CORREÇÃO BUG #2: RSI+VWAP usa os mesmos símbolos configurados no HybridEngine
+        // A tabela rsiVwapConfig não tem campo activeSymbols, então usamos this.config.symbols
+        // que já foi carregado corretamente de smcStrategyConfig.activeSymbols em loadConfigFromDB()
+        const rsiActiveSymbols = this.config.symbols.length > 0 
+          ? this.config.symbols 
+          : ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"];
+        console.log(`[HybridEngine] ℹ️ RSI+VWAP usará os mesmos símbolos do HybridEngine: ${rsiActiveSymbols.join(', ')}`);
+        
         const strategyConfig: RsiVwapStrategyConfig = {
           rsiPeriod: rsiConfig?.rsiPeriod ?? 14,
           rsiOverbought: rsiConfig?.rsiOverbought ?? 70,
@@ -723,10 +753,11 @@ export class HybridTradingEngine extends EventEmitter {
           takeProfitPips: rsiConfig?.takeProfitPips ?? 30,
           useTrailingStop: rsiConfig?.useTrailingStop ?? false,
           trailingStopPips: rsiConfig?.trailingStopPips ?? 10,
+          activeSymbols: rsiActiveSymbols, // CORREÇÃO: Passar activeSymbols para a estratégia
         };
         
         this.rsiVwapStrategy = strategyFactory.createStrategy(StrategyType.RSI_VWAP, strategyConfig);
-        console.log("[HybridEngine] ✅ Estratégia RSI+VWAP inicializada");
+        console.log(`[HybridEngine] ✅ Estratégia RSI+VWAP inicializada | Símbolos ativos: ${rsiActiveSymbols.join(', ')}`);
       } catch (error) {
         console.error("[HybridEngine] Erro ao inicializar RSI+VWAP:", error);
       }

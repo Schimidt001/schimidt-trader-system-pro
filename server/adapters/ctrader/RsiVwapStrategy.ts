@@ -40,6 +40,9 @@ import { getPipValue as getCentralizedPipValue } from "../../../shared/normaliza
  * Configuração específica da estratégia RSI + VWAP
  */
 export interface RsiVwapStrategyConfig extends BaseStrategyConfig {
+  // Ativos monitorados (CORREÇÃO: Adicionado para consistência com SMC e ORB)
+  activeSymbols?: string[];
+  
   // Indicadores RSI
   rsiPeriod: number;          // Período do RSI (default: 14)
   rsiOversold: number;        // Nível de sobrevenda (default: 30)
@@ -293,6 +296,13 @@ export class RsiVwapStrategy implements ITradingStrategy {
    * 3. Candle de reversão bearish (close < open)
    */
   analyzeSignal(candles: TrendbarData[], mtfData?: MultiTimeframeData): SignalResult {
+    // CORREÇÃO: Verificar se o símbolo está na lista de ativos monitorados
+    if (this.config.activeSymbols && this.config.activeSymbols.length > 0) {
+      if (!this.config.activeSymbols.includes(this.currentSymbol)) {
+        return this.createNoSignal(`Símbolo ${this.currentSymbol} não está na lista de ativos monitorados RSI+VWAP`);
+      }
+    }
+    
     // Verificar dados mínimos
     if (candles.length < this.config.rsiPeriod + 5) {
       return this.createNoSignal("Dados insuficientes para análise RSI+VWAP");
