@@ -158,6 +158,7 @@ export class SMCTradingEngine extends EventEmitter {
   // Intervalos
   private analysisInterval: NodeJS.Timeout | null = null;
   private dataRefreshInterval: NodeJS.Timeout | null = null;
+  private trailingStopInterval: NodeJS.Timeout | null = null;  // CORREÇÃO AUDITORIA: Loop de Trailing Stop
   
   // Subscrições de preços
   private priceSubscriptions: Set<string> = new Set();
@@ -264,6 +265,7 @@ export class SMCTradingEngine extends EventEmitter {
       // Iniciar loops
       this.startAnalysisLoop();
       this.startDataRefreshLoop();
+      this.startTrailingStopLoop();  // CORREÇÃO AUDITORIA: Iniciar loop de Trailing Stop
       
       this._isRunning = true;
       this.startTime = Date.now();
@@ -331,6 +333,12 @@ export class SMCTradingEngine extends EventEmitter {
     if (this.dataRefreshInterval) {
       clearInterval(this.dataRefreshInterval);
       this.dataRefreshInterval = null;
+    }
+    
+    // CORREÇÃO AUDITORIA: Parar loop de Trailing Stop
+    if (this.trailingStopInterval) {
+      clearInterval(this.trailingStopInterval);
+      this.trailingStopInterval = null;
     }
     
     // Cancelar subscrições de preços
@@ -699,11 +707,108 @@ export class SMCTradingEngine extends EventEmitter {
         )
         .limit(1);
       
-      return result[0] || null;
+      // CORREÇÃO AUDITORIA 2026-02-02: Normalizar tipos numéricos antes de retornar
+      if (result[0]) {
+        return this.normalizeConfigTypes(result[0]);
+      }
+      
+      return null;
     } catch (error) {
       console.error("[SMCTradingEngine] Erro ao carregar SMC config:", error);
       return null;
     }
+  }
+  
+  /**
+   * Normaliza tipos numéricos da configuração do banco de dados
+   * 
+   * CORREÇÃO AUDITORIA 2026-02-02:
+   * Centraliza a conversão de tipos em um único ponto para evitar erros
+   * matemáticos causados por concatenação de strings (ex: "2.0" + 0.1 = "2.00.1").
+   * 
+   * Valores Decimal do MySQL chegam como strings e precisam ser convertidos
+   * para number antes de serem usados em cálculos.
+   * 
+   * @param config - Configuração bruta do banco de dados
+   * @returns Configuração com tipos normalizados
+   */
+  private normalizeConfigTypes(config: any): any {
+    if (!config) return config;
+    
+    // Lista de campos que devem ser convertidos para number
+    const numericFields = [
+      'chochMinPips',
+      'sweepBufferPips',
+      'riskPercentage',
+      'dailyLossLimitPercent',
+      'stopLossBufferPips',
+      'rewardRiskRatio',
+      'orderBlockExtensionPips',
+      'maxSpreadPips',
+      'trailingTriggerPips',
+      'trailingStepPips',
+      'rejectionWickPercent',
+      'maxTotalExposurePercent',
+    ];
+    
+    // Lista de campos que devem ser convertidos para integer
+    const integerFields = [
+      'swingH1Lookback',
+      'chochM15Lookback',
+      'orderBlockLookback',
+      'fractalLeftBars',
+      'fractalRightBars',
+      'maxOpenTrades',
+      'sweepValidationMinutes',
+      'maxTradesPerSymbol',
+    ];
+    
+    // Lista de campos que devem ser convertidos para boolean
+    const booleanFields = [
+      'trailingEnabled',
+      'sessionFilterEnabled',
+      'spreadFilterEnabled',
+      'circuitBreakerEnabled',
+      'tradingBlockedToday',
+      'verboseLogging',
+      'chochAcceptWickBreak',
+    ];
+    
+    const normalized = { ...config };
+    
+    // Converter campos numéricos (float)
+    for (const field of numericFields) {
+      if (normalized[field] !== undefined && normalized[field] !== null) {
+        if (typeof normalized[field] === 'string') {
+          normalized[field] = parseFloat(normalized[field]);
+        }
+      }
+    }
+    
+    // Converter campos inteiros
+    for (const field of integerFields) {
+      if (normalized[field] !== undefined && normalized[field] !== null) {
+        if (typeof normalized[field] === 'string') {
+          normalized[field] = parseInt(normalized[field], 10);
+        }
+      }
+    }
+    
+    // Converter campos booleanos
+    for (const field of booleanFields) {
+      if (normalized[field] !== undefined && normalized[field] !== null) {
+        if (typeof normalized[field] === 'string') {
+          normalized[field] = normalized[field] === 'true' || normalized[field] === '1';
+        } else if (typeof normalized[field] === 'number') {
+          normalized[field] = normalized[field] === 1;
+        }
+      }
+    }
+    
+    // Log de normalização (apenas em modo debug)
+    console.log(`[SMCTradingEngine] ✅ Configuração normalizada | chochMinPips: ${typeof normalized.chochMinPips} = ${normalized.chochMinPips} | trailingEnabled: ${typeof normalized.trailingEnabled} = ${normalized.trailingEnabled}`);
+    
+    return normalized;
   }
   
   /**
@@ -793,6 +898,12 @@ export class SMCTradingEngine extends EventEmitter {
    * - Falha em um símbolo NÃO interrompe o download dos demais
    * - Delay progressivo entre tentativas (backoff)
    * - Log detalhado de sucesso/falha por símbolo
+   * 
+   * CORREÇÃO AUDITORIA 2026-02-02: Carregamento dinâmico baseado no lookback
+   * - Quantidade de candles agora é calculada com base nos parâmetros de lookback da estratégia
+   * - swingH1Lookback define candles para H1
+   * - chochM15Lookback define candles para M15
+   * - M5 usa valor fixo de 50 candles (suficiente para confirmação de entrada)
    */
   private async loadHistoricalData(): Promise<void> {
     console.log(`[SMCTradingEngine] 📊 Carregando dados históricos para ${this.config.symbols.length} símbolos...`);
@@ -802,6 +913,22 @@ export class SMCTradingEngine extends EventEmitter {
     const DELAY_BETWEEN_REQUESTS = 1500; // 1.5s entre cada requisição de timeframe
     const DELAY_BETWEEN_SYMBOLS = 2000;  // 2s entre cada símbolo
     const RATE_LIMIT_RETRY_DELAY = 5000; // 5s de espera se receber Rate Limit
+    
+    // CORREÇÃO AUDITORIA 2026-02-02: Calcular quantidade de candles baseado no lookback
+    // Obter configuração da estratégia para determinar lookbacks
+    let h1CandleCount = 250;  // Valor padrão
+    let m15CandleCount = 250; // Valor padrão
+    let m5CandleCount = 50;   // Valor fixo para M5 (confirmação de entrada)
+    
+    if (this.strategy instanceof SMCStrategy) {
+      const smcConfig = this.strategy.getConfig();
+      // Adicionar margem de segurança de 50 candles além do lookback
+      h1CandleCount = Math.max(100, (smcConfig.swingH1Lookback || 50) + 50);
+      m15CandleCount = Math.max(50, (smcConfig.chochM15Lookback || 15) + 35);
+      console.log(`[SMCTradingEngine] 📊 Candles dinâmicos baseados no lookback: H1=${h1CandleCount}, M15=${m15CandleCount}, M5=${m5CandleCount}`);
+    } else {
+      console.log(`[SMCTradingEngine] 📊 Usando quantidade padrão de candles: H1=${h1CandleCount}, M15=${m15CandleCount}, M5=${m5CandleCount}`);
+    }
     
     // Helper para detectar erro de Rate Limit
     const isRateLimitError = (error: any): boolean => {
@@ -828,8 +955,8 @@ export class SMCTradingEngine extends EventEmitter {
             console.log(`[SMCTradingEngine] 🔄 ${symbol}: Tentativa ${attempt}/${MAX_RETRIES}...`);
           }
           
-          // Carregar H1 (mínimo 200 candles)
-          const h1Candles = await this.adapter.getCandleHistory(symbol, "H1", 250);
+          // Carregar H1 (quantidade baseada no lookback)
+          const h1Candles = await this.adapter.getCandleHistory(symbol, "H1", h1CandleCount);
           this.timeframeData.h1.set(symbol, h1Candles);
           
           if (h1Candles.length > 0) {
@@ -841,8 +968,8 @@ export class SMCTradingEngine extends EventEmitter {
           
           await sleep(DELAY_BETWEEN_REQUESTS);
           
-          // Carregar M15 (mínimo 200 candles)
-          const m15Candles = await this.adapter.getCandleHistory(symbol, "M15", 250);
+          // Carregar M15 (quantidade baseada no lookback)
+          const m15Candles = await this.adapter.getCandleHistory(symbol, "M15", m15CandleCount);
           this.timeframeData.m15.set(symbol, m15Candles);
           
           if (m15Candles.length > 0) {
@@ -854,8 +981,8 @@ export class SMCTradingEngine extends EventEmitter {
           
           await sleep(DELAY_BETWEEN_REQUESTS);
           
-          // Carregar M5 (mínimo 200 candles)
-          const m5Candles = await this.adapter.getCandleHistory(symbol, "M5", 250);
+          // Carregar M5 (quantidade fixa para confirmação de entrada)
+          const m5Candles = await this.adapter.getCandleHistory(symbol, "M5", m5CandleCount);
           this.timeframeData.m5.set(symbol, m5Candles);
           
           if (m5Candles.length > 0) {
@@ -865,15 +992,18 @@ export class SMCTradingEngine extends EventEmitter {
             console.warn(`[DEBUG-LOAD] ${symbol} M5: NENHUM CANDLE RETORNADO!`);
           }
           
-          // Verificar se temos dados suficientes
-          const hasEnoughData = h1Candles.length >= 50 && m15Candles.length >= 30 && m5Candles.length >= 20;
+          // Verificar se temos dados suficientes (mínimos baseados no lookback)
+          const minH1 = Math.max(50, h1CandleCount - 50);  // Mínimo = solicitado - margem
+          const minM15 = Math.max(30, m15CandleCount - 20);
+          const minM5 = Math.max(20, m5CandleCount - 10);
+          const hasEnoughData = h1Candles.length >= minH1 && m15Candles.length >= minM15 && m5Candles.length >= minM5;
           
           if (hasEnoughData) {
             console.log(`[SMCTradingEngine] ✅ ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length} candles`);
             symbolSuccess = true;
             successfulSymbols.push(symbol);
           } else {
-            console.warn(`[SMCTradingEngine] ⚠️ ${symbol}: Dados insuficientes (H1=${h1Candles.length}/50, M15=${m15Candles.length}/30, M5=${m5Candles.length}/20)`);
+            console.warn(`[SMCTradingEngine] ⚠️ ${symbol}: Dados insuficientes (H1=${h1Candles.length}/${minH1}, M15=${m15Candles.length}/${minM15}, M5=${m5Candles.length}/${minM5})`);
             // Continuar para próxima tentativa se dados insuficientes
             if (attempt === MAX_RETRIES) {
               // Na última tentativa, aceitar o que temos
@@ -1068,6 +1198,106 @@ export class SMCTradingEngine extends EventEmitter {
     }, refreshIntervalMs);
     
     console.log(`[SMCTradingEngine] Loop de atualização de dados iniciado (intervalo: ${refreshIntervalMs / 60000}min)`);
+  }
+  
+  // ============= CORREÇÃO AUDITORIA: TRAILING STOP =============
+  
+  /**
+   * Inicia loop de trailing stop
+   * 
+   * CORREÇÃO AUDITORIA 2026-02-02:
+   * Implementação do loop de trailing stop que estava faltando no SMCTradingEngine.
+   * O método calculateTrailingStop já existia na SMCStrategy, mas não era chamado.
+   * 
+   * Comportamento:
+   * - Verifica trailing stop a cada 5 segundos
+   * - Só executa se trailingEnabled === true na configuração
+   * - Só atualiza posições que pertencem aos símbolos monitorados por este engine
+   */
+  private startTrailingStopLoop(): void {
+    // Verificar trailing stop a cada 5 segundos
+    const trailingIntervalMs = 5000;
+    
+    this.trailingStopInterval = setInterval(() => {
+      this.updateTrailingStops();
+    }, trailingIntervalMs);
+    
+    console.log(`[SMCTradingEngine] Loop de trailing stop iniciado (intervalo: ${trailingIntervalMs / 1000}s)`);
+  }
+  
+  /**
+   * Atualiza trailing stops de todas as posições abertas
+   * 
+   * CORREÇÃO AUDITORIA 2026-02-02:
+   * Este método verifica todas as posições abertas e atualiza o stop loss
+   * conforme a lógica de trailing stop da estratégia SMC.
+   * 
+   * Condições para atualização:
+   * 1. Engine deve estar rodando
+   * 2. trailingEnabled deve estar true na configuração da estratégia
+   * 3. Posição deve pertencer a um símbolo monitorado por este engine
+   * 4. Lucro em pips deve ser >= trailingTriggerPips
+   * 5. Novo stop loss deve ser melhor que o atual
+   */
+  private async updateTrailingStops(): Promise<void> {
+    if (!this._isRunning || !this.strategy) return;
+    
+    // Verificar se a estratégia é SMC e se trailing está habilitado
+    if (!(this.strategy instanceof SMCStrategy)) return;
+    
+    const smcStrategy = this.strategy as SMCStrategy;
+    const strategyConfig = smcStrategy.getConfig();
+    if (!strategyConfig.trailingEnabled) return;
+    
+    try {
+      const positions = await this.adapter.getOpenPositions();
+      
+      for (const position of positions) {
+        // Só processar posições dos símbolos monitorados por este engine
+        if (!this.config.symbols.includes(position.symbol)) continue;
+        
+        // Obter preço atual e pip value
+        const currentPrice = await this.adapter.getPrice(position.symbol);
+        if (!currentPrice || currentPrice.bid <= 0) continue;
+        
+        const pipValue = this.getPipValue(position.symbol);
+        const price = position.direction === "BUY" ? currentPrice.bid : currentPrice.ask;
+        
+        // Calcular trailing stop usando a estratégia SMC
+        const result = smcStrategy.calculateTrailingStop(
+          position.entryPrice,
+          price,
+          position.stopLoss || position.entryPrice,
+          position.direction === "BUY" ? TradeSide.BUY : TradeSide.SELL,
+          pipValue
+        );
+        
+        // Se deve atualizar, modificar a posição
+        if (result.shouldUpdate) {
+          const updated = await this.adapter.modifyPosition({
+            positionId: position.positionId,
+            stopLoss: result.newStopLoss,
+          });
+          
+          if (updated) {
+            console.log(`[SMCTradingEngine] 📈 Trailing stop atualizado para ${position.symbol} | Posição: ${position.positionId} | Novo SL: ${result.newStopLoss.toFixed(5)} | Lucro: ${result.profitPips.toFixed(1)} pips`);
+            
+            // Log no banco de dados
+            await this.logInfo(
+              `📈 Trailing Stop atualizado | ${position.symbol} | SL: ${result.newStopLoss.toFixed(5)} | Lucro: ${result.profitPips.toFixed(1)} pips`,
+              "TRADE",
+              { positionId: position.positionId, newStopLoss: result.newStopLoss, profitPips: result.profitPips }
+            );
+          }
+        }
+      }
+    } catch (error) {
+      // Silenciar erros de trailing stop para não poluir logs
+      // Apenas logar em modo verbose
+      if (strategyConfig.verboseLogging) {
+        console.warn(`[SMCTradingEngine] Erro ao atualizar trailing stops:`, error);
+      }
+    }
   }
   
   /**
