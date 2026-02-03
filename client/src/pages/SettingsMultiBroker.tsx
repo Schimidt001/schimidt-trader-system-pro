@@ -1240,6 +1240,32 @@ export default function SettingsMultiBroker() {
                   setCircuitBreakerEnabled={setSmcCircuitBreakerEnabled}
                   verboseLogging={smcVerboseLogging}
                   setVerboseLogging={setSmcVerboseLogging}
+                  institutionalModeEnabled={institutionalModeEnabled}
+                  setInstitutionalModeEnabled={setInstitutionalModeEnabled}
+                  minGapPips={minGapPips}
+                  setMinGapPips={setMinGapPips}
+                  asiaSessionStartUtc={asiaSessionStartUtc}
+                  setAsiaSessionStartUtc={setAsiaSessionStartUtc}
+                  asiaSessionEndUtc={asiaSessionEndUtc}
+                  setAsiaSessionEndUtc={setAsiaSessionEndUtc}
+                  londonSessionStartUtc={londonSessionStartUtc}
+                  setLondonSessionStartUtc={setLondonSessionStartUtc}
+                  londonSessionEndUtc={londonSessionEndUtc}
+                  setLondonSessionEndUtc={setLondonSessionEndUtc}
+                  nySessionStartUtc={nySessionStartUtc}
+                  setNySessionStartUtc={setNySessionStartUtc}
+                  nySessionEndUtc={nySessionEndUtc}
+                  setNySessionEndUtc={setNySessionEndUtc}
+                  instWaitFvgMinutes={instWaitFvgMinutes}
+                  setInstWaitFvgMinutes={setInstWaitFvgMinutes}
+                  instWaitMitigationMinutes={instWaitMitigationMinutes}
+                  setInstWaitMitigationMinutes={setInstWaitMitigationMinutes}
+                  instWaitEntryMinutes={instWaitEntryMinutes}
+                  setInstWaitEntryMinutes={setInstWaitEntryMinutes}
+                  instCooldownMinutes={instCooldownMinutes}
+                  setInstCooldownMinutes={setInstCooldownMinutes}
+                  maxTradesPerSession={maxTradesPerSession}
+                  setMaxTradesPerSession={setMaxTradesPerSession}
                 />
               )}
 
