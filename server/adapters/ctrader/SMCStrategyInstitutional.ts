@@ -181,9 +181,10 @@ export class SMCInstitutionalManager {
       return false;
     }
     
-    // 4. Construir pools de liquidez
+    // 4. Construir pools de liquidez (preservando estado swept via merge)
     this.state.liquidityPools = this.liquidityEngine.buildLiquidityPools(
       this.state.session,
+      this.state.liquidityPools,
       swarmState.swingHighs,
       swarmState.swingLows
     );
