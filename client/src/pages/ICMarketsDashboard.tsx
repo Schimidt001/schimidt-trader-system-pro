@@ -145,6 +145,11 @@ export default function ICMarketsDashboard() {
   const tradeAlert = useTradeAlert();
   const previousPositionCountRef = useRef<number>(0);
   
+  // DEBUG: Confirmar que o hook foi carregado
+  useEffect(() => {
+    console.log('[🔔 TradeAlert] Hook carregado! Enabled:', tradeAlert.enabled);
+  }, []);
+  
   const strategyConfig = trpc.icmarkets.getStrategyConfig.useQuery(undefined, {
     enabled: connectionStatus.data?.connected === true,
   });
