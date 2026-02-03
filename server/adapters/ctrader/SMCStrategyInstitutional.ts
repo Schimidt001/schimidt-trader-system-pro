@@ -161,10 +161,21 @@ export class SMCInstitutionalManager {
     const now = Date.now();
     
     // 1. Atualizar SessionEngine
+    const previousSessionType = this.state.session.currentSession;
     this.state.session = this.sessionEngine.processM15Candles(
       this.state.session,
       m15Candles
     );
+
+    // Detectar mudança de sessão para resetar budget (P0.3)
+    if (previousSessionType !== this.state.session.currentSession && 
+        previousSessionType !== 'OFF_SESSION' && 
+        this.state.session.currentSession !== 'OFF_SESSION') {
+      this.onSessionChange();
+      if (this.config.verboseLogging) {
+        console.log(`[SMC-INST] ${this.symbol}: Sessão mudou de ${previousSessionType} para ${this.state.session.currentSession} - Budget resetado`);
+      }
+    }
     
     // 2. Atualizar ContextEngine
     this.state.context = this.contextEngine.evaluateContext(
