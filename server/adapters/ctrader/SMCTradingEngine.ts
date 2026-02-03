@@ -299,6 +299,24 @@ export class SMCTradingEngine extends EventEmitter {
         { maxSpread: this.config.maxSpread, maxPositions: this.config.maxPositions, lots: this.config.lots }
       );
       
+      // Log de status de sessão ao iniciar
+      if (this.riskManager) {
+        const canOpen = await this.riskManager.canOpenPosition();
+        if (!canOpen.allowed) {
+          await this.logInfo(
+            `🟡 BOT INICIADO - FORA DE SESSÃO | ${canOpen.reason}`,
+            "SYSTEM",
+            { status: "STARTED_OUT_OF_SESSION", reason: canOpen.reason }
+          );
+        } else {
+          await this.logInfo(
+            `🟢 BOT INICIADO - EM SESSÃO | Pronto para analisar mercado`,
+            "SYSTEM",
+            { status: "STARTED_IN_SESSION" }
+          );
+        }
+      }
+      
     } catch (error) {
       console.error("[SMCTradingEngine] Erro ao iniciar:", error);
       // Gravar log de erro no banco de dados
@@ -1395,29 +1413,83 @@ export class SMCTradingEngine extends EventEmitter {
     this.lastAnalysisTime = now;
     this.analysisCount++;
     
-    // Log de análise a cada 10 ciclos para não poluir
+    // LOG ESTRUTURADO: Heartbeat a cada 10 ciclos (5 minutos)
     if (this.analysisCount % 10 === 0) {
       console.log(`[SMCTradingEngine] 🔍 Análise #${this.analysisCount} | Símbolos: ${this.config.symbols.length} | Lista: ${this.config.symbols.join(', ')}`);
+      
+      // Gravar log estruturado no banco
+      await this.logInfo(
+        `🟢 BOT ATIVO - ANALISANDO MERCADO | Análise #${this.analysisCount} | Símbolos: ${this.config.symbols.join(', ')}`,
+        "SYSTEM",
+        {
+          status: "ACTIVE_ANALYZING",
+          analysisCount: this.analysisCount,
+          symbols: this.config.symbols,
+          symbolCount: this.config.symbols.length,
+        }
+      );
     }
     
     // Verificar se pode operar
     if (this.riskManager) {
       const canOpen = await this.riskManager.canOpenPosition();
       if (!canOpen.allowed) {
-        if (this.analysisCount % 10 === 0) { // Log a cada 10 análises
+        // LOG ESTRUTURADO: Heartbeat quando fora de sessão
+        if (this.analysisCount % 10 === 0) { // Log a cada 10 análises (5 minutos)
           console.log(`[SMCTradingEngine] ⚠️ ${canOpen.reason}`);
+          
+          // Gravar log estruturado no banco
+          await this.logInfo(
+            `🤖 BOT ATIVO - AGUARDANDO | ${canOpen.reason} | Símbolos monitorados: ${this.config.symbols.join(', ')}`,
+            "SYSTEM",
+            {
+              status: "STANDBY",
+              reason: canOpen.reason,
+              symbols: this.config.symbols,
+              analysisCount: this.analysisCount,
+            }
+          );
         }
         return;
       }
     }
     
-    // Analisar cada símbolo
+    // Analisar cada símbolo e coletar estatísticas
+    const symbolsWithInsufficientData: string[] = [];
+    let minH1Candles = 999;
+    let requiredH1 = 60;
+    
     for (const symbol of this.config.symbols) {
       try {
+        // Verificar dados antes de analisar
+        const h1Data = this.timeframeData.h1.get(symbol) || [];
+        const m15Data = this.timeframeData.m15.get(symbol) || [];
+        const m5Data = this.timeframeData.m5.get(symbol) || [];
+        
+        if (h1Data.length < 50 || m15Data.length < 30 || m5Data.length < 20) {
+          symbolsWithInsufficientData.push(symbol);
+          minH1Candles = Math.min(minH1Candles, h1Data.length);
+        }
+        
         await this.analyzeSymbol(symbol);
       } catch (error) {
         console.error(`[SMCTradingEngine] Erro ao analisar ${symbol}:`, error);
       }
+    }
+    
+    // LOG AGREGADO: Se múltiplos símbolos têm dados insuficientes, mostrar resumo
+    if (symbolsWithInsufficientData.length > 0 && this.analysisCount % 10 === 0) {
+      await this.logInfo(
+        `⚠️ AGUARDANDO DADOS | ${symbolsWithInsufficientData.length} símbolos com dados insuficientes | H1: ${minH1Candles}/${requiredH1} candles | Símbolos: ${symbolsWithInsufficientData.join(', ')}`,
+        "SYSTEM",
+        {
+          status: "WAITING_DATA",
+          symbolsCount: symbolsWithInsufficientData.length,
+          symbols: symbolsWithInsufficientData,
+          minH1Candles,
+          requiredH1,
+        }
+      );
     }
   }
   

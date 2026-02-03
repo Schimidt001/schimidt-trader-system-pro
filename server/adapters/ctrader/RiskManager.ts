@@ -203,11 +203,15 @@ export class RiskManager {
       const brasiliaTime = new Date(now.getTime() + (localOffset + brasiliaOffset) * 60000);
       const currentTime = `${brasiliaTime.getHours().toString().padStart(2, '0')}:${brasiliaTime.getMinutes().toString().padStart(2, '0')}`;
       
+      // Calcular próxima sessão
+      const nextSession = this.getNextTradingSession(brasiliaTime);
+      
       console.log(`[RiskManager] 🚫 Filtro de Sessão | Hora atual (Brasília): ${currentTime} | Londres: ${this.config.londonSessionStart}-${this.config.londonSessionEnd} | NY: ${this.config.nySessionStart}-${this.config.nySessionEnd}`);
+      console.log(`[RiskManager] ⏰ Próxima sessão: ${nextSession.name} às ${nextSession.startTime} (em ${nextSession.minutesUntil} minutos)`);
       
       return {
         allowed: false,
-        reason: `Fora do horário de trading permitido (${currentTime} Brasília)`,
+        reason: `Fora de sessão | Próxima: ${nextSession.name} às ${nextSession.startTime} (em ${nextSession.minutesUntil}min)`,
       };
     }
     
@@ -523,6 +527,49 @@ export class RiskManager {
     console.log(`[RiskManager] PnL Diário: $${this.state.dailyPnL.toFixed(2)} (${this.state.dailyPnLPercent.toFixed(2)}%)`);
     console.log("[RiskManager] Trading bloqueado até o próximo dia.");
     console.log("═══════════════════════════════════════════════════════════════");
+  }
+  
+  /**
+   * Calcula a próxima sessão de trading
+   */
+  private getNextTradingSession(brasiliaTime: Date): { name: string; startTime: string; minutesUntil: number } {
+    const currentHour = brasiliaTime.getHours();
+    const currentMinute = brasiliaTime.getMinutes();
+    const currentTimeMinutes = currentHour * 60 + currentMinute;
+    
+    const parseTime = (timeStr: string): number => {
+      const [hours, minutes] = timeStr.split(":").map(Number);
+      return hours * 60 + minutes;
+    };
+    
+    const londonStart = parseTime(this.config.londonSessionStart);
+    const nyStart = parseTime(this.config.nySessionStart);
+    
+    // Verificar qual é a próxima sessão
+    if (currentTimeMinutes < londonStart) {
+      // Próxima é Londres hoje
+      return {
+        name: "LONDRES",
+        startTime: this.config.londonSessionStart,
+        minutesUntil: londonStart - currentTimeMinutes,
+      };
+    } else if (currentTimeMinutes < nyStart) {
+      // Próxima é NY hoje
+      return {
+        name: "NEW YORK",
+        startTime: this.config.nySessionStart,
+        minutesUntil: nyStart - currentTimeMinutes,
+      };
+    } else {
+      // Próxima é Londres amanhã
+      const minutesUntilMidnight = 24 * 60 - currentTimeMinutes;
+      const minutesUntilLondon = minutesUntilMidnight + londonStart;
+      return {
+        name: "LONDRES",
+        startTime: this.config.londonSessionStart,
+        minutesUntil: minutesUntilLondon,
+      };
+    }
   }
   
   /**

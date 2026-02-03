@@ -681,11 +681,23 @@ export class SMCStrategyLogger {
   }
   
   /**
-   * Log de dados insuficientes
+   * Log de dados insuficientes (com rate limiting agressivo - 1 por 5 minutos)
    */
   async logInsufficientData(symbol: string, h1Count: number, m15Count: number, m5Count: number, required: { h1: number; m15: number; m5: number }): Promise<void> {
     const message = `⚠️ DADOS INSUFICIENTES | ${symbol} | H1: ${h1Count}/${required.h1} | M15: ${m15Count}/${required.m15} | M5: ${m5Count}/${required.m5}`;
     console.log(`[SMCStrategy] ${message}`);
+    
+    // Rate limiting: 1 log a cada 5 minutos para dados insuficientes
+    const rateLimitKey = `insufficient_data_${symbol}`;
+    const now = Date.now();
+    const lastLog = this.lastLogTime.get(rateLimitKey) || 0;
+    const shouldLog = now - lastLog > 300000; // 5 minutos
+    
+    if (!shouldLog) {
+      return; // Silenciar log redundante
+    }
+    
+    this.lastLogTime.set(rateLimitKey, now);
     
     await this.log("WARN", "SYSTEM", message, {
       symbol,
