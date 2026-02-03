@@ -282,7 +282,7 @@ export const icmarketsRouter = router({
       
       // ============= CAMPOS INSTITUCIONAIS SMC =============
       // Modo Institucional (OPT-IN)
-      institutionalModeEnabled: Boolean(smcConfig?.institutionalModeEnabled) ?? false,
+      institutionalModeEnabled: Boolean(smcConfig?.institutionalModeEnabled ?? false),
       // FVG (Fair Value Gap)
       minGapPips: smcConfig?.minGapPips ? Number(smcConfig.minGapPips) : 2.0,
       // Sessões Institucionais (UTC em minutos)

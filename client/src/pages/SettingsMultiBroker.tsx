@@ -50,6 +50,9 @@ export default function SettingsMultiBroker() {
   const { selectedBot, setSelectedBot } = useBotSelector();
   const { broker, isDeriv, isICMarkets, currentConfig } = useBroker();
   
+  // Utils para invalidação de cache após salvar configurações
+  const utils = trpc.useUtils();
+  
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   
@@ -286,7 +289,10 @@ export default function SettingsMultiBroker() {
   });
 
   const saveICMarketsConfig = trpc.icmarkets.saveConfig.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
+      // CORREÇÃO: Invalidar cache para garantir que os dados sejam recarregados do servidor
+      // Isso resolve o problema de persistência do Modo Institucional
+      await utils.icmarkets.getConfig.invalidate();
       toast.success("Configurações IC Markets salvas com sucesso");
       setIsSaving(false);
     },
