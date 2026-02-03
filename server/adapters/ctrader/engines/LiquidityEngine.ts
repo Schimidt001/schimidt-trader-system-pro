@@ -66,15 +66,35 @@ export class LiquidityEngine {
   }
   
   /**
-   * Constrói pools de liquidez a partir de todas as fontes
+   * Gera uma chave estável e determinística para o pool.
+   * Resolve o problema P0.3 (Pools reconstruídos perdem estado).
+   * Ajuste: Inclui identificadores temporais para evitar colisões entre dias/sessões.
+   */
+  private generatePoolKey(pool: Partial<LiquidityPool>): string {
+    const roundedPrice = pool.price ? pool.price.toFixed(5) : "0";
+    
+    // Para pools de Swing, usamos o timestamp original do fractal
+    if (pool.source === 'SWING') {
+      return `${pool.type}_${pool.timestamp}_${roundedPrice}`;
+    }
+    
+    // Para pools de Sessão ou Diários, usamos o timestamp (que representa o fim do período)
+    // Isso garante que pools de dias/sessões diferentes tenham chaves diferentes
+    return `${pool.type}_${pool.timestamp}_${roundedPrice}`;
+  }
+
+  /**
+   * Constrói pools de liquidez a partir de todas as fontes e faz o merge com os existentes.
    * 
    * @param sessionState Estado do SessionEngine
+   * @param existingPools Pools de liquidez atuais (para preservar estado swept)
    * @param swingHighs Array de Swing Highs (fractais)
    * @param swingLows Array de Swing Lows (fractais)
    * @returns Array de pools de liquidez ordenados por prioridade
    */
   buildLiquidityPools(
     sessionState: SessionEngineState,
+    existingPools: LiquidityPool[] = [],
     swingHighs: SwingPoint[] = [],
     swingLows: SwingPoint[] = []
   ): LiquidityPool[] {
@@ -174,8 +194,24 @@ export class LiquidityEngine {
       }
     }
     
+    // 4. Merge com pools existentes para preservar estado "swept"
+    const mergedPools = pools.map(newPool => {
+      const key = this.generatePoolKey(newPool);
+      const existing = existingPools.find(p => this.generatePoolKey(p) === key);
+      
+      if (existing && existing.swept) {
+        return {
+          ...newPool,
+          swept: true,
+          sweptAt: existing.sweptAt,
+          sweptCandle: existing.sweptCandle,
+        };
+      }
+      return newPool;
+    });
+
     // Ordenar por prioridade (menor = maior prioridade)
-    return pools.sort((a, b) => a.priority - b.priority);
+    return mergedPools.sort((a, b) => a.priority - b.priority);
   }
   
   /**

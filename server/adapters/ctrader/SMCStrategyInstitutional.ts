@@ -16,6 +16,7 @@
 
 import { TrendbarData } from "./CTraderClient";
 import { SwingPoint, OrderBlock, SymbolSwarmState, SMCStrategyConfig } from "./SMCStrategy";
+import { CandleUtils } from "./utils/CandleUtils";
 import {
   InstitutionalFSMState,
   InstitutionalState,
@@ -160,10 +161,21 @@ export class SMCInstitutionalManager {
     const now = Date.now();
     
     // 1. Atualizar SessionEngine
+    const previousSessionType = this.state.session.currentSession;
     this.state.session = this.sessionEngine.processM15Candles(
       this.state.session,
       m15Candles
     );
+
+    // Detectar mudança de sessão para resetar budget (P0.3)
+    // Ajuste: Reseta sempre que entra em uma sessão válida e a sessão mudou, mesmo vindo de OFF_SESSION
+    if (previousSessionType !== this.state.session.currentSession && 
+        this.state.session.currentSession !== 'OFF_SESSION') {
+      this.onSessionChange();
+      if (this.config.verboseLogging) {
+        console.log(`[SMC-INST] ${this.symbol}: Sessão mudou de ${previousSessionType} para ${this.state.session.currentSession} - Budget resetado`);
+      }
+    }
     
     // 2. Atualizar ContextEngine
     this.state.context = this.contextEngine.evaluateContext(
@@ -180,9 +192,10 @@ export class SMCInstitutionalManager {
       return false;
     }
     
-    // 4. Construir pools de liquidez
+    // 4. Construir pools de liquidez (preservando estado swept via merge)
     this.state.liquidityPools = this.liquidityEngine.buildLiquidityPools(
       this.state.session,
+      this.state.liquidityPools,
       swarmState.swingHighs,
       swarmState.swingLows
     );
@@ -203,8 +216,12 @@ export class SMCInstitutionalManager {
     swarmState: SymbolSwarmState,
     currentPrice: number
   ): boolean {
-    const lastM15Candle = m15Candles[m15Candles.length - 1];
-    const lastM5Candle = m5Candles[m5Candles.length - 1];
+    const lastM15Candle = CandleUtils.getLastClosedCandle(m15Candles, 15);
+    const lastM5Candle = CandleUtils.getLastClosedCandle(m5Candles, 5);
+
+    if (!lastM15Candle || !lastM5Candle) {
+      return false;
+    }
     
     switch (this.state.fsmState) {
       case 'IDLE':
@@ -502,7 +519,7 @@ export function createInstitutionalManager(
  */
 export function extractInstitutionalConfig(config: any): InstitutionalConfig {
   return {
-    institutionalModeEnabled: config.institutionalModeEnabled ?? true,
+    institutionalModeEnabled: config.institutionalModeEnabled ?? false,
     minGapPips: parseFloat(config.minGapPips) || 2.0,
     asiaSessionStartUtc: parseInt(config.asiaSessionStartUtc) || 1380,
     asiaSessionEndUtc: parseInt(config.asiaSessionEndUtc) || 420,
