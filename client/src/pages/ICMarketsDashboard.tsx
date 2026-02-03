@@ -147,7 +147,8 @@ export default function ICMarketsDashboard() {
   
   // DEBUG: Confirmar que o hook foi carregado
   useEffect(() => {
-    console.log('[🔔 TradeAlert] Hook carregado! Enabled:', tradeAlert.enabled);
+    console.log('[🔔 TradeAlert] Hook carregado! Version: 2.0 | Enabled:', tradeAlert.enabled);
+    console.log('[🔔 TradeAlert] Timestamp:', new Date().toISOString());
   }, []);
   
   const strategyConfig = trpc.icmarkets.getStrategyConfig.useQuery(undefined, {
