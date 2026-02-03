@@ -193,21 +193,27 @@ export class SessionEngine {
   }
   
   /**
-   * Obtém candles de um dia específico
+   * Obtém candles de um dia de trading específico.
+   * Resolve o problema P0.4 (Consistência ASIA).
+   * O dia de trading começa às 21:00 UTC do dia anterior (fechamento de NY).
    */
   private getDayCandles(candles: TrendbarData[], targetDate: Date): TrendbarData[] {
-    const targetDay = targetDate.getUTCDate();
-    const targetMonth = targetDate.getUTCMonth();
-    const targetYear = targetDate.getUTCFullYear();
+    // Usamos um cutoff de 21:00 UTC para definir o início do dia de trading.
+    // Qualquer candle após 21:00 UTC pertence ao dia de trading seguinte.
+    const getTradingDayKey = (timestamp: number) => {
+      const d = new Date(timestamp);
+      const hours = d.getUTCHours();
+      // Se for 21:00 ou mais, pertence ao próximo dia civil
+      if (hours >= 21) {
+        const nextDay = new Date(timestamp + 24 * 60 * 60 * 1000);
+        return `${nextDay.getUTCFullYear()}-${nextDay.getUTCMonth()}-${nextDay.getUTCDate()}`;
+      }
+      return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+    };
+
+    const targetKey = getTradingDayKey(targetDate.getTime());
     
-    return candles.filter(c => {
-      const candleDate = new Date(c.timestamp);
-      return (
-        candleDate.getUTCDate() === targetDay &&
-        candleDate.getUTCMonth() === targetMonth &&
-        candleDate.getUTCFullYear() === targetYear
-      );
-    });
+    return candles.filter(c => getTradingDayKey(c.timestamp) === targetKey);
   }
   
   /**

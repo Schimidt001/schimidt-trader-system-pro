@@ -519,7 +519,7 @@ export function createInstitutionalManager(
  */
 export function extractInstitutionalConfig(config: any): InstitutionalConfig {
   return {
-    institutionalModeEnabled: config.institutionalModeEnabled ?? true,
+    institutionalModeEnabled: config.institutionalModeEnabled ?? false,
     minGapPips: parseFloat(config.minGapPips) || 2.0,
     asiaSessionStartUtc: parseInt(config.asiaSessionStartUtc) || 1380,
     asiaSessionEndUtc: parseInt(config.asiaSessionEndUtc) || 420,
