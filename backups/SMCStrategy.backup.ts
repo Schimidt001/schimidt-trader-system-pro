@@ -38,9 +38,6 @@ import {
 } from "./SMCStrategyInstitutional";
 import { InstitutionalConfig, InstitutionalFSMState } from "./SMCInstitutionalTypes";
 
-// LOGGING: Importar módulo de logging estruturado para SMC
-import { SMCStrategyLogger, createSMCStrategyLogger } from "./SMCStrategyLogger";
-
 // ============= TIPOS E INTERFACES =============
 
 /**
@@ -295,9 +292,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   private institutionalManagers: Map<string, SMCInstitutionalManager> = new Map();
   private institutionalLogCallback: InstitutionalLogCallback | null = null;
   
-  // LOGGING: Logger estruturado para envio de logs ao banco de dados
-  private logger: SMCStrategyLogger | null = null;
-  
   constructor(config: Partial<SMCStrategyConfig> = {}) {
     this.config = { ...DEFAULT_SMC_CONFIG, ...config };
     
@@ -375,45 +369,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     console.log(`[SMC] ================================================`);
   }
   
-  // ============= MÉTODOS PÚBLICOS DE LOGGING =============
-  
-  /**
-   * Inicializa o logger estruturado para envio de logs ao banco de dados
-   * Deve ser chamado pelo SMCTradingEngine após criar a estratégia
-   */
-  initializeLogger(userId: number, botId: number): void {
-    this.logger = createSMCStrategyLogger(userId, botId, this.config.verboseLogging);
-    
-    // Log de inicialização
-    this.logger.logInit({
-      structureTimeframe: this.config.structureTimeframe,
-      activeSymbols: this.config.activeSymbols,
-      riskPercentage: this.config.riskPercentage,
-      maxOpenTrades: this.config.maxOpenTrades,
-      spreadFilterEnabled: this.config.spreadFilterEnabled,
-      maxSpreadPips: this.config.maxSpreadPips,
-      sessionFilterEnabled: this.config.sessionFilterEnabled,
-      chochMinPips: this.config.chochMinPips,
-      rewardRiskRatio: this.config.rewardRiskRatio,
-    });
-  }
-  
-  /**
-   * Obtém o logger para uso externo (ex: SMCTradingEngine)
-   */
-  getLogger(): SMCStrategyLogger | null {
-    return this.logger;
-  }
-  
-  /**
-   * Atualiza configuração de verbose logging no logger
-   */
-  updateLoggerVerbose(enabled: boolean): void {
-    if (this.logger) {
-      this.logger.setVerboseLogging(enabled);
-    }
-  }
-  
   // ============= INTERFACE ITradingStrategy =============
   
   getStrategyType(): StrategyType {
@@ -450,22 +405,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     // Verificar se temos dados suficientes
     if (!this.hasAllTimeframeData()) {
       console.log(`[DATA] ${this.currentSymbol} | ❌ Dados insuficientes - H1 min: ${this.config.swingH1Lookback + 10}, M15 min: ${this.config.chochM15Lookback + 10}, M5 min: 20`);
-      
-      // LOG ESTRUTURADO: Dados insuficientes
-      if (this.logger) {
-        this.logger.logInsufficientData(
-          this.currentSymbol,
-          this.h1Data.length,
-          this.m15Data.length,
-          this.m5Data.length,
-          {
-            h1: this.config.swingH1Lookback + 10,
-            m15: this.config.chochM15Lookback + 10,
-            m5: 20
-          }
-        );
-      }
-      
       return this.createNoSignal("Dados insuficientes para analise MTF");
     }
     
@@ -476,17 +415,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         if (this.config.verboseLogging) {
           console.log(`[SMC] ${this.currentSymbol}: BLOQUEADO | ${reason}`);
         }
-        
-        // LOG ESTRUTURADO: Filtro de spread
-        if (this.logger) {
-          this.logger.logSpreadFilter(
-            this.currentSymbol,
-            mtfData.currentSpreadPips,
-            this.config.maxSpreadPips,
-            true
-          );
-        }
-        
         return this.createNoSignal(reason);
       }
     }
@@ -497,14 +425,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     
     // Verificar circuit breaker
     if (this.config.tradingBlockedToday) {
-      // LOG ESTRUTURADO: Circuit breaker ativo
-      if (this.logger) {
-        this.logger.logFilterApplied(this.currentSymbol, {
-          filterName: "CIRCUIT_BREAKER",
-          reason: "Trading bloqueado hoje - limite de perda diária atingido",
-          blocked: true,
-        });
-      }
       return this.createNoSignal("Trading bloqueado hoje (circuit breaker ativo)");
     }
     
@@ -1087,11 +1007,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         const sampleCandle = candles[Math.floor(candles.length / 2)];
         console.error(`[CRÍTICO] ${this.currentSymbol}: Candle de amostra (meio): O=${sampleCandle.open} H=${sampleCandle.high} L=${sampleCandle.low} C=${sampleCandle.close}`);
       }
-      
-      // LOG ESTRUTURADO: Nenhum swing point encontrado
-      if (this.logger) {
-        this.logger.logNoSwingPoints(this.currentSymbol, candles.length, tfLabel);
-      }
     } else {
       // ========== LOG SOLICITADO: Contagem de Swing Points ==========
       const totalSwingPoints = state.swingHighs.length + state.swingLows.length;
@@ -1105,16 +1020,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       if (state.swingLows.length > 0) {
         const lastLow = state.swingLows[state.swingLows.length - 1];
         console.log(`[SMC-SWINGS] ${this.currentSymbol}: Último Low: ${lastLow.price.toFixed(5)} @ index ${lastLow.index}`);
-      }
-      
-      // LOG ESTRUTURADO: Resumo de swing points
-      if (this.logger) {
-        this.logger.logSwingPointsSummary(
-          this.currentSymbol,
-          state.swingHighs.length,
-          state.swingLows.length,
-          tfLabel
-        );
       }
     }
   }
@@ -1185,17 +1090,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         console.log(`[SMC-${tf}] ${this.currentSymbol}: Excedeu: ${exceedPips.toFixed(1)} pips`);
         console.log(`[SMC-${tf}] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
         
-        // LOG ESTRUTURADO: Sweep detectado ao vivo
-        if (this.logger) {
-          this.logger.logSweepDetected(this.currentSymbol, {
-            type: "HIGH",
-            swingPrice: swingHigh.price,
-            currentPrice,
-            exceedPips,
-            detectionMethod: "REALTIME",
-          });
-        }
-        
         return true;
       }
       
@@ -1239,17 +1133,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
           console.log(`[SMC-${tf}] ${this.currentSymbol}: Pavio acima: ${highExceedsPips.toFixed(1)} pips | Close abaixo: ${closeDistPips.toFixed(1)} pips`);
           console.log(`[SMC-${tf}] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
           
-          // LOG ESTRUTURADO: Sweep detectado por candle fechado
-          if (this.logger) {
-            this.logger.logSweepDetected(this.currentSymbol, {
-              type: "HIGH",
-              swingPrice: swingHigh.price,
-              currentPrice: lastCandle.high,
-              exceedPips: highExceedsPips,
-              detectionMethod: "CANDLE_CLOSE",
-            });
-          }
-          
           return true;
         }
       }
@@ -1288,17 +1171,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         console.log(`[SMC-${tf}] ${this.currentSymbol}: Nivel: ${swingLow.price.toFixed(5)} | Preço Atual: ${currentPrice.toFixed(5)}`);
         console.log(`[SMC-${tf}] ${this.currentSymbol}: Excedeu: ${exceedPips.toFixed(1)} pips`);
         console.log(`[SMC-${tf}] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
-        
-        // LOG ESTRUTURADO: Sweep de fundo detectado ao vivo
-        if (this.logger) {
-          this.logger.logSweepDetected(this.currentSymbol, {
-            type: "LOW",
-            swingPrice: swingLow.price,
-            currentPrice,
-            exceedPips,
-            detectionMethod: "REALTIME",
-          });
-        }
         
         return true;
       }
@@ -1342,17 +1214,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
           console.log(`[SMC-${tf}] ${this.currentSymbol}: Nivel: ${swingLow.price.toFixed(5)}`);
           console.log(`[SMC-${tf}] ${this.currentSymbol}: Pavio abaixo: ${lowExceedsPips.toFixed(1)} pips | Close acima: ${closeDistPips.toFixed(1)} pips`);
           console.log(`[SMC-${tf}] ${this.currentSymbol}: Aguardando CHoCH em M15...`);
-          
-          // LOG ESTRUTURADO: Sweep de fundo detectado por candle fechado
-          if (this.logger) {
-            this.logger.logSweepDetected(this.currentSymbol, {
-              type: "LOW",
-              swingPrice: swingLow.price,
-              currentPrice: lastCandle.low,
-              exceedPips: lowExceedsPips,
-              detectionMethod: "CANDLE_CLOSE",
-            });
-          }
           
           return true;
         }
@@ -1446,65 +1307,18 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         console.log(`[SMC-M15] ${this.currentSymbol}: ✅ CHoCH BEARISH CONFIRMADO (${breakType})!`);
         console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${actualMovement.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
         console.log(`[SMC-M15] ${this.currentSymbol}: Fundo quebrado em ${swingLow.price.toFixed(5)}`);
-        
-        // LOG ESTRUTURADO: CHoCH BEARISH confirmado
-        if (this.logger) {
-          this.logger.logCHoCHDetected(this.currentSymbol, {
-            direction: "BEARISH",
-            swingPrice: swingLow.price,
-            closePrice: lastCandle.close,
-            movementPips: actualMovement,
-            minRequired: minPipsRequired,
-            breakType: breakType as "CLOSE" | "WICK",
-          });
-        }
-        
         if (state.activeOrderBlock) {
           console.log(`[SMC-M15] ${this.currentSymbol}: Order Block: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
-          
-          // LOG ESTRUTURADO: Order Block identificado
-          if (this.logger) {
-            this.logger.logOrderBlockIdentified(this.currentSymbol, {
-              high: state.activeOrderBlock.high,
-              low: state.activeOrderBlock.low,
-              direction: "BEARISH",
-              candleIndex: state.activeOrderBlock.index,
-            });
-          }
         } else {
           console.log(`[SMC-M15] ${this.currentSymbol}: ⚠️ Order Block não identificado`);
-          
-          // LOG ESTRUTURADO: Order Block não encontrado
-          if (this.logger) {
-            this.logger.logOrderBlockNotFound(this.currentSymbol, "BEARISH");
-          }
         }
       } else if (lastCandle.close >= swingLow.price && (!this.config.chochAcceptWickBreak || lastCandle.low >= swingLow.price)) {
         // Preço ainda acima do SwingLow - LOG DE REJEIÇÃO CLARO
         const wickInfo = this.config.chochAcceptWickBreak ? ` | Low: ${lastCandle.low.toFixed(5)}` : '';
         console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Preço (${lastCandle.close.toFixed(5)}${wickInfo}) ainda ACIMA do SwingLow (${swingLow.price.toFixed(5)}) - falta ${distanceToSwing.toFixed(1)} pips para quebrar`);
-        
-        // LOG ESTRUTURADO: CHoCH rejeitado
-        if (this.logger) {
-          this.logger.logCHoCHRejected(this.currentSymbol, `Preço ainda acima do SwingLow - falta ${distanceToSwing.toFixed(1)} pips`, {
-            direction: "BEARISH",
-            swingPrice: swingLow.price,
-            closePrice: lastCandle.close,
-            distancePips: distanceToSwing,
-          });
-        }
       } else if (movementPips < minPipsRequired && (!wickBreaksSwing || wickMovementPips < minPipsRequired)) {
         // Movimento insuficiente - LOG DE REJEICAO CLARO
         console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Movimento de ${movementPips.toFixed(1)} pips menor que mínimo de ${minPipsRequired} pips`);
-        
-        // LOG ESTRUTURADO: CHoCH rejeitado por movimento insuficiente
-        if (this.logger) {
-          this.logger.logCHoCHRejected(this.currentSymbol, `Movimento insuficiente: ${movementPips.toFixed(1)} pips < ${minPipsRequired} pips`, {
-            direction: "BEARISH",
-            movementPips,
-            minRequired: minPipsRequired,
-          });
-        }
       }
       
     } else if (state.lastSweepType === "LOW") {
@@ -1553,65 +1367,18 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         console.log(`[SMC-M15] ${this.currentSymbol}: ✅ CHoCH BULLISH CONFIRMADO (${breakType})!`);
         console.log(`[SMC-M15] ${this.currentSymbol}: Movimento: ${actualMovement.toFixed(1)} pips (minimo: ${minPipsRequired} pips)`);
         console.log(`[SMC-M15] ${this.currentSymbol}: Topo quebrado em ${swingHigh.price.toFixed(5)}`);
-        
-        // LOG ESTRUTURADO: CHoCH BULLISH confirmado
-        if (this.logger) {
-          this.logger.logCHoCHDetected(this.currentSymbol, {
-            direction: "BULLISH",
-            swingPrice: swingHigh.price,
-            closePrice: lastCandle.close,
-            movementPips: actualMovement,
-            minRequired: minPipsRequired,
-            breakType: breakType as "CLOSE" | "WICK",
-          });
-        }
-        
         if (state.activeOrderBlock) {
           console.log(`[SMC-M15] ${this.currentSymbol}: Order Block: ${state.activeOrderBlock.high.toFixed(5)} - ${state.activeOrderBlock.low.toFixed(5)}`);
-          
-          // LOG ESTRUTURADO: Order Block identificado
-          if (this.logger) {
-            this.logger.logOrderBlockIdentified(this.currentSymbol, {
-              high: state.activeOrderBlock.high,
-              low: state.activeOrderBlock.low,
-              direction: "BULLISH",
-              candleIndex: state.activeOrderBlock.index,
-            });
-          }
         } else {
           console.log(`[SMC-M15] ${this.currentSymbol}: ⚠️ Order Block não identificado`);
-          
-          // LOG ESTRUTURADO: Order Block não encontrado
-          if (this.logger) {
-            this.logger.logOrderBlockNotFound(this.currentSymbol, "BULLISH");
-          }
         }
       } else if (lastCandle.close <= swingHigh.price && (!this.config.chochAcceptWickBreak || lastCandle.high <= swingHigh.price)) {
         // Preço ainda abaixo do SwingHigh - LOG DE REJEIÇÃO CLARO
         const wickInfo = this.config.chochAcceptWickBreak ? ` | High: ${lastCandle.high.toFixed(5)}` : '';
         console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Preço (${lastCandle.close.toFixed(5)}${wickInfo}) ainda ABAIXO do SwingHigh (${swingHigh.price.toFixed(5)}) - falta ${distanceToSwing.toFixed(1)} pips para quebrar`);
-        
-        // LOG ESTRUTURADO: CHoCH rejeitado
-        if (this.logger) {
-          this.logger.logCHoCHRejected(this.currentSymbol, `Preço ainda abaixo do SwingHigh - falta ${distanceToSwing.toFixed(1)} pips`, {
-            direction: "BULLISH",
-            swingPrice: swingHigh.price,
-            closePrice: lastCandle.close,
-            distancePips: distanceToSwing,
-          });
-        }
       } else if (movementPips < minPipsRequired && (!wickBreaksSwing || wickMovementPips < minPipsRequired)) {
         // Movimento insuficiente - LOG DE REJEICAO CLARO
         console.log(`[SMC-CHoCH] ${this.currentSymbol}: ❌ REJEITADO | Motivo: Movimento de ${movementPips.toFixed(1)} pips menor que mínimo de ${minPipsRequired} pips`);
-        
-        // LOG ESTRUTURADO: CHoCH rejeitado por movimento insuficiente
-        if (this.logger) {
-          this.logger.logCHoCHRejected(this.currentSymbol, `Movimento insuficiente: ${movementPips.toFixed(1)} pips < ${minPipsRequired} pips`, {
-            direction: "BULLISH",
-            movementPips,
-            minRequired: minPipsRequired,
-          });
-        }
       }
     }
   }
@@ -1687,33 +1454,16 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     // Verificar se preço está na zona do OB
     const inOBZone = currentPrice >= ob.low && currentPrice <= ob.high;
     
-    // LOG ESTRUTURADO: Verificação de entrada na zona OB
-    if (this.logger) {
-      this.logger.logEntryConditionCheck(this.currentSymbol, inOBZone, currentPrice, ob.high, ob.low);
-    }
-    
     if (!inOBZone) {
       // Verificar se OB foi invalidado (preço passou completamente)
       if (state.entryDirection === "SELL" && currentPrice > ob.high + this.config.orderBlockExtensionPips * this.getPipValue()) {
         state.activeOrderBlock = null;
         state.chochDetected = false;
-        
-        // LOG ESTRUTURADO: Order Block invalidado
-        if (this.logger) {
-          this.logger.logOrderBlockInvalidated(this.currentSymbol, `Preço passou acima do OB (${currentPrice.toFixed(5)} > ${ob.high.toFixed(5)})`);
-        }
-        
         return this.createNoSignal("Order Block invalidado (preço passou)");
       }
       if (state.entryDirection === "BUY" && currentPrice < ob.low - this.config.orderBlockExtensionPips * this.getPipValue()) {
         state.activeOrderBlock = null;
         state.chochDetected = false;
-        
-        // LOG ESTRUTURADO: Order Block invalidado
-        if (this.logger) {
-          this.logger.logOrderBlockInvalidated(this.currentSymbol, `Preço passou abaixo do OB (${currentPrice.toFixed(5)} < ${ob.low.toFixed(5)})`);
-        }
-        
         return this.createNoSignal("Order Block invalidado (preço passou)");
       }
       
@@ -1808,26 +1558,12 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       console.log(`[SMC-ENTRY]   Wick%: ${wickPercent.toFixed(1)}% (mínimo: ${this.config.rejectionWickPercent}%)`);
       console.log(`[SMC-ENTRY]   Tipo de confirmação configurado: ${this.config.entryConfirmationType}`);
       
-      let reason = "";
       if (state.entryDirection === "SELL" && isBullishCandle) {
-        reason = "Candle BULLISH em zona de VENDA - aguardando candle BEARISH";
-        console.log(`[SMC-ENTRY]   Motivo: ${reason}`);
+        console.log(`[SMC-ENTRY]   Motivo: Candle BULLISH em zona de VENDA - aguardando candle BEARISH`);
       } else if (state.entryDirection === "BUY" && !isBullishCandle) {
-        reason = "Candle BEARISH em zona de COMPRA - aguardando candle BULLISH";
-        console.log(`[SMC-ENTRY]   Motivo: ${reason}`);
+        console.log(`[SMC-ENTRY]   Motivo: Candle BEARISH em zona de COMPRA - aguardando candle BULLISH`);
       } else {
-        reason = "Sem padrão de rejeição/engolfo válido";
-        console.log(`[SMC-ENTRY]   Motivo: ${reason}`);
-      }
-      
-      // LOG ESTRUTURADO: Entrada rejeitada
-      if (this.logger) {
-        this.logger.logEntryRejected(this.currentSymbol, state.entryDirection, reason, {
-          candleType,
-          wickPercent,
-          minWickPercent: this.config.rejectionWickPercent,
-          confirmationType: this.config.entryConfirmationType,
-        });
+        console.log(`[SMC-ENTRY]   Motivo: Sem padrão de rejeição/engolfo válido`);
       }
     }
     
@@ -1843,16 +1579,6 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         console.log(`[SMC-M5] Preço: ${currentPrice.toFixed(5)}`);
         console.log(`[SMC-M5] Order Block: ${ob.high.toFixed(5)} - ${ob.low.toFixed(5)}`);
         console.log("═══════════════════════════════════════════════════════════════");
-      }
-      
-      // LOG ESTRUTURADO: Entrada confirmada
-      if (this.logger) {
-        this.logger.logEntryConfirmed(this.currentSymbol, {
-          direction: signal as "BUY" | "SELL",
-          price: currentPrice,
-          confirmationType,
-          orderBlock: { high: ob.high, low: ob.low },
-        });
       }
       
       // Resetar estado para próxima operação

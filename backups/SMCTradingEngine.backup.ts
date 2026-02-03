@@ -843,13 +843,6 @@ export class SMCTradingEngine extends EventEmitter {
     this.strategy = strategyFactory.createStrategy(this.config.strategyType, smcConfig);
     
     console.log(`[SMCTradingEngine] Estratégia inicializada: ${this.config.strategyType}`);
-    
-    // LOGGING: Inicializar logger estruturado para SMC Strategy
-    if (this.strategy instanceof SMCStrategy) {
-      console.log(`[SMCTradingEngine] Inicializando logger estruturado para SMC Strategy...`);
-      this.strategy.initializeLogger(this.config.userId, this.config.botId);
-      console.log(`[SMCTradingEngine] ✅ Logger estruturado inicializado com sucesso`);
-    }
   }
   
   /**
