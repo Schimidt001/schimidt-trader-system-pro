@@ -1467,6 +1467,16 @@ export class SMCTradingEngine extends EventEmitter {
     
     if (this.strategy instanceof SMCStrategy) {
       const smcConfig = this.strategy.getConfig();
+      
+      // DEBUG: Verificar se smcConfig existe
+      if (this.analysisCount % 10 === 0) {
+        console.log(`[SMCTradingEngine] [DEBUG] ========== VERIFICANDO CONFIG ==========`);
+        console.log(`[SMCTradingEngine] [DEBUG] strategy instanceof SMCStrategy: ${this.strategy instanceof SMCStrategy}`);
+        console.log(`[SMCTradingEngine] [DEBUG] smcConfig existe: ${!!smcConfig}`);
+        console.log(`[SMCTradingEngine] [DEBUG] smcConfig: ${JSON.stringify(smcConfig)}`);
+        console.log(`[SMCTradingEngine] [DEBUG] ==========================================`);
+      }
+      
       if (smcConfig) {
         requiredH1 = (smcConfig.swingH1Lookback || 30) + 10;
         requiredM15 = (smcConfig.chochM15Lookback || 15) + 10;
@@ -1480,6 +1490,16 @@ export class SMCTradingEngine extends EventEmitter {
           console.log(`[SMCTradingEngine] [DEBUG] Requisitos calculados: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
           console.log(`[SMCTradingEngine] [DEBUG] =====================================`);
         }
+      } else {
+        // DEBUG: Config é null!
+        if (this.analysisCount % 10 === 0) {
+          console.log(`[SMCTradingEngine] [DEBUG] ❌ smcConfig é NULL! Usando fallback: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
+        }
+      }
+    } else {
+      // DEBUG: Strategy não é SMCStrategy
+      if (this.analysisCount % 10 === 0) {
+        console.log(`[SMCTradingEngine] [DEBUG] ❌ Strategy não é SMCStrategy! Tipo: ${this.strategy?.constructor.name}`);
       }
     }
     
@@ -1652,6 +1672,16 @@ export class SMCTradingEngine extends EventEmitter {
     
     if (this.strategy instanceof SMCStrategy) {
       const smcConfig = this.strategy.getConfig();
+      
+      // DEBUG: Verificar se smcConfig existe
+      if (this.analysisCount % 10 === 0) {
+        console.log(`[SMCTradingEngine] [DEBUG] ========== VERIFICANDO CONFIG ==========`);
+        console.log(`[SMCTradingEngine] [DEBUG] strategy instanceof SMCStrategy: ${this.strategy instanceof SMCStrategy}`);
+        console.log(`[SMCTradingEngine] [DEBUG] smcConfig existe: ${!!smcConfig}`);
+        console.log(`[SMCTradingEngine] [DEBUG] smcConfig: ${JSON.stringify(smcConfig)}`);
+        console.log(`[SMCTradingEngine] [DEBUG] ==========================================`);
+      }
+      
       if (smcConfig) {
         requiredH1 = (smcConfig.swingH1Lookback || 30) + 10;
         requiredM15 = (smcConfig.chochM15Lookback || 15) + 10;
@@ -1665,6 +1695,16 @@ export class SMCTradingEngine extends EventEmitter {
           console.log(`[SMCTradingEngine] [DEBUG] Requisitos calculados: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
           console.log(`[SMCTradingEngine] [DEBUG] =====================================`);
         }
+      } else {
+        // DEBUG: Config é null!
+        if (this.analysisCount % 10 === 0) {
+          console.log(`[SMCTradingEngine] [DEBUG] ❌ smcConfig é NULL! Usando fallback: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
+        }
+      }
+    } else {
+      // DEBUG: Strategy não é SMCStrategy
+      if (this.analysisCount % 10 === 0) {
+        console.log(`[SMCTradingEngine] [DEBUG] ❌ Strategy não é SMCStrategy! Tipo: ${this.strategy?.constructor.name}`);
       }
     }
     
