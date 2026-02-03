@@ -71,6 +71,9 @@ export class SMCInstitutionalManager {
   // Callback de log
   private logCallback: InstitutionalLogCallback | null = null;
   
+  // Logger estruturado (será injetado externamente)
+  private logger: any = null;
+  
   constructor(
     symbol: string,
     config: InstitutionalConfig,
@@ -110,6 +113,13 @@ export class SMCInstitutionalManager {
    */
   setLogCallback(callback: InstitutionalLogCallback): void {
     this.logCallback = callback;
+  }
+  
+  /**
+   * Injeta logger estruturado (SMCStrategyLogger)
+   */
+  setLogger(logger: any): void {
+    this.logger = logger;
   }
   
   /**
@@ -173,7 +183,12 @@ export class SMCInstitutionalManager {
     // CORREÇÃO P0.3: Verificar se houve mudança de sessão e resetar budget
     const currentSession = this.state.session.currentSession;
     if (previousSession !== currentSession && previousSession !== 'OFF_SESSION') {
-      console.log(`[SMC-INST] ${this.symbol}: Sessão mudou de ${previousSession} para ${currentSession} - resetando budget`);
+      // LOG ESTRUTURADO: Mudança de sessão
+      if (this.logger) {
+        this.logger.logSessionChange(this.symbol, previousSession, currentSession, now);
+      } else {
+        console.log(`[SMC-INST] ${this.symbol}: Sessão mudou de ${previousSession} para ${currentSession} - resetando budget`);
+      }
       this.onSessionChange();
     }
     
@@ -185,6 +200,16 @@ export class SMCInstitutionalManager {
     
     // 3. Verificar se contexto permite trading
     if (!this.contextEngine.canTrade(this.state.context)) {
+      // LOG ESTRUTURADO: Contexto bloqueou trading
+      if (this.logger) {
+        this.logger.logContextAnalysis(
+          this.symbol,
+          this.state.context.bias,
+          false,
+          this.contextEngine.getBlockReason(this.state.context)
+        );
+      }
+      
       // Contexto inválido - bloquear
       if (this.state.fsmState !== 'IDLE') {
         this.transitionTo('IDLE', 'Contexto inválido: ' + this.contextEngine.getBlockReason(this.state.context));
@@ -291,6 +316,18 @@ export class SMCInstitutionalManager {
         
         if (this.fvgEngine.hasValidFVG(this.state.fvg)) {
           const fvg = this.state.fvg.activeFVG!;
+          
+          // LOG ESTRUTURADO: FVG detectado
+          if (this.logger) {
+            this.logger.logFVGDetected(
+              this.symbol,
+              fvg.direction,
+              fvg.high,
+              fvg.low,
+              fvg.gapSizePips
+            );
+          }
+          
           this.transitionTo('WAIT_MITIGATION', `FVG ${fvg.direction} detectado: ${fvg.low.toFixed(5)}-${fvg.high.toFixed(5)} (${fvg.gapSizePips.toFixed(1)} pips)`);
         }
         return false;
@@ -300,7 +337,25 @@ export class SMCInstitutionalManager {
         this.state.fvg = this.fvgEngine.checkMitigation(this.state.fvg, lastM5Candle);
         
         if (this.fvgEngine.isFVGMitigated(this.state.fvg)) {
-          this.transitionTo('WAIT_ENTRY', `FVG mitigado em ${this.state.fvg.activeFVG?.mitigatedPrice?.toFixed(5)}`);
+          const fvg = this.state.fvg.activeFVG!;
+          
+          // LOG ESTRUTURADO: FVG mitigado
+          if (this.logger && fvg.mitigatedPrice) {
+            // Calcular penetração manualmente (propriedade não existe em FVGZone)
+            const fvgSize = Math.abs(fvg.high - fvg.low);
+            const penetration = Math.abs(fvg.mitigatedPrice - (fvg.direction === 'BULLISH' ? fvg.low : fvg.high));
+            const penetrationPercent = fvgSize > 0 ? (penetration / fvgSize) * 100 : 0;
+            
+            this.logger.logFVGMitigation(
+              this.symbol,
+              fvg.mitigatedPrice,
+              fvg.high,
+              fvg.low,
+              penetrationPercent
+            );
+          }
+          
+          this.transitionTo('WAIT_ENTRY', `FVG mitigado em ${fvg.mitigatedPrice?.toFixed(5)}`);
         }
         
         // Verificar se FVG foi invalidado
@@ -336,6 +391,16 @@ export class SMCInstitutionalManager {
     const timeout = getStateTimeout(this.state.fsmState, this.config);
     
     if (timeout > 0 && elapsedMinutes > timeout) {
+      // LOG ESTRUTURADO: Timeout institucional
+      if (this.logger) {
+        this.logger.logInstitutionalTimeout(
+          this.symbol,
+          this.state.fsmState,
+          elapsedMinutes,
+          timeout
+        );
+      }
+      
       this.logDecisionFinal('EXPIRE', null, {
         expiredState: this.state.fsmState,
         elapsedMinutes,
@@ -417,7 +482,20 @@ export class SMCInstitutionalManager {
    * Verifica se pode executar mais trades nesta sessão
    */
   canTradeInSession(): boolean {
-    return this.state.tradesThisSession < this.config.maxTradesPerSession;
+    const canTrade = this.state.tradesThisSession < this.config.maxTradesPerSession;
+    
+    // LOG ESTRUTURADO: Status do budget
+    if (this.logger && !canTrade) {
+      this.logger.logBudgetStatus(
+        this.symbol,
+        this.state.session.currentSession,
+        this.state.tradesThisSession,
+        this.config.maxTradesPerSession,
+        true
+      );
+    }
+    
+    return canTrade;
   }
   
   /**
@@ -476,8 +554,13 @@ export class SMCInstitutionalManager {
       reason,
     };
     
-    // Log no console (estruturado)
-    console.log(`[SMC-INST] ${this.symbol}: ${fromState} → ${toState} | ${reason}`);
+    // LOG ESTRUTURADO: Usar logger se disponível
+    if (this.logger) {
+      this.logger.logFSMTransition(this.symbol, fromState, toState, reason);
+    } else {
+      // Fallback para console
+      console.log(`[SMC-INST] ${this.symbol}: ${fromState} → ${toState} | ${reason}`);
+    }
     
     // Callback
     if (this.logCallback) {
@@ -502,8 +585,13 @@ export class SMCInstitutionalManager {
       metadata,
     };
     
-    // Log no console (estruturado)
-    console.log(`[SMC-INST] ${this.symbol}: DECISION_FINAL | ${decision} | ${direction || 'N/A'}`);
+    // LOG ESTRUTURADO: Usar logger se disponível
+    if (this.logger) {
+      this.logger.logInstitutionalDecision(this.symbol, decision, direction, metadata || {});
+    } else {
+      // Fallback para console
+      console.log(`[SMC-INST] ${this.symbol}: DECISION_FINAL | ${decision} | ${direction || 'N/A'}`);
+    }
     
     // Callback
     if (this.logCallback) {

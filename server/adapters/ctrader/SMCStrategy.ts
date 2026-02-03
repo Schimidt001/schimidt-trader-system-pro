@@ -511,6 +511,16 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     // Obter estado do simbolo atual
     const state = this.getOrCreateSwarmState(this.currentSymbol);
     
+    // LOG ESTRUTURADO: Início da análise
+    if (this.logger && this.config.verboseLogging) {
+      this.logger.logPipelineStatus(this.currentSymbol, "INICIO_ANALISE", "PROCESSING", {
+        h1Candles: this.h1Data.length,
+        m15Candles: this.m15Data.length,
+        m5Candles: this.m5Data.length,
+        currentPrice: mtfData?.currentBid || this.getLastPrice(),
+      });
+    }
+    
     // ========== PIPELINE SMC ==========
     
     // ETAPA 1: Identificar Swing Points (H1)
@@ -519,13 +529,56 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     // ETAPA 2: Detectar Sweep
     const sweepResult = this.detectSweep(state, mtfData?.currentBid || this.getLastPrice());
     
+    // LOG ESTRUTURADO: Status do Sweep
+    if (this.logger && this.config.verboseLogging) {
+      this.logger.logPipelineStatus(
+        this.currentSymbol,
+        "SWEEP_CHECK",
+        state.sweepConfirmed ? "PASS" : "PENDING",
+        {
+          sweepConfirmed: state.sweepConfirmed,
+          lastSweepType: state.lastSweepType,
+          lastSweepPrice: state.lastSweepPrice,
+        }
+      );
+    }
+    
     // ETAPA 3: Detectar CHoCH (apenas se sweep confirmado)
     if (state.sweepConfirmed) {
       this.detectCHoCH(state);
+      
+      // LOG ESTRUTURADO: Status do CHoCH
+      if (this.logger && this.config.verboseLogging) {
+        this.logger.logPipelineStatus(
+          this.currentSymbol,
+          "CHOCH_CHECK",
+          state.chochDetected ? "PASS" : "PENDING",
+          {
+            chochDetected: state.chochDetected,
+            chochDirection: state.chochDirection,
+            chochPrice: state.chochPrice,
+          }
+        );
+      }
     }
     
     // ETAPA 4: Identificar Order Block e verificar entrada
     if (state.chochDetected && state.activeOrderBlock) {
+      // LOG ESTRUTURADO: Order Block ativo
+      if (this.logger && this.config.verboseLogging) {
+        this.logger.logPipelineStatus(
+          this.currentSymbol,
+          "ORDER_BLOCK",
+          "PASS",
+          {
+            obType: state.activeOrderBlock.type,
+            obHigh: state.activeOrderBlock.high,
+            obLow: state.activeOrderBlock.low,
+            entryDirection: state.entryDirection,
+          }
+        );
+      }
+      
       // Verificar spread novamente antes de entrada
       if (this.config.spreadFilterEnabled && mtfData?.currentSpreadPips !== undefined) {
         if (mtfData.currentSpreadPips > this.config.maxSpreadPips) {
@@ -541,6 +594,18 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       
       // CORREÇÃO P0.5: Verificar === true para garantir OPT-IN explícito
       if (instManager && this.config.institutionalModeEnabled === true) {
+        // LOG ESTRUTURADO: Verificação institucional iniciada
+        if (this.logger && this.config.verboseLogging) {
+          this.logger.logPipelineStatus(
+            this.currentSymbol,
+            "INSTITUTIONAL_CHECK",
+            "PROCESSING",
+            {
+              fsmState: instManager.getFSMState(),
+              institutionalModeEnabled: true,
+            }
+          );
+        }
         // Processar candles e atualizar FSM
         const institutionalReady = instManager.processCandles(
           this.m15Data,
@@ -562,6 +627,21 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         if (!institutionalReady) {
           const fsmState = instManager.getFSMState();
           const reason = `Institucional: FSM em ${fsmState} - aguardando condições`;
+          
+          // LOG ESTRUTURADO: Institucional bloqueou entrada
+          if (this.logger) {
+            this.logger.logPipelineStatus(
+              this.currentSymbol,
+              "INSTITUTIONAL_CHECK",
+              "BLOCK",
+              {
+                fsmState,
+                reason,
+                debugInfo: instManager.getDebugInfo(),
+              }
+            );
+          }
+          
           if (this.config.verboseLogging) {
             console.log(`[SMC-INST] ${this.currentSymbol}: ${reason}`);
             console.log(`[SMC-INST] ${this.currentSymbol}: ${instManager.getDebugInfo()}`);
@@ -578,6 +658,19 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
           return this.createNoSignal(reason);
         }
         
+        // LOG ESTRUTURADO: Institucional permite entrada
+        if (this.logger) {
+          this.logger.logPipelineStatus(
+            this.currentSymbol,
+            "INSTITUTIONAL_CHECK",
+            "PASS",
+            {
+              fsmState: instManager.getFSMState(),
+              message: "FSM em WAIT_ENTRY - permitindo análise M5",
+            }
+          );
+        }
+        
         if (this.config.verboseLogging) {
           console.log(`[SMC-INST] ${this.currentSymbol}: ✅ FSM em WAIT_ENTRY - permitindo análise M5`);
         }
@@ -586,6 +679,16 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       const entrySignal = this.checkEntryConditions(state, currentPrice);
       
       if (entrySignal.signal !== "NONE") {
+        // LOG ESTRUTURADO: Sinal de entrada gerado
+        if (this.logger) {
+          this.logger.logSignalGenerated(
+            this.currentSymbol,
+            entrySignal.signal,
+            entrySignal.confidence,
+            entrySignal.reason
+          );
+        }
+        
         // INSTITUCIONAL: Notificar trade executado
         // CORREÇÃO P0.5: Verificar === true para garantir OPT-IN explícito
         if (instManager && this.config.institutionalModeEnabled === true) {
@@ -600,6 +703,11 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     
     // Construir razão detalhada do estado atual
     const reason = this.buildStateReason(state);
+    
+    // LOG ESTRUTURADO: Nenhum sinal gerado
+    if (this.logger && this.config.verboseLogging) {
+      this.logger.logNoSignal(this.currentSymbol, reason);
+    }
     
     return this.createNoSignal(reason);
   }
@@ -1903,6 +2011,10 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       const manager = createInstitutionalManager(symbol, instConfig, this.config);
       if (this.institutionalLogCallback) {
         manager.setLogCallback(this.institutionalLogCallback);
+      }
+      // Injetar logger estruturado no manager institucional
+      if (this.logger) {
+        manager.setLogger(this.logger);
       }
       this.institutionalManagers.set(symbol, manager);
     }

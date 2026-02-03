@@ -761,6 +761,216 @@ export class SMCStrategyLogger {
       forceLog: true,
     });
   }
+  
+  // ============= LOGS INSTITUCIONAIS =============
+  
+  /**
+   * Log de transição de estado FSM
+   */
+  async logFSMTransition(
+    symbol: string,
+    fromState: string,
+    toState: string,
+    reason: string
+  ): Promise<void> {
+    const message = `🔄 FSM TRANSITION | ${symbol} | ${fromState} → ${toState} | ${reason}`;
+    console.log(`[SMC-INST] ${message}`);
+    
+    await this.log("INFO", "ANALYSIS", message, {
+      symbol,
+      data: {
+        category: "INSTITUTIONAL_FSM",
+        fromState,
+        toState,
+        reason,
+      },
+      forceLog: true,
+    });
+  }
+  
+  /**
+   * Log de FVG (Fair Value Gap) detectado
+   */
+  async logFVGDetected(
+    symbol: string,
+    direction: "BULLISH" | "BEARISH",
+    high: number,
+    low: number,
+    gapSizePips: number
+  ): Promise<void> {
+    const emoji = direction === "BULLISH" ? "🟩" : "🟥";
+    const message = `${emoji} FVG ${direction} DETECTADO | ${symbol} | Range: ${high.toFixed(5)} - ${low.toFixed(5)} | Gap: ${gapSizePips.toFixed(1)} pips`;
+    console.log(`[SMC-INST] ${message}`);
+    
+    await this.log("INFO", "ANALYSIS", message, {
+      symbol,
+      signal: direction === "BULLISH" ? "BUY" : "SELL",
+      data: {
+        category: "INSTITUTIONAL_FVG",
+        direction,
+        high,
+        low,
+        gapSizePips,
+      },
+      forceLog: true,
+    });
+  }
+  
+  /**
+   * Log de mitigação de FVG
+   */
+  async logFVGMitigation(
+    symbol: string,
+    price: number,
+    fvgHigh: number,
+    fvgLow: number,
+    penetrationPercent: number
+  ): Promise<void> {
+    const message = `✅ FVG MITIGADO | ${symbol} | Preço: ${price.toFixed(5)} | FVG: ${fvgHigh.toFixed(5)} - ${fvgLow.toFixed(5)} | Penetração: ${penetrationPercent.toFixed(1)}%`;
+    console.log(`[SMC-INST] ${message}`);
+    
+    await this.log("INFO", "ANALYSIS", message, {
+      symbol,
+      data: {
+        category: "INSTITUTIONAL_FVG",
+        action: "MITIGATED",
+        price,
+        fvgHigh,
+        fvgLow,
+        penetrationPercent,
+      },
+      forceLog: true,
+    });
+  }
+  
+  /**
+   * Log de mudança de sessão
+   */
+  async logSessionChange(
+    symbol: string,
+    fromSession: string,
+    toSession: string,
+    timestamp: number
+  ): Promise<void> {
+    const message = `🌍 SESSÃO MUDOU | ${symbol} | ${fromSession} → ${toSession} | ${new Date(timestamp).toISOString()}`;
+    console.log(`[SMC-INST] ${message}`);
+    
+    await this.log("INFO", "SYSTEM", message, {
+      symbol,
+      data: {
+        category: "INSTITUTIONAL_SESSION",
+        fromSession,
+        toSession,
+        timestamp,
+      },
+      forceLog: true,
+    });
+  }
+  
+  /**
+   * Log de timeout institucional
+   */
+  async logInstitutionalTimeout(
+    symbol: string,
+    state: string,
+    elapsedMinutes: number,
+    timeoutMinutes: number
+  ): Promise<void> {
+    const message = `⏰ TIMEOUT INSTITUCIONAL | ${symbol} | Estado: ${state} | Decorrido: ${elapsedMinutes}min / ${timeoutMinutes}min`;
+    console.log(`[SMC-INST] ${message}`);
+    
+    await this.log("WARN", "ANALYSIS", message, {
+      symbol,
+      data: {
+        category: "INSTITUTIONAL_FSM",
+        action: "TIMEOUT",
+        state,
+        elapsedMinutes,
+        timeoutMinutes,
+      },
+      forceLog: true,
+    });
+  }
+  
+  /**
+   * Log de status do budget de trades
+   */
+  async logBudgetStatus(
+    symbol: string,
+    session: string,
+    tradesUsed: number,
+    tradesMax: number,
+    blocked: boolean
+  ): Promise<void> {
+    const emoji = blocked ? "🚫" : "✅";
+    const status = blocked ? "ESGOTADO" : "DISPONÍVEL";
+    const message = `${emoji} BUDGET ${status} | ${symbol} | Sessão: ${session} | Trades: ${tradesUsed}/${tradesMax}`;
+    console.log(`[SMC-INST] ${message}`);
+    
+    await this.log(blocked ? "WARN" : "INFO", "ANALYSIS", message, {
+      symbol,
+      data: {
+        category: "INSTITUTIONAL_BUDGET",
+        session,
+        tradesUsed,
+        tradesMax,
+        blocked,
+      },
+      forceLog: blocked,
+    });
+  }
+  
+  /**
+   * Log de decisão institucional final
+   */
+  async logInstitutionalDecision(
+    symbol: string,
+    decision: "ALLOW" | "BLOCK" | "EXPIRE" | "TRADE",
+    direction: "BUY" | "SELL" | null,
+    details: Record<string, unknown>
+  ): Promise<void> {
+    const emoji = decision === "ALLOW" ? "✅" : decision === "BLOCK" ? "🚫" : decision === "EXPIRE" ? "⏰" : "💹";
+    const message = `${emoji} DECISÃO INSTITUCIONAL | ${symbol} | ${decision} | Direção: ${direction || "N/A"}`;
+    console.log(`[SMC-INST] ${message}`);
+    
+    await this.log("INFO", "ANALYSIS", message, {
+      symbol,
+      signal: direction || "NONE",
+      data: {
+        category: "INSTITUTIONAL_DECISION",
+        decision,
+        direction,
+        ...details,
+      },
+      forceLog: true,
+    });
+  }
+  
+  /**
+   * Log de análise de contexto institucional
+   */
+  async logContextAnalysis(
+    symbol: string,
+    bias: "BULLISH" | "BEARISH" | "NEUTRAL",
+    canTrade: boolean,
+    reason: string
+  ): Promise<void> {
+    const emoji = bias === "BULLISH" ? "🟢" : bias === "BEARISH" ? "🔴" : "⚪";
+    const status = canTrade ? "✅ PERMITIDO" : "🚫 BLOQUEADO";
+    const message = `${emoji} CONTEXTO ${bias} | ${symbol} | ${status} | ${reason}`;
+    console.log(`[SMC-INST] ${message}`);
+    
+    await this.log(canTrade ? "INFO" : "WARN", "ANALYSIS", message, {
+      symbol,
+      data: {
+        category: "INSTITUTIONAL_CONTEXT",
+        bias,
+        canTrade,
+        reason,
+      },
+      forceLog: !canTrade,
+    });
+  }
 }
 
 /**
