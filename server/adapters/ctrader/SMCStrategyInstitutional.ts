@@ -16,6 +16,7 @@
 
 import { TrendbarData } from "./CTraderClient";
 import { SwingPoint, OrderBlock, SymbolSwarmState, SMCStrategyConfig } from "./SMCStrategy";
+import { getLastClosedCandle, getLastNClosedCandles, isCandleClosed } from "../../../shared/candleUtils";
 import {
   InstitutionalFSMState,
   InstitutionalState,
@@ -196,6 +197,9 @@ export class SMCInstitutionalManager {
   
   /**
    * Processa a FSM (Máquina de Estados Finitos)
+   * 
+   * CORREÇÃO P0.1 - LOOK-AHEAD: Agora usa getLastClosedCandle para garantir
+   * que apenas candles FECHADOS são usados para tomada de decisão.
    */
   private processFSM(
     m15Candles: TrendbarData[],
@@ -203,8 +207,25 @@ export class SMCInstitutionalManager {
     swarmState: SymbolSwarmState,
     currentPrice: number
   ): boolean {
-    const lastM15Candle = m15Candles[m15Candles.length - 1];
-    const lastM5Candle = m5Candles[m5Candles.length - 1];
+    const now = Date.now();
+    
+    // CORREÇÃO P0.1: Usar getLastClosedCandle para garantir ZERO LOOK-AHEAD
+    const m15Result = getLastClosedCandle(m15Candles, 15, now);
+    const m5Result = getLastClosedCandle(m5Candles, 5, now);
+    
+    // Se não temos candles fechados, não podemos processar
+    if (!m15Result.isConfirmed || !m15Result.candle) {
+      console.log(`[SMC-INST] ${this.symbol}: Aguardando candle M15 fechado (look-ahead prevention)`);
+      return false;
+    }
+    
+    if (!m5Result.isConfirmed || !m5Result.candle) {
+      console.log(`[SMC-INST] ${this.symbol}: Aguardando candle M5 fechado (look-ahead prevention)`);
+      return false;
+    }
+    
+    const lastM15Candle = m15Result.candle;
+    const lastM5Candle = m5Result.candle;
     
     switch (this.state.fsmState) {
       case 'IDLE':

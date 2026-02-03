@@ -18,6 +18,7 @@ import {
   SessionEngineState,
   SessionTimeConfig,
 } from "../SMCInstitutionalTypes";
+import { getLastClosedCandle, isCandleClosed } from "../../../../shared/candleUtils";
 
 /**
  * Configuração padrão de sessões (UTC em minutos)
@@ -93,12 +94,24 @@ export class SessionEngine {
    * @param candles Array de candles M15
    * @returns Estado atualizado
    */
-  processM15Candles(state: SessionEngineState, candles: TrendbarData[]): SessionEngineState {
+  /**
+   * CORREÇÃO P0.1 - LOOK-AHEAD: Agora usa getLastClosedCandle para garantir
+   * que apenas candles FECHADOS são usados para atualização de sessão.
+   */
+  processM15Candles(state: SessionEngineState, candles: TrendbarData[], nowUtcMs: number = Date.now()): SessionEngineState {
     if (candles.length === 0) {
       return state;
     }
     
-    const lastCandle = candles[candles.length - 1];
+    // CORREÇÃO P0.1: Usar getLastClosedCandle para garantir ZERO LOOK-AHEAD
+    const closedCandleResult = getLastClosedCandle(candles, 15, nowUtcMs);
+    
+    if (!closedCandleResult.isConfirmed || !closedCandleResult.candle) {
+      // Nenhum candle M15 fechado disponível
+      return state;
+    }
+    
+    const lastCandle = closedCandleResult.candle;
     const lastCandleTime = lastCandle.timestamp;
     
     // Verificar se é um novo candle (evitar reprocessamento)
@@ -106,7 +119,7 @@ export class SessionEngine {
       return state;
     }
     
-    const now = Date.now();
+    const now = nowUtcMs;
     const currentSession = this.getCurrentSession(lastCandleTime);
     
     // Criar novo estado
