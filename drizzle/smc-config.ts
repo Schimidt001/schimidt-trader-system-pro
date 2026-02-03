@@ -5,7 +5,7 @@
  * Todos os parâmetros são editáveis via UI - ZERO HARDCODING.
  * 
  * @author Schimidt Trader Pro
- * @version 1.0.0
+ * @version 2.0.0 - Atualizado com campos institucionais (2026-02-02)
  */
 
 import { int, mysqlTable, text, timestamp, varchar, boolean, decimal, json } from "drizzle-orm/mysql-core";
@@ -50,7 +50,7 @@ export const smcStrategyConfig = mysqlTable("smcStrategyConfig", {
   /** Buffer em pips acima/abaixo do swing para considerar sweep */
   // CORREÇÃO: 0.5 conforme UI (mais sensível)
   sweepBufferPips: decimal("sweepBufferPips", { precision: 5, scale: 1 }).default("0.5").notNull(),
-  /** Tempo máximo em minutos para validar sweep após violação */
+  /** Tempo máximo em minutos para validar sweep após violação (também usado como timeout CHoCH) */
   // CORREÇÃO: 90 conforme UI
   sweepValidationMinutes: int("sweepValidationMinutes").default(90).notNull(),
   
@@ -69,6 +69,10 @@ export const smcStrategyConfig = mysqlTable("smcStrategyConfig", {
   /** Extensão máxima da zona do OB em pips */
   // CORREÇÃO: 3.0 conforme UI
   orderBlockExtensionPips: decimal("orderBlockExtensionPips", { precision: 5, scale: 1 }).default("3.0").notNull(),
+  
+  // ============= PARÂMETROS DE FVG (Fair Value Gap) - INSTITUCIONAL =============
+  /** Tamanho mínimo do FVG em pips para ser considerado válido */
+  minGapPips: decimal("minGapPips", { precision: 5, scale: 1 }).default("2.0").notNull(),
   
   // ============= PARÂMETROS DE ENTRADA (M5) =============
   /** Tipo de confirmação de entrada: ENGULF, REJECTION, ANY */
@@ -100,7 +104,7 @@ export const smcStrategyConfig = mysqlTable("smcStrategyConfig", {
   // CORREÇÃO: 3.0 conforme UI
   rewardRiskRatio: decimal("rewardRiskRatio", { precision: 4, scale: 1 }).default("3.0").notNull(),
   
-  // ============= HORÁRIOS DE OPERAÇÃO =============
+  // ============= HORÁRIOS DE OPERAÇÃO (LEGACY - Brasília) =============
   /** Habilitar filtro de horário */
   sessionFilterEnabled: boolean("sessionFilterEnabled").default(true).notNull(),
   /** Horário de início da sessão de Londres (formato HH:MM, horário de Brasília) */
@@ -115,6 +119,38 @@ export const smcStrategyConfig = mysqlTable("smcStrategyConfig", {
   /** Horário de fim da sessão de NY */
   // CORREÇÃO: 17:00 conforme UI
   nySessionEnd: varchar("nySessionEnd", { length: 5 }).default("17:00").notNull(),
+  
+  // ============= SESSÕES INSTITUCIONAIS (UTC em minutos) =============
+  /** Início da sessão ASIA em minutos UTC (23:00 = 1380) - suporta wrap */
+  asiaSessionStartUtc: int("asiaSessionStartUtc").default(1380).notNull(),
+  /** Fim da sessão ASIA em minutos UTC (07:00 = 420) */
+  asiaSessionEndUtc: int("asiaSessionEndUtc").default(420).notNull(),
+  /** Início da sessão LONDON em minutos UTC (07:00 = 420) */
+  londonSessionStartUtc: int("londonSessionStartUtc").default(420).notNull(),
+  /** Fim da sessão LONDON em minutos UTC (12:00 = 720) */
+  londonSessionEndUtc: int("londonSessionEndUtc").default(720).notNull(),
+  /** Início da sessão NY em minutos UTC (12:00 = 720) */
+  nySessionStartUtc: int("nySessionStartUtc").default(720).notNull(),
+  /** Fim da sessão NY em minutos UTC (21:00 = 1260) */
+  nySessionEndUtc: int("nySessionEndUtc").default(1260).notNull(),
+  
+  // ============= TIMEOUTS FSM INSTITUCIONAL =============
+  /** Timeout para aguardar formação do FVG após CHoCH (minutos) */
+  instWaitFvgMinutes: int("instWaitFvgMinutes").default(90).notNull(),
+  /** Timeout para aguardar mitigação do FVG (minutos) */
+  instWaitMitigationMinutes: int("instWaitMitigationMinutes").default(60).notNull(),
+  /** Timeout para aguardar gatilho de entrada após mitigação (minutos) */
+  instWaitEntryMinutes: int("instWaitEntryMinutes").default(30).notNull(),
+  /** Tempo de cooldown após trade executado (minutos) */
+  instCooldownMinutes: int("instCooldownMinutes").default(20).notNull(),
+  
+  // ============= BUDGET POR SESSÃO =============
+  /** Máximo de trades por sessão por símbolo (0-2) */
+  maxTradesPerSession: int("maxTradesPerSession").default(2).notNull(),
+  
+  // ============= MODO INSTITUCIONAL =============
+  /** Habilitar modo institucional (FSM, FVG, Context, Sessions) */
+  institutionalModeEnabled: boolean("institutionalModeEnabled").default(true).notNull(),
   
   // ============= TRAILING STOP =============
   /** Habilitar trailing stop */

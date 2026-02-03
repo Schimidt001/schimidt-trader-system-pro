@@ -700,20 +700,55 @@ export class HybridTradingEngine extends EventEmitter {
           console.log(`[HybridEngine] ℹ️ activeSymbols SMC não encontrado no banco, usando default: ${smcActiveSymbols.join(', ')}`);
         }
         
-        const strategyConfig: SMCStrategyConfig = {
-          lookbackPeriod: smcConfig?.lookbackPeriod ?? 50,
-          swingStrength: smcConfig?.swingStrength ?? 3,
-          orderBlockMinSize: smcConfig?.orderBlockMinSize ? Number(smcConfig.orderBlockMinSize) : 0.0005,
-          fvgMinSize: smcConfig?.fvgMinSize ? Number(smcConfig.fvgMinSize) : 0.0003,
-          stopLossPips: smcConfig?.stopLossPips ?? 20,
-          takeProfitPips: smcConfig?.takeProfitPips ?? 40,
-          riskRewardRatio: smcConfig?.riskRewardRatio ? Number(smcConfig.riskRewardRatio) : 2.0,
-          useTrailingStop: smcConfig?.useTrailingStop ?? false,
-          trailingStopPips: smcConfig?.trailingStopPips ?? 10,
-          activeSymbols: smcActiveSymbols, // CORREÇÃO: Passar activeSymbols para a estratégia
+        // CORREÇÃO: Usar campos corretos do SMCStrategyConfig
+        const strategyConfig: Partial<SMCStrategyConfig> = {
+          activeSymbols: smcActiveSymbols,
+          structureTimeframe: smcConfig?.structureTimeframe as 'H1' | 'M15' | 'M5' ?? 'M15',
+          swingH1Lookback: smcConfig?.swingH1Lookback ?? 30,
+          fractalLeftBars: smcConfig?.fractalLeftBars ?? 1,
+          fractalRightBars: smcConfig?.fractalRightBars ?? 1,
+          sweepBufferPips: smcConfig?.sweepBufferPips ? Number(smcConfig.sweepBufferPips) : 0.5,
+          sweepValidationMinutes: smcConfig?.sweepValidationMinutes ?? 90,
+          chochM15Lookback: smcConfig?.chochM15Lookback ?? 15,
+          chochMinPips: smcConfig?.chochMinPips ? Number(smcConfig.chochMinPips) : 2.0,
+          orderBlockLookback: smcConfig?.orderBlockLookback ?? 15,
+          orderBlockExtensionPips: smcConfig?.orderBlockExtensionPips ? Number(smcConfig.orderBlockExtensionPips) : 3.0,
+          entryConfirmationType: smcConfig?.entryConfirmationType as 'ENGULF' | 'REJECTION' | 'ANY' ?? 'ANY',
+          rejectionWickPercent: smcConfig?.rejectionWickPercent ? Number(smcConfig.rejectionWickPercent) : 20.0,
+          riskPercentage: smcConfig?.riskPercentage ? Number(smcConfig.riskPercentage) : 2.0,
+          maxOpenTrades: smcConfig?.maxOpenTrades ?? 2,
+          dailyLossLimitPercent: smcConfig?.dailyLossLimitPercent ? Number(smcConfig.dailyLossLimitPercent) : 10.0,
+          stopLossBufferPips: smcConfig?.stopLossBufferPips ? Number(smcConfig.stopLossBufferPips) : 2.0,
+          rewardRiskRatio: smcConfig?.rewardRiskRatio ? Number(smcConfig.rewardRiskRatio) : 3.0,
+          spreadFilterEnabled: smcConfig?.spreadFilterEnabled ?? true,
+          maxSpreadPips: smcConfig?.maxSpreadPips ? Number(smcConfig.maxSpreadPips) : 3.0,
+          sessionFilterEnabled: smcConfig?.sessionFilterEnabled ?? true,
+          londonSessionStart: smcConfig?.londonSessionStart ?? '05:00',
+          londonSessionEnd: smcConfig?.londonSessionEnd ?? '12:00',
+          nySessionStart: smcConfig?.nySessionStart ?? '09:00',
+          nySessionEnd: smcConfig?.nySessionEnd ?? '17:00',
+          trailingEnabled: smcConfig?.trailingEnabled ?? true,
+          trailingTriggerPips: smcConfig?.trailingTriggerPips ? Number(smcConfig.trailingTriggerPips) : 10.0,
+          trailingStepPips: smcConfig?.trailingStepPips ? Number(smcConfig.trailingStepPips) : 2.0,
+          circuitBreakerEnabled: smcConfig?.circuitBreakerEnabled ?? true,
+          verboseLogging: smcConfig?.verboseLogging ?? true,
+          // Campos institucionais
+          institutionalModeEnabled: smcConfig?.institutionalModeEnabled ?? true,
+          minGapPips: smcConfig?.minGapPips ? Number(smcConfig.minGapPips) : 2.0,
+          asiaSessionStartUtc: smcConfig?.asiaSessionStartUtc ?? 1380,
+          asiaSessionEndUtc: smcConfig?.asiaSessionEndUtc ?? 420,
+          londonSessionStartUtc: smcConfig?.londonSessionStartUtc ?? 420,
+          londonSessionEndUtc: smcConfig?.londonSessionEndUtc ?? 720,
+          nySessionStartUtc: smcConfig?.nySessionStartUtc ?? 720,
+          nySessionEndUtc: smcConfig?.nySessionEndUtc ?? 1260,
+          instWaitFvgMinutes: smcConfig?.instWaitFvgMinutes ?? 90,
+          instWaitMitigationMinutes: smcConfig?.instWaitMitigationMinutes ?? 60,
+          instWaitEntryMinutes: smcConfig?.instWaitEntryMinutes ?? 30,
+          instCooldownMinutes: smcConfig?.instCooldownMinutes ?? 20,
+          maxTradesPerSession: smcConfig?.maxTradesPerSession ?? 2,
         };
         
-        this.smcStrategy = strategyFactory.createStrategy(StrategyType.SMC, strategyConfig);
+        this.smcStrategy = strategyFactory.createStrategy(StrategyType.SMC_SWARM, strategyConfig);
         console.log(`[HybridEngine] ✅ Estratégia SMC inicializada | Símbolos ativos: ${smcActiveSymbols.join(', ')}`);
       } catch (error) {
         console.error("[HybridEngine] Erro ao inicializar SMC:", error);

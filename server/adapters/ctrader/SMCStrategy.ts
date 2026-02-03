@@ -29,6 +29,15 @@ import {
 // REFATORAÇÃO: Importar módulo centralizado de normalização de pips
 import { getPipValue as getCentralizedPipValue, priceToPips as centralizedPriceToPips } from "../../../shared/normalizationUtils";
 
+// INSTITUCIONAL: Importar módulo de integração institucional
+import {
+  SMCInstitutionalManager,
+  createInstitutionalManager,
+  extractInstitutionalConfig,
+  InstitutionalLogCallback,
+} from "./SMCStrategyInstitutional";
+import { InstitutionalConfig, InstitutionalFSMState } from "./SMCInstitutionalTypes";
+
 // ============= TIPOS E INTERFACES =============
 
 /**
@@ -93,6 +102,42 @@ export interface SMCStrategyConfig extends BaseStrategyConfig {
   
   // Logging
   verboseLogging: boolean;
+  
+  // ============= MODO INSTITUCIONAL =============
+  /** Habilitar modo institucional (FSM, FVG, Context, Sessions) */
+  institutionalModeEnabled?: boolean;
+  
+  // FVG (Fair Value Gap)
+  /** Tamanho mínimo do FVG em pips */
+  minGapPips?: number;
+  
+  // Sessões Institucionais (UTC em minutos)
+  /** Início da sessão ASIA em minutos UTC (23:00 = 1380) */
+  asiaSessionStartUtc?: number;
+  /** Fim da sessão ASIA em minutos UTC (07:00 = 420) */
+  asiaSessionEndUtc?: number;
+  /** Início da sessão LONDON em minutos UTC (07:00 = 420) */
+  londonSessionStartUtc?: number;
+  /** Fim da sessão LONDON em minutos UTC (12:00 = 720) */
+  londonSessionEndUtc?: number;
+  /** Início da sessão NY em minutos UTC (12:00 = 720) */
+  nySessionStartUtc?: number;
+  /** Fim da sessão NY em minutos UTC (21:00 = 1260) */
+  nySessionEndUtc?: number;
+  
+  // Timeouts FSM
+  /** Timeout para aguardar formação do FVG após CHoCH (minutos) */
+  instWaitFvgMinutes?: number;
+  /** Timeout para aguardar mitigação do FVG (minutos) */
+  instWaitMitigationMinutes?: number;
+  /** Timeout para aguardar gatilho de entrada após mitigação (minutos) */
+  instWaitEntryMinutes?: number;
+  /** Tempo de cooldown após trade executado (minutos) */
+  instCooldownMinutes?: number;
+  
+  // Budget por sessão
+  /** Máximo de trades por sessão por símbolo (0-2) */
+  maxTradesPerSession?: number;
 }
 
 /**
@@ -242,6 +287,10 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   
   // Símbolo atual sendo analisado
   private currentSymbol: string = "";
+  
+  // INSTITUCIONAL: Managers por símbolo
+  private institutionalManagers: Map<string, SMCInstitutionalManager> = new Map();
+  private institutionalLogCallback: InstitutionalLogCallback | null = null;
   
   constructor(config: Partial<SMCStrategyConfig> = {}) {
     this.config = { ...DEFAULT_SMC_CONFIG, ...config };
@@ -406,9 +455,63 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
         }
       }
       
-      const entrySignal = this.checkEntryConditions(state, mtfData?.currentBid || this.getLastPrice());
+      // ========== INSTITUCIONAL: Verificar se FSM permite entrada ==========
+      const instManager = this.institutionalManagers.get(this.currentSymbol);
+      const currentPrice = mtfData?.currentBid || this.getLastPrice();
+      
+      if (instManager && this.config.institutionalModeEnabled !== false) {
+        // Processar candles e atualizar FSM
+        const institutionalReady = instManager.processCandles(
+          this.m15Data,
+          this.m5Data,
+          state,
+          currentPrice
+        );
+        
+        // Verificar budget de trades por sessão
+        if (!instManager.canTradeInSession()) {
+          const reason = `Budget esgotado: máx trades/sessão atingido`;
+          if (this.config.verboseLogging) {
+            console.log(`[SMC-INST] ${this.currentSymbol}: ${reason}`);
+          }
+          return this.createNoSignal(reason);
+        }
+        
+        // Se FSM não está em WAIT_ENTRY, bloquear entrada
+        if (!institutionalReady) {
+          const fsmState = instManager.getFSMState();
+          const reason = `Institucional: FSM em ${fsmState} - aguardando condições`;
+          if (this.config.verboseLogging) {
+            console.log(`[SMC-INST] ${this.currentSymbol}: ${reason}`);
+            console.log(`[SMC-INST] ${this.currentSymbol}: ${instManager.getDebugInfo()}`);
+          }
+          return this.createNoSignal(reason);
+        }
+        
+        // Verificar se direção é permitida pelo contexto
+        if (state.entryDirection && !instManager.isDirectionAllowed(state.entryDirection)) {
+          const reason = `Contexto bloqueia ${state.entryDirection}: bias não compatível`;
+          if (this.config.verboseLogging) {
+            console.log(`[SMC-INST] ${this.currentSymbol}: ${reason}`);
+          }
+          return this.createNoSignal(reason);
+        }
+        
+        if (this.config.verboseLogging) {
+          console.log(`[SMC-INST] ${this.currentSymbol}: ✅ FSM em WAIT_ENTRY - permitindo análise M5`);
+        }
+      }
+      
+      const entrySignal = this.checkEntryConditions(state, currentPrice);
       
       if (entrySignal.signal !== "NONE") {
+        // INSTITUCIONAL: Notificar trade executado
+        if (instManager && this.config.institutionalModeEnabled !== false) {
+          instManager.onTradeExecuted(
+            entrySignal.signal as 'BUY' | 'SELL',
+            currentPrice
+          );
+        }
         return entrySignal;
       }
     }
@@ -1512,9 +1615,25 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
    */
   private initializeSwarmStates(): void {
     this.swarmStates.clear();
+    this.institutionalManagers.clear();
+    
+    // Extrair configuração institucional
+    const instConfig = extractInstitutionalConfig(this.config);
     
     for (const symbol of this.config.activeSymbols) {
       this.swarmStates.set(symbol, this.createEmptySwarmState(symbol));
+      
+      // INSTITUCIONAL: Criar manager para cada símbolo
+      const manager = createInstitutionalManager(symbol, instConfig, this.config);
+      if (this.institutionalLogCallback) {
+        manager.setLogCallback(this.institutionalLogCallback);
+      }
+      this.institutionalManagers.set(symbol, manager);
+    }
+    
+    if (this.config.verboseLogging && instConfig.institutionalModeEnabled) {
+      console.log(`[SMC-INST] Modo institucional HABILITADO para ${this.config.activeSymbols.length} símbolos`);
+      console.log(`[SMC-INST] FVG min: ${instConfig.minGapPips} pips | Max trades/sessão: ${instConfig.maxTradesPerSession}`);
     }
   }
   
@@ -1828,6 +1947,53 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     }
     
     return parts.join(" | ");
+  }
+  
+  // ============= MÉTODOS PÚBLICOS INSTITUCIONAIS =============
+  
+  /**
+   * Define callback para logs institucionais
+   */
+  setInstitutionalLogCallback(callback: InstitutionalLogCallback): void {
+    this.institutionalLogCallback = callback;
+    
+    // Atualizar todos os managers existentes
+    this.institutionalManagers.forEach((manager) => {
+      manager.setLogCallback(callback);
+    });
+  }
+  
+  /**
+   * Obtém o estado da FSM institucional para um símbolo
+   */
+  getInstitutionalFSMState(symbol: string): InstitutionalFSMState | null {
+    const manager = this.institutionalManagers.get(symbol);
+    return manager ? manager.getFSMState() : null;
+  }
+  
+  /**
+   * Obtém informações de debug do modo institucional para um símbolo
+   */
+  getInstitutionalDebugInfo(symbol: string): string | null {
+    const manager = this.institutionalManagers.get(symbol);
+    return manager ? manager.getDebugInfo() : null;
+  }
+  
+  /**
+   * Verifica se o modo institucional está habilitado
+   */
+  isInstitutionalModeEnabled(): boolean {
+    return this.config.institutionalModeEnabled !== false;
+  }
+  
+  /**
+   * Obtém o número de trades executados na sessão atual para um símbolo
+   */
+  getSessionTradeCount(symbol: string): number {
+    const manager = this.institutionalManagers.get(symbol);
+    if (!manager) return 0;
+    const state = manager.getInstitutionalState();
+    return state.tradesThisSession;
   }
 }
 
