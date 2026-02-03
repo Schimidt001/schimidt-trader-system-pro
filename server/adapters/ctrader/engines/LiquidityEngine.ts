@@ -68,11 +68,19 @@ export class LiquidityEngine {
   /**
    * Gera uma chave estável e determinística para o pool.
    * Resolve o problema P0.3 (Pools reconstruídos perdem estado).
+   * Ajuste: Inclui identificadores temporais para evitar colisões entre dias/sessões.
    */
   private generatePoolKey(pool: Partial<LiquidityPool>): string {
-    // Chave baseada no tipo e preço (arredondado para evitar flutuações de precisão)
     const roundedPrice = pool.price ? pool.price.toFixed(5) : "0";
-    return `${pool.type}_${roundedPrice}`;
+    
+    // Para pools de Swing, usamos o timestamp original do fractal
+    if (pool.source === 'SWING') {
+      return `${pool.type}_${pool.timestamp}_${roundedPrice}`;
+    }
+    
+    // Para pools de Sessão ou Diários, usamos o timestamp (que representa o fim do período)
+    // Isso garante que pools de dias/sessões diferentes tenham chaves diferentes
+    return `${pool.type}_${pool.timestamp}_${roundedPrice}`;
   }
 
   /**
