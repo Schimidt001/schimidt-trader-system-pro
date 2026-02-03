@@ -129,6 +129,25 @@ const icmarketsConfigSchema = z.object({
   orbRiskPercentage: z.number().default(1.0),
   orbMaxOpenTrades: z.number().default(3),
   orbMaxSpreadPips: z.number().default(3.0),
+  // ============= CAMPOS INSTITUCIONAIS SMC =============
+  // Modo Institucional (OPT-IN)
+  institutionalModeEnabled: z.boolean().default(false),
+  // FVG (Fair Value Gap)
+  minGapPips: z.number().default(2.0),
+  // Sessões Institucionais (UTC em minutos)
+  asiaSessionStartUtc: z.number().default(1380),   // 23:00 UTC
+  asiaSessionEndUtc: z.number().default(420),      // 07:00 UTC
+  londonSessionStartUtc: z.number().default(420),  // 07:00 UTC
+  londonSessionEndUtc: z.number().default(720),    // 12:00 UTC
+  nySessionStartUtc: z.number().default(720),      // 12:00 UTC
+  nySessionEndUtc: z.number().default(1260),       // 21:00 UTC
+  // Timeouts FSM Institucional
+  instWaitFvgMinutes: z.number().default(90),
+  instWaitMitigationMinutes: z.number().default(60),
+  instWaitEntryMinutes: z.number().default(30),
+  instCooldownMinutes: z.number().default(20),
+  // Budget por Sessão
+  maxTradesPerSession: z.number().default(2),
 });
 
 // Schema para ordem
@@ -260,6 +279,26 @@ export const icmarketsRouter = router({
       orbRiskPercentage: orbConfig?.riskPercentage ? Number(orbConfig.riskPercentage) : 1.0,
       orbMaxOpenTrades: orbConfig?.maxOpenTrades ?? 3,
       orbMaxSpreadPips: orbConfig?.maxSpreadPips ? Number(orbConfig.maxSpreadPips) : 3.0,
+      
+      // ============= CAMPOS INSTITUCIONAIS SMC =============
+      // Modo Institucional (OPT-IN)
+      institutionalModeEnabled: smcConfig?.institutionalModeEnabled ?? false,
+      // FVG (Fair Value Gap)
+      minGapPips: smcConfig?.minGapPips ? Number(smcConfig.minGapPips) : 2.0,
+      // Sessões Institucionais (UTC em minutos)
+      asiaSessionStartUtc: smcConfig?.asiaSessionStartUtc ?? 1380,
+      asiaSessionEndUtc: smcConfig?.asiaSessionEndUtc ?? 420,
+      londonSessionStartUtc: smcConfig?.londonSessionStartUtc ?? 420,
+      londonSessionEndUtc: smcConfig?.londonSessionEndUtc ?? 720,
+      nySessionStartUtc: smcConfig?.nySessionStartUtc ?? 720,
+      nySessionEndUtc: smcConfig?.nySessionEndUtc ?? 1260,
+      // Timeouts FSM Institucional
+      instWaitFvgMinutes: smcConfig?.instWaitFvgMinutes ?? 90,
+      instWaitMitigationMinutes: smcConfig?.instWaitMitigationMinutes ?? 60,
+      instWaitEntryMinutes: smcConfig?.instWaitEntryMinutes ?? 30,
+      instCooldownMinutes: smcConfig?.instCooldownMinutes ?? 20,
+      // Budget por Sessão
+      maxTradesPerSession: smcConfig?.maxTradesPerSession ?? 2,
     };
   }),
   
@@ -357,6 +396,20 @@ export const icmarketsRouter = router({
         rsiTrailingTriggerPips: "RSI Trailing Trigger (pips)",
         rsiTrailingStepPips: "RSI Trailing Step (pips)",
         rsiVerboseLogging: "RSI Logging Detalhado",
+        // Institucional SMC
+        institutionalModeEnabled: "Modo Institucional",
+        minGapPips: "FVG Mínimo (pips)",
+        asiaSessionStartUtc: "Início Sessão ASIA (UTC min)",
+        asiaSessionEndUtc: "Fim Sessão ASIA (UTC min)",
+        londonSessionStartUtc: "Início Sessão LONDON (UTC min)",
+        londonSessionEndUtc: "Fim Sessão LONDON (UTC min)",
+        nySessionStartUtc: "Início Sessão NY (UTC min)",
+        nySessionEndUtc: "Fim Sessão NY (UTC min)",
+        instWaitFvgMinutes: "Timeout FVG (min)",
+        instWaitMitigationMinutes: "Timeout Mitigação (min)",
+        instWaitEntryMinutes: "Timeout Entrada (min)",
+        instCooldownMinutes: "Cooldown (min)",
+        maxTradesPerSession: "Máx Trades por Sessão",
       };
       
       const formatValue = (key: string, value: any): string => {
@@ -495,6 +548,25 @@ export const icmarketsRouter = router({
         hybridMode: input.hybridMode,
         maxTotalExposurePercent: input.maxTotalExposurePercent.toString(),
         maxTradesPerSymbol: input.maxTradesPerSymbol,
+        // ============= CAMPOS INSTITUCIONAIS SMC =============
+        // Modo Institucional (OPT-IN)
+        institutionalModeEnabled: input.institutionalModeEnabled,
+        // FVG (Fair Value Gap)
+        minGapPips: input.minGapPips.toString(),
+        // Sessões Institucionais (UTC em minutos)
+        asiaSessionStartUtc: input.asiaSessionStartUtc,
+        asiaSessionEndUtc: input.asiaSessionEndUtc,
+        londonSessionStartUtc: input.londonSessionStartUtc,
+        londonSessionEndUtc: input.londonSessionEndUtc,
+        nySessionStartUtc: input.nySessionStartUtc,
+        nySessionEndUtc: input.nySessionEndUtc,
+        // Timeouts FSM Institucional
+        instWaitFvgMinutes: input.instWaitFvgMinutes,
+        instWaitMitigationMinutes: input.instWaitMitigationMinutes,
+        instWaitEntryMinutes: input.instWaitEntryMinutes,
+        instCooldownMinutes: input.instCooldownMinutes,
+        // Budget por Sessão
+        maxTradesPerSession: input.maxTradesPerSession,
       });
       
       // ============= SALVAR CONFIGURAÇÃO RSI+VWAP =============
@@ -1654,8 +1726,92 @@ export const icmarketsRouter = router({
         errorMessage: result.errorMessage,
         params,
       };
-    }),
-
+      }),
+  
+  /**
+   * ENDPOINT DE DIAGNÓSTICO: Status do Modo Institucional
+   * Retorna configuração, estado FSM e contadores para validação rápida
+   */
+  getInstitutionalStatus: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      // 1. Carregar configuração do DB
+      const smcConfig = await getSMCStrategyConfig(ctx.user.id);
+      
+      if (!smcConfig) {
+        return {
+          enabled: false,
+          message: "Configuração SMC não encontrada no banco de dados",
+          config: null,
+          runtime: null,
+        };
+      }
+      
+      const config = {
+        institutionalModeEnabled: smcConfig.institutionalModeEnabled ?? false,
+        minGapPips: smcConfig.minGapPips ? Number(smcConfig.minGapPips) : 2.0,
+        asiaSessionStartUtc: smcConfig.asiaSessionStartUtc ?? 1380,
+        asiaSessionEndUtc: smcConfig.asiaSessionEndUtc ?? 420,
+        londonSessionStartUtc: smcConfig.londonSessionStartUtc ?? 420,
+        londonSessionEndUtc: smcConfig.londonSessionEndUtc ?? 720,
+        nySessionStartUtc: smcConfig.nySessionStartUtc ?? 720,
+        nySessionEndUtc: smcConfig.nySessionEndUtc ?? 1260,
+        instWaitFvgMinutes: smcConfig.instWaitFvgMinutes ?? 90,
+        instWaitMitigationMinutes: smcConfig.instWaitMitigationMinutes ?? 60,
+        instWaitEntryMinutes: smcConfig.instWaitEntryMinutes ?? 30,
+        instCooldownMinutes: smcConfig.instCooldownMinutes ?? 20,
+        maxTradesPerSession: smcConfig.maxTradesPerSession ?? 2,
+      };
+      
+      // 2. Tentar obter estado do runtime (se engine estiver rodando)
+      let runtimeStatus = null;
+      try {
+        const engine = getHybridTradingEngine(ctx.user.id, 1);
+        if (engine && engine.smcStrategy) {
+          const strategy = engine.smcStrategy as any;
+          
+          // Verificar se o método existe (duck typing)
+          if (typeof strategy.getInstitutionalFSMState === 'function') {
+            const activeSymbols = smcConfig.activeSymbols 
+              ? (typeof smcConfig.activeSymbols === 'string' 
+                  ? JSON.parse(smcConfig.activeSymbols) 
+                  : smcConfig.activeSymbols)
+              : [];
+            
+            runtimeStatus = {
+              symbols: activeSymbols.map((symbol: string) => {
+                const fsmState = strategy.getInstitutionalFSMState(symbol);
+                const tradesCount = strategy.getInstitutionalTradesThisSession?.(symbol) ?? 0;
+                
+                return {
+                  symbol,
+                  fsmPhase: fsmState || 'UNKNOWN',
+                  tradesThisSession: tradesCount,
+                  maxTradesPerSession: config.maxTradesPerSession,
+                };
+              }),
+            };
+          }
+        }
+      } catch (runtimeError) {
+        console.warn('[INSTITUTIONAL_STATUS] Não foi possível obter estado do runtime:', runtimeError);
+      }
+      
+      return {
+        enabled: config.institutionalModeEnabled,
+        message: config.institutionalModeEnabled 
+          ? "Modo institucional ATIVADO" 
+          : "Modo institucional DESATIVADO",
+        config,
+        runtime: runtimeStatus,
+        timestamp: Date.now(),
+      };
+    } catch (error) {
+      console.error('[INSTITUTIONAL_STATUS] Erro ao obter status:', error);
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: `Erro ao obter status institucional: ${error}`,
+      });
+    }
+  }),
 });
-
 export type ICMarketsRouter = typeof icmarketsRouter;

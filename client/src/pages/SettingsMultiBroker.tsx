@@ -176,6 +176,21 @@ export default function SettingsMultiBroker() {
   const [smcTrailingStepPips, setSmcTrailingStepPips] = useState("10");
   const [smcCircuitBreakerEnabled, setSmcCircuitBreakerEnabled] = useState(true);
   const [smcVerboseLogging, setSmcVerboseLogging] = useState(false);
+  
+  // ============= ESTADOS MODO INSTITUCIONAL SMC =============
+  const [institutionalModeEnabled, setInstitutionalModeEnabled] = useState(false);
+  const [minGapPips, setMinGapPips] = useState("2.0");
+  const [asiaSessionStartUtc, setAsiaSessionStartUtc] = useState("1380");
+  const [asiaSessionEndUtc, setAsiaSessionEndUtc] = useState("420");
+  const [londonSessionStartUtc, setLondonSessionStartUtc] = useState("420");
+  const [londonSessionEndUtc, setLondonSessionEndUtc] = useState("720");
+  const [nySessionStartUtc, setNySessionStartUtc] = useState("720");
+  const [nySessionEndUtc, setNySessionEndUtc] = useState("1260");
+  const [instWaitFvgMinutes, setInstWaitFvgMinutes] = useState("90");
+  const [instWaitMitigationMinutes, setInstWaitMitigationMinutes] = useState("60");
+  const [instWaitEntryMinutes, setInstWaitEntryMinutes] = useState("30");
+  const [instCooldownMinutes, setInstCooldownMinutes] = useState("20");
+  const [maxTradesPerSession, setMaxTradesPerSession] = useState("2");
 
   // ============= ESTADOS RSI + VWAP (Single Source of Truth) =============
   const [rsiPeriod, setRsiPeriod] = useState("14");
@@ -443,6 +458,21 @@ export default function SettingsMultiBroker() {
       setSmcCircuitBreakerEnabled(icConfig.circuitBreakerEnabled ?? true);
       setSmcVerboseLogging(icConfig.verboseLogging ?? false);
       
+      // Modo Institucional SMC
+      setInstitutionalModeEnabled(icConfig.institutionalModeEnabled ?? false);
+      setMinGapPips((icConfig.minGapPips || 2.0).toString());
+      setAsiaSessionStartUtc((icConfig.asiaSessionStartUtc || 1380).toString());
+      setAsiaSessionEndUtc((icConfig.asiaSessionEndUtc || 420).toString());
+      setLondonSessionStartUtc((icConfig.londonSessionStartUtc || 420).toString());
+      setLondonSessionEndUtc((icConfig.londonSessionEndUtc || 720).toString());
+      setNySessionStartUtc((icConfig.nySessionStartUtc || 720).toString());
+      setNySessionEndUtc((icConfig.nySessionEndUtc || 1260).toString());
+      setInstWaitFvgMinutes((icConfig.instWaitFvgMinutes || 90).toString());
+      setInstWaitMitigationMinutes((icConfig.instWaitMitigationMinutes || 60).toString());
+      setInstWaitEntryMinutes((icConfig.instWaitEntryMinutes || 30).toString());
+      setInstCooldownMinutes((icConfig.instCooldownMinutes || 20).toString());
+      setMaxTradesPerSession((icConfig.maxTradesPerSession || 2).toString());
+      
       // RSI + VWAP
       if (icConfig.rsiPeriod) setRsiPeriod(icConfig.rsiPeriod.toString());
       if (icConfig.rsiOversold) setRsiOversold(icConfig.rsiOversold.toString());
@@ -660,6 +690,20 @@ export default function SettingsMultiBroker() {
         smcTrailingStepPips: parseInt(smcTrailingStepPips) || 10,
         circuitBreakerEnabled: smcCircuitBreakerEnabled,
         verboseLogging: smcVerboseLogging,
+        // Modo Institucional SMC
+        institutionalModeEnabled: institutionalModeEnabled,
+        minGapPips: parseFloat(minGapPips) || 2.0,
+        asiaSessionStartUtc: parseInt(asiaSessionStartUtc) || 1380,
+        asiaSessionEndUtc: parseInt(asiaSessionEndUtc) || 420,
+        londonSessionStartUtc: parseInt(londonSessionStartUtc) || 420,
+        londonSessionEndUtc: parseInt(londonSessionEndUtc) || 720,
+        nySessionStartUtc: parseInt(nySessionStartUtc) || 720,
+        nySessionEndUtc: parseInt(nySessionEndUtc) || 1260,
+        instWaitFvgMinutes: parseInt(instWaitFvgMinutes) || 90,
+        instWaitMitigationMinutes: parseInt(instWaitMitigationMinutes) || 60,
+        instWaitEntryMinutes: parseInt(instWaitEntryMinutes) || 30,
+        instCooldownMinutes: parseInt(instCooldownMinutes) || 20,
+        maxTradesPerSession: parseInt(maxTradesPerSession) || 2,
         // RSI + VWAP Config
         rsiPeriod: parseInt(rsiPeriod) || 14,
         rsiOversold: parseInt(rsiOversold) || 30,
@@ -1061,6 +1105,32 @@ export default function SettingsMultiBroker() {
                         setCircuitBreakerEnabled={setSmcCircuitBreakerEnabled}
                         verboseLogging={smcVerboseLogging}
                         setVerboseLogging={setSmcVerboseLogging}
+                        institutionalModeEnabled={institutionalModeEnabled}
+                        setInstitutionalModeEnabled={setInstitutionalModeEnabled}
+                        minGapPips={minGapPips}
+                        setMinGapPips={setMinGapPips}
+                        asiaSessionStartUtc={asiaSessionStartUtc}
+                        setAsiaSessionStartUtc={setAsiaSessionStartUtc}
+                        asiaSessionEndUtc={asiaSessionEndUtc}
+                        setAsiaSessionEndUtc={setAsiaSessionEndUtc}
+                        londonSessionStartUtc={londonSessionStartUtc}
+                        setLondonSessionStartUtc={setLondonSessionStartUtc}
+                        londonSessionEndUtc={londonSessionEndUtc}
+                        setLondonSessionEndUtc={setLondonSessionEndUtc}
+                        nySessionStartUtc={nySessionStartUtc}
+                        setNySessionStartUtc={setNySessionStartUtc}
+                        nySessionEndUtc={nySessionEndUtc}
+                        setNySessionEndUtc={setNySessionEndUtc}
+                        instWaitFvgMinutes={instWaitFvgMinutes}
+                        setInstWaitFvgMinutes={setInstWaitFvgMinutes}
+                        instWaitMitigationMinutes={instWaitMitigationMinutes}
+                        setInstWaitMitigationMinutes={setInstWaitMitigationMinutes}
+                        instWaitEntryMinutes={instWaitEntryMinutes}
+                        setInstWaitEntryMinutes={setInstWaitEntryMinutes}
+                        instCooldownMinutes={instCooldownMinutes}
+                        setInstCooldownMinutes={setInstCooldownMinutes}
+                        maxTradesPerSession={maxTradesPerSession}
+                        setMaxTradesPerSession={setMaxTradesPerSession}
                       />
                     </TabsContent>
                     <TabsContent value="rsi" className="mt-4">
