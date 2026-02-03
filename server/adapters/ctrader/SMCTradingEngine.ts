@@ -851,7 +851,9 @@ export class SMCTradingEngine extends EventEmitter {
       console.log(`[SMCTradingEngine] fractalLeftBars: ${smcConfig.fractalLeftBars}`);
       console.log(`[SMCTradingEngine] fractalRightBars: ${smcConfig.fractalRightBars}`);
       console.log(`[SMCTradingEngine] swingH1Lookback: ${smcConfig.swingH1Lookback}`);
+      console.log(`[SMCTradingEngine] chochM15Lookback: ${smcConfig.chochM15Lookback}`);
       console.log(`[SMCTradingEngine] hybridMode: ${smcConfig.hybridMode}`);
+      console.log(`[SMCTradingEngine] ⚠️ REQUISITOS CALCULADOS: H1=${(smcConfig.swingH1Lookback || 30) + 10}, M15=${(smcConfig.chochM15Lookback || 15) + 10}, M5=20`);
     } else {
       console.log(`[SMCTradingEngine] AVISO: smcConfig é NULL! Usando valores padrão.`);
     }
