@@ -9,8 +9,9 @@
  * - Iniciar Robô: Ativa o loop de trading automático (requer conexão)
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { trpc } from "@/lib/trpc";
+import { useTradeAlert } from "@/hooks/useTradeAlert";
 import {
   getSymbolLabel,
   getSymbolName,
@@ -140,6 +141,10 @@ export default function ICMarketsDashboard() {
     refetchInterval: 5000,
   });
   
+  // Hook para alarme sonoro de novas posições
+  const tradeAlert = useTradeAlert();
+  const previousPositionCountRef = useRef<number>(0);
+  
   const strategyConfig = trpc.icmarkets.getStrategyConfig.useQuery(undefined, {
     enabled: connectionStatus.data?.connected === true,
   });
@@ -209,6 +214,26 @@ export default function ICMarketsDashboard() {
     
     return [];
   }, [positionsQuery.data]);
+  
+  // Detectar novas posições e tocar alarme
+  useEffect(() => {
+    const currentCount = openPositions.length;
+    const previousCount = previousPositionCountRef.current;
+    
+    // Se o número de posições aumentou, significa que uma nova posição foi aberta
+    if (currentCount > previousCount && previousCount > 0) {
+      console.log(`[🔔 TradeAlert] Nova posição detectada! ${previousCount} → ${currentCount}`);
+      tradeAlert.playAlert();
+      
+      // Mostrar toast também
+      toast.success(`🔔 Nova posição aberta!`, {
+        description: `Total de posições: ${currentCount}`,
+      });
+    }
+    
+    // Atualizar referência
+    previousPositionCountRef.current = currentCount;
+  }, [openPositions.length, tradeAlert]);
   
   // Mutations - CONEXÃO
   const connectMutation = trpc.icmarkets.connect.useMutation({
@@ -478,6 +503,28 @@ export default function ICMarketsDashboard() {
                 🧪 Forçar Trade Teste
               </Button>
             )}
+            
+            {/* Botão de Alarme Sonoro */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => tradeAlert.setEnabled(!tradeAlert.enabled)}
+              className={tradeAlert.enabled ? "border-green-500/50 text-green-400" : "border-slate-600 text-slate-400"}
+              title={tradeAlert.enabled ? "Alarme ativado" : "Alarme desativado"}
+            >
+              {tradeAlert.enabled ? (
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M6.3 6.3a6 6 0 0 0 0 8.4c0 7-3 9-3 9h18s-3-2-3-9a6 6 0 0 0-.3-1.7"/>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                  <line x1="2" y1="2" x2="22" y2="22"/>
+                </svg>
+              )}
+            </Button>
           </div>
         </div>
         
