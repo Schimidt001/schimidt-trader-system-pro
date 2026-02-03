@@ -182,10 +182,12 @@ export class SMCInstitutionalManager {
     }
     
     // 4. Construir pools de liquidez
+    // CORREÇÃO P0.2: Passar pools existentes para preservar estado de sweep
     this.state.liquidityPools = this.liquidityEngine.buildLiquidityPools(
       this.state.session,
       swarmState.swingHighs,
-      swarmState.swingLows
+      swarmState.swingLows,
+      this.state.liquidityPools // Passar pools existentes para merge
     );
     
     // 5. Verificar timeouts
