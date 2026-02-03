@@ -27,6 +27,7 @@ import { TradeSide } from "./CTraderClient";
 import { ITradingStrategy, IMultiTimeframeStrategy, StrategyType, SignalResult, MultiTimeframeData } from "./ITradingStrategy";
 import { strategyFactory } from "./StrategyFactory";
 import { SMCStrategy, SMCStrategyConfig } from "./SMCStrategy";
+import { InstitutionalLogger } from "./InstitutionalLogger";
 import { RsiVwapStrategy, RsiVwapStrategyConfig } from "./RsiVwapStrategy";
 import { ORBStrategy, ORBStrategyConfig } from "./ORBStrategy";
 import { RiskManager, createRiskManager, RiskManagerConfig, DEFAULT_RISK_CONFIG } from "./RiskManager";
@@ -137,6 +138,9 @@ export class HybridTradingEngine extends EventEmitter {
   
   // Risk Manager
   private riskManager: RiskManager | null = null;
+  
+  // Institutional Logger
+  private institutionalLogger: InstitutionalLogger | null = null;
   
   // Estado
   private _isRunning: boolean = false;
@@ -751,6 +755,28 @@ export class HybridTradingEngine extends EventEmitter {
         
         this.smcStrategy = strategyFactory.createStrategy(StrategyType.SMC_SWARM, strategyConfig);
         console.log(`[HybridEngine] ✅ Estratégia SMC inicializada | Símbolos ativos: ${smcActiveSymbols.join(', ')}`);
+        
+        // CORREÇÃO: Integrar InstitutionalLogger se modo institucional estiver ativado
+        if (strategyConfig.institutionalModeEnabled && this.smcStrategy instanceof SMCStrategy) {
+          this.institutionalLogger = new InstitutionalLogger(this.config.userId, this.config.botId);
+          this.smcStrategy.setInstitutionalLogCallback(this.institutionalLogger.createLogCallback());
+          console.log(`[HybridEngine] ✅ InstitutionalLogger integrado ao SMCStrategy`);
+          
+          // Emitir log SMC_INST_STATUS no boot para cada símbolo
+          for (const symbol of smcActiveSymbols) {
+            const fsmState = this.smcStrategy.getInstitutionalFSMState(symbol);
+            const tradesCount = this.smcStrategy.getInstitutionalTradesThisSession?.(symbol) ?? 0;
+            
+            this.institutionalLogger.logStatus(
+              symbol,
+              true, // enabled
+              'OFF_SESSION', // session inicial (será atualizado no primeiro candle)
+              fsmState || 'IDLE',
+              tradesCount,
+              strategyConfig.maxTradesPerSession
+            );
+          }
+        }
       } catch (error) {
         console.error("[HybridEngine] Erro ao inicializar SMC:", error);
       }
