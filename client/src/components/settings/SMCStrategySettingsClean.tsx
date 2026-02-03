@@ -131,6 +131,34 @@ interface SMCStrategySettingsCleanProps {
   // Logging
   verboseLogging: boolean;
   setVerboseLogging: (enabled: boolean) => void;
+  
+  // Modo Institucional
+  institutionalModeEnabled: boolean;
+  setInstitutionalModeEnabled: (enabled: boolean) => void;
+  minGapPips: string;
+  setMinGapPips: (value: string) => void;
+  asiaSessionStartUtc: string;
+  setAsiaSessionStartUtc: (value: string) => void;
+  asiaSessionEndUtc: string;
+  setAsiaSessionEndUtc: (value: string) => void;
+  londonSessionStartUtc: string;
+  setLondonSessionStartUtc: (value: string) => void;
+  londonSessionEndUtc: string;
+  setLondonSessionEndUtc: (value: string) => void;
+  nySessionStartUtc: string;
+  setNySessionStartUtc: (value: string) => void;
+  nySessionEndUtc: string;
+  setNySessionEndUtc: (value: string) => void;
+  instWaitFvgMinutes: string;
+  setInstWaitFvgMinutes: (value: string) => void;
+  instWaitMitigationMinutes: string;
+  setInstWaitMitigationMinutes: (value: string) => void;
+  instWaitEntryMinutes: string;
+  setInstWaitEntryMinutes: (value: string) => void;
+  instCooldownMinutes: string;
+  setInstCooldownMinutes: (value: string) => void;
+  maxTradesPerSession: string;
+  setMaxTradesPerSession: (value: string) => void;
 }
 
 /**
@@ -198,6 +226,32 @@ export function SMCStrategySettingsClean({
   setCircuitBreakerEnabled,
   verboseLogging,
   setVerboseLogging,
+  institutionalModeEnabled,
+  setInstitutionalModeEnabled,
+  minGapPips,
+  setMinGapPips,
+  asiaSessionStartUtc,
+  setAsiaSessionStartUtc,
+  asiaSessionEndUtc,
+  setAsiaSessionEndUtc,
+  londonSessionStartUtc,
+  setLondonSessionStartUtc,
+  londonSessionEndUtc,
+  setLondonSessionEndUtc,
+  nySessionStartUtc,
+  setNySessionStartUtc,
+  nySessionEndUtc,
+  setNySessionEndUtc,
+  instWaitFvgMinutes,
+  setInstWaitFvgMinutes,
+  instWaitMitigationMinutes,
+  setInstWaitMitigationMinutes,
+  instWaitEntryMinutes,
+  setInstWaitEntryMinutes,
+  instCooldownMinutes,
+  setInstCooldownMinutes,
+  maxTradesPerSession,
+  setMaxTradesPerSession,
 }: SMCStrategySettingsCleanProps) {
   
   // Toggle de símbolo
@@ -802,6 +856,168 @@ export function SMCStrategySettingsClean({
               onCheckedChange={setVerboseLogging}
             />
           </div>
+        </CardContent>
+      </Card>
+      
+      {/* ============= MODO INSTITUCIONAL SMC ============= */}
+      <Card className="bg-gradient-to-br from-slate-900 to-slate-800 border-purple-500/30">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Zap className="w-5 h-5 text-purple-400" />
+            <CardTitle className="text-white">Modo Institucional (Opt-in)</CardTitle>
+          </div>
+          <p className="text-sm text-slate-400">Ativa FSM, FVG, Context e Sessions para trading institucional</p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Toggle Principal */}
+          <div className="flex items-center justify-between p-4 bg-purple-900/20 rounded-lg border border-purple-500/30">
+            <div>
+              <Label className="text-slate-300 font-semibold">Habilitar Modo Institucional</Label>
+              <p className="text-xs text-slate-500">Ativa pipeline institucional (FSM, FVG, Context, Sessions)</p>
+            </div>
+            <Switch
+              checked={institutionalModeEnabled}
+              onCheckedChange={setInstitutionalModeEnabled}
+            />
+          </div>
+          
+          {/* Campos condicionais (só aparecem se o modo estiver ativado) */}
+          {institutionalModeEnabled && (
+            <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg">
+              {/* FVG */}
+              <div>
+                <Label className="text-slate-300">FVG Mínimo (pips)</Label>
+                <Input
+                  type="number"
+                  value={minGapPips}
+                  onChange={(e) => setMinGapPips(e.target.value)}
+                  className="bg-slate-900 border-slate-700 text-white"
+                  step="0.1"
+                />
+                <p className="text-xs text-slate-500 mt-1">Tamanho mínimo do Fair Value Gap</p>
+              </div>
+              
+              {/* Sessões UTC (em minutos) */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-slate-300">ASIA Start (UTC min)</Label>
+                  <Input
+                    type="number"
+                    value={asiaSessionStartUtc}
+                    onChange={(e) => setAsiaSessionStartUtc(e.target.value)}
+                    className="bg-slate-900 border-slate-700 text-white"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">1380 = 23:00 UTC</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">ASIA End (UTC min)</Label>
+                  <Input
+                    type="number"
+                    value={asiaSessionEndUtc}
+                    onChange={(e) => setAsiaSessionEndUtc(e.target.value)}
+                    className="bg-slate-900 border-slate-700 text-white"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">420 = 07:00 UTC</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">LONDON Start (UTC min)</Label>
+                  <Input
+                    type="number"
+                    value={londonSessionStartUtc}
+                    onChange={(e) => setLondonSessionStartUtc(e.target.value)}
+                    className="bg-slate-900 border-slate-700 text-white"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">420 = 07:00 UTC</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">LONDON End (UTC min)</Label>
+                  <Input
+                    type="number"
+                    value={londonSessionEndUtc}
+                    onChange={(e) => setLondonSessionEndUtc(e.target.value)}
+                    className="bg-slate-900 border-slate-700 text-white"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">720 = 12:00 UTC</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">NY Start (UTC min)</Label>
+                  <Input
+                    type="number"
+                    value={nySessionStartUtc}
+                    onChange={(e) => setNySessionStartUtc(e.target.value)}
+                    className="bg-slate-900 border-slate-700 text-white"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">720 = 12:00 UTC</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">NY End (UTC min)</Label>
+                  <Input
+                    type="number"
+                    value={nySessionEndUtc}
+                    onChange={(e) => setNySessionEndUtc(e.target.value)}
+                    className="bg-slate-900 border-slate-700 text-white"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">1260 = 21:00 UTC</p>
+                </div>
+              </div>
+              
+              {/* Timeouts FSM */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-slate-300">Timeout FVG (min)</Label>
+                  <Input
+                    type="number"
+                    value={instWaitFvgMinutes}
+                    onChange={(e) => setInstWaitFvgMinutes(e.target.value)}
+                    className="bg-slate-900 border-slate-700 text-white"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Aguardar formação do FVG após CHoCH</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Timeout Mitigação (min)</Label>
+                  <Input
+                    type="number"
+                    value={instWaitMitigationMinutes}
+                    onChange={(e) => setInstWaitMitigationMinutes(e.target.value)}
+                    className="bg-slate-900 border-slate-700 text-white"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Aguardar mitigação do FVG</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Timeout Entrada (min)</Label>
+                  <Input
+                    type="number"
+                    value={instWaitEntryMinutes}
+                    onChange={(e) => setInstWaitEntryMinutes(e.target.value)}
+                    className="bg-slate-900 border-slate-700 text-white"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Aguardar gatilho de entrada</p>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Cooldown (min)</Label>
+                  <Input
+                    type="number"
+                    value={instCooldownMinutes}
+                    onChange={(e) => setInstCooldownMinutes(e.target.value)}
+                    className="bg-slate-900 border-slate-700 text-white"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Tempo de espera após trade</p>
+                </div>
+              </div>
+              
+              {/* Budget */}
+              <div>
+                <Label className="text-slate-300">Máx Trades por Sessão</Label>
+                <Input
+                  type="number"
+                  value={maxTradesPerSession}
+                  onChange={(e) => setMaxTradesPerSession(e.target.value)}
+                  className="bg-slate-900 border-slate-700 text-white"
+                />
+                <p className="text-xs text-slate-500 mt-1">Limite de trades por sessão por símbolo</p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
