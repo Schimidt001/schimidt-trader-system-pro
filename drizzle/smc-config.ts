@@ -150,7 +150,9 @@ export const smcStrategyConfig = mysqlTable("smcStrategyConfig", {
   
   // ============= MODO INSTITUCIONAL =============
   /** Habilitar modo institucional (FSM, FVG, Context, Sessions) */
-  institutionalModeEnabled: boolean("institutionalModeEnabled").default(true).notNull(),
+  // CORREÇÃO P0.5: Default = FALSE para compatibilidade com configs antigas
+  // Modo institucional é OPT-IN, não OPT-OUT
+  institutionalModeEnabled: boolean("institutionalModeEnabled").default(false).notNull(),
   
   // ============= TRAILING STOP =============
   /** Habilitar trailing stop */

@@ -553,9 +553,16 @@ export function createInstitutionalManager(
 /**
  * Extrai configuração institucional do SMCStrategyConfig
  */
+/**
+ * CORREÇÃO P0.5: institutionalModeEnabled agora é FALSE por padrão
+ * 
+ * Isso garante que instalações antigas não tenham comportamento alterado
+ * após migration. O modo institucional é OPT-IN, não OPT-OUT.
+ */
 export function extractInstitutionalConfig(config: any): InstitutionalConfig {
   return {
-    institutionalModeEnabled: config.institutionalModeEnabled ?? true,
+    // CORREÇÃO P0.5: Default = FALSE para compatibilidade com configs antigas
+    institutionalModeEnabled: config.institutionalModeEnabled ?? false,
     minGapPips: parseFloat(config.minGapPips) || 2.0,
     asiaSessionStartUtc: parseInt(config.asiaSessionStartUtc) || 1380,
     asiaSessionEndUtc: parseInt(config.asiaSessionEndUtc) || 420,
