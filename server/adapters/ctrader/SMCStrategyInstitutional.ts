@@ -168,8 +168,8 @@ export class SMCInstitutionalManager {
     );
 
     // Detectar mudança de sessão para resetar budget (P0.3)
+    // Ajuste: Reseta sempre que entra em uma sessão válida e a sessão mudou, mesmo vindo de OFF_SESSION
     if (previousSessionType !== this.state.session.currentSession && 
-        previousSessionType !== 'OFF_SESSION' && 
         this.state.session.currentSession !== 'OFF_SESSION') {
       this.onSessionChange();
       if (this.config.verboseLogging) {
