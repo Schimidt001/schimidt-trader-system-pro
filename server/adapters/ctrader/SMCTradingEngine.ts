@@ -1457,7 +1457,22 @@ export class SMCTradingEngine extends EventEmitter {
     // Analisar cada símbolo e coletar estatísticas
     const symbolsWithInsufficientData: string[] = [];
     let minH1Candles = 999;
-    let requiredH1 = 60;
+    let minM15Candles = 999;
+    let minM5Candles = 999;
+    
+    // Obter requisitos mínimos da estratégia (consistente com SMCStrategy.hasAllTimeframeData)
+    let requiredH1 = 50;
+    let requiredM15 = 30;
+    let requiredM5 = 20;
+    
+    if (this.strategy instanceof SMCStrategy) {
+      const smcConfig = (this.strategy as any).config;
+      if (smcConfig) {
+        requiredH1 = (smcConfig.swingH1Lookback || 30) + 10;
+        requiredM15 = (smcConfig.chochM15Lookback || 15) + 10;
+        requiredM5 = 20; // M5 é fixo
+      }
+    }
     
     for (const symbol of this.config.symbols) {
       try {
@@ -1466,9 +1481,11 @@ export class SMCTradingEngine extends EventEmitter {
         const m15Data = this.timeframeData.m15.get(symbol) || [];
         const m5Data = this.timeframeData.m5.get(symbol) || [];
         
-        if (h1Data.length < 50 || m15Data.length < 30 || m5Data.length < 20) {
+        if (h1Data.length < requiredH1 || m15Data.length < requiredM15 || m5Data.length < requiredM5) {
           symbolsWithInsufficientData.push(symbol);
           minH1Candles = Math.min(minH1Candles, h1Data.length);
+          minM15Candles = Math.min(minM15Candles, m15Data.length);
+          minM5Candles = Math.min(minM5Candles, m5Data.length);
         }
         
         await this.analyzeSymbol(symbol);
@@ -1480,7 +1497,7 @@ export class SMCTradingEngine extends EventEmitter {
     // LOG AGREGADO: Se múltiplos símbolos têm dados insuficientes, mostrar resumo
     if (symbolsWithInsufficientData.length > 0 && this.analysisCount % 10 === 0) {
       await this.logInfo(
-        `⚠️ AGUARDANDO DADOS | ${symbolsWithInsufficientData.length} símbolos com dados insuficientes | H1: ${minH1Candles}/${requiredH1} candles | Símbolos: ${symbolsWithInsufficientData.join(', ')}`,
+        `⚠️ AGUARDANDO DADOS | ${symbolsWithInsufficientData.length} símbolos com dados insuficientes | H1: ${minH1Candles}/${requiredH1} | M15: ${minM15Candles}/${requiredM15} | M5: ${minM5Candles}/${requiredM5} | Símbolos: ${symbolsWithInsufficientData.join(', ')}`,
         "SYSTEM",
         {
           status: "WAITING_DATA",
@@ -1488,6 +1505,10 @@ export class SMCTradingEngine extends EventEmitter {
           symbols: symbolsWithInsufficientData,
           minH1Candles,
           requiredH1,
+          minM15Candles,
+          requiredM15,
+          minM5Candles,
+          requiredM5,
         }
       );
     }
@@ -1615,14 +1636,28 @@ export class SMCTradingEngine extends EventEmitter {
     const m15Data = this.timeframeData.m15.get(symbol) || [];
     const m5Data = this.timeframeData.m5.get(symbol) || [];
     
+    // Obter requisitos mínimos da estratégia (consistente com SMCStrategy.hasAllTimeframeData)
+    let requiredH1 = 50;
+    let requiredM15 = 30;
+    let requiredM5 = 20;
+    
+    if (this.strategy instanceof SMCStrategy) {
+      const smcConfig = (this.strategy as any).config;
+      if (smcConfig) {
+        requiredH1 = (smcConfig.swingH1Lookback || 30) + 10;
+        requiredM15 = (smcConfig.chochM15Lookback || 15) + 10;
+        requiredM5 = 20; // M5 é fixo
+      }
+    }
+    
     // Verificar se temos dados suficientes
-    if (h1Data.length < 50 || m15Data.length < 30 || m5Data.length < 20) {
+    if (h1Data.length < requiredH1 || m15Data.length < requiredM15 || m5Data.length < requiredM5) {
       // DEBUG: Log de dados insuficientes para o banco de dados
-      const msg = `Dados insuficientes para ${symbol}: H1=${h1Data.length}/50 M15=${m15Data.length}/30 M5=${m5Data.length}/20`;
+      const msg = `Dados insuficientes para ${symbol}: H1=${h1Data.length}/${requiredH1} M15=${m15Data.length}/${requiredM15} M5=${m5Data.length}/${requiredM5}`;
       console.log(`[SMCTradingEngine] ⚠️ ${msg}`);
       // Gravar no banco apenas a cada 100 análises para não poluir
       if (this.analysisCount % 100 === 0) {
-        await this.logToDatabase("WARN", "SYSTEM", msg, { symbol, data: { h1: h1Data.length, m15: m15Data.length, m5: m5Data.length } });
+        await this.logToDatabase("WARN", "SYSTEM", msg, { symbol, data: { h1: h1Data.length, m15: m15Data.length, m5: m5Data.length, requiredH1, requiredM15, requiredM5 } });
       }
       return;
     }
