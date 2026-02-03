@@ -414,6 +414,10 @@ export const icmarketsRouter = router({
       
       const formatValue = (key: string, value: any): string => {
         if (value === undefined || value === null) return "(não definido)";
+        // Normalizar tinyint(1) do MySQL para boolean
+        if (typeof value === "number" && (value === 0 || value === 1)) {
+          value = Boolean(value);
+        }
         if (typeof value === "boolean") return value ? "ATIVADO" : "DESATIVADO";
         if (key === "clientId" || key === "clientSecret" || key === "accessToken") {
           return value ? "****" + String(value).slice(-4) : "(vazio)";
@@ -438,7 +442,7 @@ export const icmarketsRouter = router({
       
       // MODO HÍBRIDO ou SMC_ONLY -> Logar campos SMC
       if (input.hybridMode === "HYBRID" || input.hybridMode === "SMC_ONLY") {
-        const smcFields = ["activeSymbols", "structureTimeframe", "swingH1Lookback", "fractalLeftBars", "fractalRightBars", "sweepBufferPips", "sweepValidationMinutes", "chochM15Lookback", "chochMinPips", "orderBlockLookback", "orderBlockExtensionPips", "entryConfirmationType", "rejectionWickPercent", "spreadFilterEnabled", "maxSpreadPips", "riskPercentage", "maxOpenTrades", "dailyLossLimitPercent", "stopLossBufferPips", "rewardRiskRatio", "sessionFilterEnabled", "londonSessionStart", "londonSessionEnd", "nySessionStart", "nySessionEnd", "smcTrailingEnabled", "smcTrailingTriggerPips", "smcTrailingStepPips", "circuitBreakerEnabled", "verboseLogging"];
+        const smcFields = ["activeSymbols", "structureTimeframe", "swingH1Lookback", "fractalLeftBars", "fractalRightBars", "sweepBufferPips", "sweepValidationMinutes", "chochM15Lookback", "chochMinPips", "orderBlockLookback", "orderBlockExtensionPips", "entryConfirmationType", "rejectionWickPercent", "spreadFilterEnabled", "maxSpreadPips", "riskPercentage", "maxOpenTrades", "dailyLossLimitPercent", "stopLossBufferPips", "rewardRiskRatio", "sessionFilterEnabled", "londonSessionStart", "londonSessionEnd", "nySessionStart", "nySessionEnd", "smcTrailingEnabled", "smcTrailingTriggerPips", "smcTrailingStepPips", "circuitBreakerEnabled", "verboseLogging", "institutionalModeEnabled", "minGapPips", "asiaSessionStartUtc", "asiaSessionEndUtc", "londonSessionStartUtc", "londonSessionEndUtc", "nySessionStartUtc", "nySessionEndUtc", "instWaitFvgMinutes", "instWaitMitigationMinutes", "instWaitEntryMinutes", "instCooldownMinutes", "maxTradesPerSession"];
         for (const field of smcFields) {
           const inputValue = (input as any)[field];
           if (inputValue === undefined) continue;
