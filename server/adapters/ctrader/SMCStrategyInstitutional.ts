@@ -16,6 +16,7 @@
 
 import { TrendbarData } from "./CTraderClient";
 import { SwingPoint, OrderBlock, SymbolSwarmState, SMCStrategyConfig } from "./SMCStrategy";
+import { CandleUtils } from "./utils/CandleUtils";
 import {
   InstitutionalFSMState,
   InstitutionalState,
@@ -203,8 +204,12 @@ export class SMCInstitutionalManager {
     swarmState: SymbolSwarmState,
     currentPrice: number
   ): boolean {
-    const lastM15Candle = m15Candles[m15Candles.length - 1];
-    const lastM5Candle = m5Candles[m5Candles.length - 1];
+    const lastM15Candle = CandleUtils.getLastClosedCandle(m15Candles, 15);
+    const lastM5Candle = CandleUtils.getLastClosedCandle(m5Candles, 5);
+
+    if (!lastM15Candle || !lastM5Candle) {
+      return false;
+    }
     
     switch (this.state.fsmState) {
       case 'IDLE':
