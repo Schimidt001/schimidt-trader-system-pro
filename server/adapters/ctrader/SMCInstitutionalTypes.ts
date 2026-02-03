@@ -134,8 +134,12 @@ export type LiquidityPoolType =
 
 /**
  * Pool de liquidez institucional
+ * 
+ * CORREÇÃO P0.2: Adicionado poolKey para identificação estável e preservação de estado
  */
 export interface LiquidityPool {
+  /** Chave única e determinística para identificar o pool (type:price:timestamp) */
+  poolKey: string;
   type: LiquidityPoolType;
   price: number;
   timestamp: number;
@@ -144,6 +148,23 @@ export interface LiquidityPool {
   swept: boolean;
   sweptAt: number | null;
   sweptCandle: number | null;  // timestamp do candle que confirmou o sweep
+  /** Direção do sweep quando ocorreu */
+  sweepDirection: 'HIGH' | 'LOW' | null;
+}
+
+/**
+ * Gera uma poolKey determinística para um pool de liquidez
+ * Formato: type:price_normalized:timestamp
+ * 
+ * @param type Tipo do pool
+ * @param price Preço do pool
+ * @param timestamp Timestamp de criação
+ * @returns Chave única e estável
+ */
+export function generatePoolKey(type: LiquidityPoolType, price: number, timestamp: number): string {
+  // Normalizar preço para 5 casas decimais para evitar problemas de precisão
+  const normalizedPrice = price.toFixed(5);
+  return `${type}:${normalizedPrice}:${timestamp}`;
 }
 
 /**

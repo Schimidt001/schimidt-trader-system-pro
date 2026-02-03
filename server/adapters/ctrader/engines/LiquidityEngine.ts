@@ -9,8 +9,10 @@
  * - Detectar sweep institucional apenas em candle fechado M15
  * - Sweep em tempo real serve apenas como telemetria (não arma FSM)
  * 
+ * CORREÇÃO P0.2: Implementado poolKey e merge para preservar estado de sweep
+ * 
  * @author Schimidt Trader Pro
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 import { TrendbarData } from "../CTraderClient";
@@ -19,6 +21,7 @@ import {
   LiquidityPoolType,
   InstitutionalSweepResult,
   SessionEngineState,
+  generatePoolKey,
 } from "../SMCInstitutionalTypes";
 import { SwingPoint } from "../SMCStrategy";
 import { getPipValue as getCentralizedPipValue, priceToPips as centralizedPriceToPips } from "../../../../shared/normalizationUtils";
@@ -35,6 +38,9 @@ export interface LiquidityEngineConfig {
   
   // Máximo de pools por tipo
   maxPoolsPerType: number;
+  
+  // Tempo máximo de vida de um pool em milissegundos (24h por padrão)
+  poolExpirationMs: number;
 }
 
 /**
@@ -44,10 +50,13 @@ export const DEFAULT_LIQUIDITY_CONFIG: LiquidityEngineConfig = {
   sweepBufferPips: 0.5,
   includeSwingPoints: true,
   maxPoolsPerType: 5,
+  poolExpirationMs: 24 * 60 * 60 * 1000, // 24 horas
 };
 
 /**
  * LiquidityEngine - Classe para gerenciamento de pools de liquidez
+ * 
+ * CORREÇÃO P0.2: Agora preserva estado de sweep através de poolKey e merge
  */
 export class LiquidityEngine {
   private config: LiquidityEngineConfig;
@@ -68,119 +77,239 @@ export class LiquidityEngine {
   /**
    * Constrói pools de liquidez a partir de todas as fontes
    * 
+   * CORREÇÃO P0.2: Agora recebe existingPools para fazer merge e preservar estado
+   * 
    * @param sessionState Estado do SessionEngine
    * @param swingHighs Array de Swing Highs (fractais)
    * @param swingLows Array de Swing Lows (fractais)
+   * @param existingPools Pools existentes para preservar estado de sweep
    * @returns Array de pools de liquidez ordenados por prioridade
    */
   buildLiquidityPools(
     sessionState: SessionEngineState,
     swingHighs: SwingPoint[] = [],
-    swingLows: SwingPoint[] = []
+    swingLows: SwingPoint[] = [],
+    existingPools: LiquidityPool[] = []
   ): LiquidityPool[] {
-    const pools: LiquidityPool[] = [];
+    const newPools: LiquidityPool[] = [];
     const now = Date.now();
+    
+    // Criar mapa de pools existentes por poolKey para lookup rápido
+    const existingPoolsMap = new Map<string, LiquidityPool>();
+    for (const pool of existingPools) {
+      if (pool.poolKey) {
+        existingPoolsMap.set(pool.poolKey, pool);
+      }
+    }
     
     // 1. Pools da sessão anterior (PRIORIDADE MÁXIMA)
     if (sessionState.previousSession) {
       // Session High
-      pools.push({
-        type: 'SESSION_HIGH',
-        price: sessionState.previousSession.high,
-        timestamp: sessionState.previousSession.endTime,
-        source: 'SESSION',
-        priority: 1,
-        swept: false,
-        sweptAt: null,
-        sweptCandle: null,
-      });
+      const sessionHighKey = generatePoolKey(
+        'SESSION_HIGH',
+        sessionState.previousSession.high,
+        sessionState.previousSession.endTime
+      );
+      newPools.push(this.createOrMergePool(
+        sessionHighKey,
+        'SESSION_HIGH',
+        sessionState.previousSession.high,
+        sessionState.previousSession.endTime,
+        'SESSION',
+        1,
+        existingPoolsMap
+      ));
       
       // Session Low
-      pools.push({
-        type: 'SESSION_LOW',
-        price: sessionState.previousSession.low,
-        timestamp: sessionState.previousSession.endTime,
-        source: 'SESSION',
-        priority: 1,
-        swept: false,
-        sweptAt: null,
-        sweptCandle: null,
-      });
+      const sessionLowKey = generatePoolKey(
+        'SESSION_LOW',
+        sessionState.previousSession.low,
+        sessionState.previousSession.endTime
+      );
+      newPools.push(this.createOrMergePool(
+        sessionLowKey,
+        'SESSION_LOW',
+        sessionState.previousSession.low,
+        sessionState.previousSession.endTime,
+        'SESSION',
+        1,
+        existingPoolsMap
+      ));
     }
     
     // 2. Pools do dia anterior (PRIORIDADE MÉDIA)
+    // Usar timestamp fixo baseado no dia para estabilidade
+    const dayTimestamp = this.getDayTimestamp(now);
+    
     if (sessionState.previousDayHigh !== null) {
-      pools.push({
-        type: 'DAILY_HIGH',
-        price: sessionState.previousDayHigh,
-        timestamp: now,
-        source: 'DAILY',
-        priority: 2,
-        swept: false,
-        sweptAt: null,
-        sweptCandle: null,
-      });
+      const dailyHighKey = generatePoolKey(
+        'DAILY_HIGH',
+        sessionState.previousDayHigh,
+        dayTimestamp
+      );
+      newPools.push(this.createOrMergePool(
+        dailyHighKey,
+        'DAILY_HIGH',
+        sessionState.previousDayHigh,
+        dayTimestamp,
+        'DAILY',
+        2,
+        existingPoolsMap
+      ));
     }
     
     if (sessionState.previousDayLow !== null) {
-      pools.push({
-        type: 'DAILY_LOW',
-        price: sessionState.previousDayLow,
-        timestamp: now,
-        source: 'DAILY',
-        priority: 2,
-        swept: false,
-        sweptAt: null,
-        sweptCandle: null,
-      });
+      const dailyLowKey = generatePoolKey(
+        'DAILY_LOW',
+        sessionState.previousDayLow,
+        dayTimestamp
+      );
+      newPools.push(this.createOrMergePool(
+        dailyLowKey,
+        'DAILY_LOW',
+        sessionState.previousDayLow,
+        dayTimestamp,
+        'DAILY',
+        2,
+        existingPoolsMap
+      ));
     }
     
     // 3. Swing Points como fallback (PRIORIDADE BAIXA)
     if (this.config.includeSwingPoints) {
       // Swing Highs
       const recentSwingHighs = swingHighs
-        .filter(s => s.isValid && !s.swept)
+        .filter(s => s.isValid)
         .slice(-this.config.maxPoolsPerType);
       
       for (const swing of recentSwingHighs) {
-        pools.push({
-          type: 'SWING_HIGH',
-          price: swing.price,
-          timestamp: swing.timestamp,
-          source: 'SWING',
-          priority: 3,
-          swept: swing.swept,
-          sweptAt: swing.sweptAt || null,
-          sweptCandle: null,
-        });
+        const swingHighKey = generatePoolKey(
+          'SWING_HIGH',
+          swing.price,
+          swing.timestamp
+        );
+        newPools.push(this.createOrMergePool(
+          swingHighKey,
+          'SWING_HIGH',
+          swing.price,
+          swing.timestamp,
+          'SWING',
+          3,
+          existingPoolsMap,
+          swing.swept,
+          swing.sweptAt
+        ));
       }
       
       // Swing Lows
       const recentSwingLows = swingLows
-        .filter(s => s.isValid && !s.swept)
+        .filter(s => s.isValid)
         .slice(-this.config.maxPoolsPerType);
       
       for (const swing of recentSwingLows) {
-        pools.push({
-          type: 'SWING_LOW',
-          price: swing.price,
-          timestamp: swing.timestamp,
-          source: 'SWING',
-          priority: 3,
-          swept: swing.swept,
-          sweptAt: swing.sweptAt || null,
-          sweptCandle: null,
-        });
+        const swingLowKey = generatePoolKey(
+          'SWING_LOW',
+          swing.price,
+          swing.timestamp
+        );
+        newPools.push(this.createOrMergePool(
+          swingLowKey,
+          'SWING_LOW',
+          swing.price,
+          swing.timestamp,
+          'SWING',
+          3,
+          existingPoolsMap,
+          swing.swept,
+          swing.sweptAt
+        ));
       }
     }
     
+    // Filtrar pools expirados
+    const validPools = newPools.filter(pool => {
+      const age = now - pool.timestamp;
+      return age < this.config.poolExpirationMs;
+    });
+    
     // Ordenar por prioridade (menor = maior prioridade)
-    return pools.sort((a, b) => a.priority - b.priority);
+    return validPools.sort((a, b) => a.priority - b.priority);
+  }
+  
+  /**
+   * CORREÇÃO P0.2: Cria um novo pool ou faz merge com existente preservando estado
+   * 
+   * @param poolKey Chave única do pool
+   * @param type Tipo do pool
+   * @param price Preço do pool
+   * @param timestamp Timestamp de criação
+   * @param source Fonte do pool
+   * @param priority Prioridade
+   * @param existingPoolsMap Mapa de pools existentes
+   * @param swingSwept Estado de swept do swing (para SWING pools)
+   * @param swingSweptAt Timestamp de swept do swing
+   * @returns Pool criado ou merged
+   */
+  private createOrMergePool(
+    poolKey: string,
+    type: LiquidityPoolType,
+    price: number,
+    timestamp: number,
+    source: 'SESSION' | 'DAILY' | 'SWING',
+    priority: number,
+    existingPoolsMap: Map<string, LiquidityPool>,
+    swingSwept: boolean = false,
+    swingSweptAt: number | undefined = undefined
+  ): LiquidityPool {
+    // Verificar se já existe um pool com esta chave
+    const existingPool = existingPoolsMap.get(poolKey);
+    
+    if (existingPool) {
+      // CORREÇÃO P0.2: Preservar estado de sweep do pool existente
+      return {
+        poolKey,
+        type,
+        price,
+        timestamp,
+        source,
+        priority,
+        // Preservar estado de sweep
+        swept: existingPool.swept,
+        sweptAt: existingPool.sweptAt,
+        sweptCandle: existingPool.sweptCandle,
+        sweepDirection: existingPool.sweepDirection,
+      };
+    }
+    
+    // Criar novo pool
+    return {
+      poolKey,
+      type,
+      price,
+      timestamp,
+      source,
+      priority,
+      swept: swingSwept,
+      sweptAt: swingSweptAt || null,
+      sweptCandle: null,
+      sweepDirection: null,
+    };
+  }
+  
+  /**
+   * Obtém timestamp do início do dia UTC para estabilidade de poolKey
+   */
+  private getDayTimestamp(now: number): number {
+    const date = new Date(now);
+    date.setUTCHours(0, 0, 0, 0);
+    return date.getTime();
   }
   
   /**
    * Detecta sweep institucional em candle fechado M15
    * IMPORTANTE: Apenas sweeps confirmados em candle fechado podem armar a FSM
+   * 
+   * CORREÇÃO P0.2: Agora atualiza sweepDirection no pool
    * 
    * @param pools Array de pools de liquidez
    * @param lastClosedCandle Último candle M15 fechado
@@ -212,6 +341,7 @@ export class LiquidityEngine {
         pool.swept = true;
         pool.sweptAt = Date.now();
         pool.sweptCandle = lastClosedCandle.timestamp;
+        pool.sweepDirection = 'HIGH'; // CORREÇÃO P0.2: Registrar direção
         
         return {
           detected: true,
@@ -244,6 +374,7 @@ export class LiquidityEngine {
         pool.swept = true;
         pool.sweptAt = Date.now();
         pool.sweptCandle = lastClosedCandle.timestamp;
+        pool.sweepDirection = 'LOW'; // CORREÇÃO P0.2: Registrar direção
         
         return {
           detected: true,
@@ -380,17 +511,22 @@ export class LiquidityEngine {
     if (sessionPools.length > 0) {
       const high = sessionPools.find(p => p.type === 'SESSION_HIGH');
       const low = sessionPools.find(p => p.type === 'SESSION_LOW');
-      parts.push(`Session[H:${high?.price.toFixed(5) || 'N/A'} L:${low?.price.toFixed(5) || 'N/A'}]`);
+      const highSwept = high?.swept ? '✓' : '';
+      const lowSwept = low?.swept ? '✓' : '';
+      parts.push(`Session[H:${high?.price.toFixed(5) || 'N/A'}${highSwept} L:${low?.price.toFixed(5) || 'N/A'}${lowSwept}]`);
     }
     
     if (dailyPools.length > 0) {
       const high = dailyPools.find(p => p.type === 'DAILY_HIGH');
       const low = dailyPools.find(p => p.type === 'DAILY_LOW');
-      parts.push(`Daily[H:${high?.price.toFixed(5) || 'N/A'} L:${low?.price.toFixed(5) || 'N/A'}]`);
+      const highSwept = high?.swept ? '✓' : '';
+      const lowSwept = low?.swept ? '✓' : '';
+      parts.push(`Daily[H:${high?.price.toFixed(5) || 'N/A'}${highSwept} L:${low?.price.toFixed(5) || 'N/A'}${lowSwept}]`);
     }
     
     if (swingPools.length > 0) {
-      parts.push(`Swings[${swingPools.length}]`);
+      const sweptCount = swingPools.filter(p => p.swept).length;
+      parts.push(`Swings[${swingPools.length} (${sweptCount} swept)]`);
     }
     
     return parts.join(' | ') || 'No pools';
@@ -398,6 +534,7 @@ export class LiquidityEngine {
   
   /**
    * Reseta o estado de swept de todos os pools
+   * NOTA: Usar com cuidado - normalmente não deve ser chamado exceto em reset completo
    */
   resetPools(pools: LiquidityPool[]): LiquidityPool[] {
     return pools.map(p => ({
@@ -405,6 +542,7 @@ export class LiquidityEngine {
       swept: false,
       sweptAt: null,
       sweptCandle: null,
+      sweepDirection: null,
     }));
   }
 }

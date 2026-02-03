@@ -16,6 +16,7 @@
 
 import { TrendbarData } from "./CTraderClient";
 import { SwingPoint, OrderBlock, SymbolSwarmState, SMCStrategyConfig } from "./SMCStrategy";
+import { getLastClosedCandle, getLastNClosedCandles, isCandleClosed } from "../../../shared/candleUtils";
 import {
   InstitutionalFSMState,
   InstitutionalState,
@@ -159,11 +160,22 @@ export class SMCInstitutionalManager {
     
     const now = Date.now();
     
+    // CORREÇÃO P0.3: Detectar mudança de sessão ANTES de atualizar
+    const previousSession = this.state.session.currentSession;
+    
     // 1. Atualizar SessionEngine
     this.state.session = this.sessionEngine.processM15Candles(
       this.state.session,
-      m15Candles
+      m15Candles,
+      now
     );
+    
+    // CORREÇÃO P0.3: Verificar se houve mudança de sessão e resetar budget
+    const currentSession = this.state.session.currentSession;
+    if (previousSession !== currentSession && previousSession !== 'OFF_SESSION') {
+      console.log(`[SMC-INST] ${this.symbol}: Sessão mudou de ${previousSession} para ${currentSession} - resetando budget`);
+      this.onSessionChange();
+    }
     
     // 2. Atualizar ContextEngine
     this.state.context = this.contextEngine.evaluateContext(
@@ -181,10 +193,12 @@ export class SMCInstitutionalManager {
     }
     
     // 4. Construir pools de liquidez
+    // CORREÇÃO P0.2: Passar pools existentes para preservar estado de sweep
     this.state.liquidityPools = this.liquidityEngine.buildLiquidityPools(
       this.state.session,
       swarmState.swingHighs,
-      swarmState.swingLows
+      swarmState.swingLows,
+      this.state.liquidityPools // Passar pools existentes para merge
     );
     
     // 5. Verificar timeouts
@@ -196,6 +210,9 @@ export class SMCInstitutionalManager {
   
   /**
    * Processa a FSM (Máquina de Estados Finitos)
+   * 
+   * CORREÇÃO P0.1 - LOOK-AHEAD: Agora usa getLastClosedCandle para garantir
+   * que apenas candles FECHADOS são usados para tomada de decisão.
    */
   private processFSM(
     m15Candles: TrendbarData[],
@@ -203,8 +220,25 @@ export class SMCInstitutionalManager {
     swarmState: SymbolSwarmState,
     currentPrice: number
   ): boolean {
-    const lastM15Candle = m15Candles[m15Candles.length - 1];
-    const lastM5Candle = m5Candles[m5Candles.length - 1];
+    const now = Date.now();
+    
+    // CORREÇÃO P0.1: Usar getLastClosedCandle para garantir ZERO LOOK-AHEAD
+    const m15Result = getLastClosedCandle(m15Candles, 15, now);
+    const m5Result = getLastClosedCandle(m5Candles, 5, now);
+    
+    // Se não temos candles fechados, não podemos processar
+    if (!m15Result.isConfirmed || !m15Result.candle) {
+      console.log(`[SMC-INST] ${this.symbol}: Aguardando candle M15 fechado (look-ahead prevention)`);
+      return false;
+    }
+    
+    if (!m5Result.isConfirmed || !m5Result.candle) {
+      console.log(`[SMC-INST] ${this.symbol}: Aguardando candle M5 fechado (look-ahead prevention)`);
+      return false;
+    }
+    
+    const lastM15Candle = m15Result.candle;
+    const lastM5Candle = m5Result.candle;
     
     switch (this.state.fsmState) {
       case 'IDLE':
@@ -479,10 +513,29 @@ export class SMCInstitutionalManager {
   
   /**
    * Reseta a sessão (chamado quando muda de sessão)
+   * 
+   * CORREÇÃO P0.3: Agora reseta todos os estados relacionados à sessão
    */
   onSessionChange(): void {
+    // Resetar budget de trades
     this.state.tradesThisSession = 0;
     this.state.sessionTradeHistory = [];
+    
+    // CORREÇÃO P0.3: Resetar FSM para IDLE em nova sessão
+    // Isso garante que setups incompletos da sessão anterior não contaminem a nova
+    if (this.state.fsmState !== 'IDLE') {
+      console.log(`[SMC-INST] ${this.symbol}: FSM resetada de ${this.state.fsmState} para IDLE (nova sessão)`);
+      this.state.fsmState = 'IDLE';
+      this.state.fsmStateChangedAt = Date.now();
+    }
+    
+    // Resetar estados de setup
+    this.state.lastInstitutionalSweep = null;
+    this.state.chochConsumed = false;
+    this.state.fvg = FVGEngine.createEmptyState();
+    
+    // NÃO resetar pools - eles têm seu próprio ciclo de vida
+    // NÃO resetar session/context - são atualizados pelo SessionEngine/ContextEngine
   }
 }
 
@@ -500,9 +553,16 @@ export function createInstitutionalManager(
 /**
  * Extrai configuração institucional do SMCStrategyConfig
  */
+/**
+ * CORREÇÃO P0.5: institutionalModeEnabled agora é FALSE por padrão
+ * 
+ * Isso garante que instalações antigas não tenham comportamento alterado
+ * após migration. O modo institucional é OPT-IN, não OPT-OUT.
+ */
 export function extractInstitutionalConfig(config: any): InstitutionalConfig {
   return {
-    institutionalModeEnabled: config.institutionalModeEnabled ?? true,
+    // CORREÇÃO P0.5: Default = FALSE para compatibilidade com configs antigas
+    institutionalModeEnabled: config.institutionalModeEnabled ?? false,
     minGapPips: parseFloat(config.minGapPips) || 2.0,
     asiaSessionStartUtc: parseInt(config.asiaSessionStartUtc) || 1380,
     asiaSessionEndUtc: parseInt(config.asiaSessionEndUtc) || 420,

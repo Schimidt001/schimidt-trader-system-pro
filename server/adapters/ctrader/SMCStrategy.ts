@@ -459,7 +459,8 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       const instManager = this.institutionalManagers.get(this.currentSymbol);
       const currentPrice = mtfData?.currentBid || this.getLastPrice();
       
-      if (instManager && this.config.institutionalModeEnabled !== false) {
+      // CORREÇÃO P0.5: Verificar === true para garantir OPT-IN explícito
+      if (instManager && this.config.institutionalModeEnabled === true) {
         // Processar candles e atualizar FSM
         const institutionalReady = instManager.processCandles(
           this.m15Data,
@@ -506,7 +507,8 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       
       if (entrySignal.signal !== "NONE") {
         // INSTITUCIONAL: Notificar trade executado
-        if (instManager && this.config.institutionalModeEnabled !== false) {
+        // CORREÇÃO P0.5: Verificar === true para garantir OPT-IN explícito
+        if (instManager && this.config.institutionalModeEnabled === true) {
           instManager.onTradeExecuted(
             entrySignal.signal as 'BUY' | 'SELL',
             currentPrice
@@ -1981,9 +1983,12 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   
   /**
    * Verifica se o modo institucional está habilitado
+   * 
+   * CORREÇÃO P0.5: Agora verifica === true em vez de !== false
+   * Isso garante que o modo só é ativado quando explicitamente configurado
    */
   isInstitutionalModeEnabled(): boolean {
-    return this.config.institutionalModeEnabled !== false;
+    return this.config.institutionalModeEnabled === true;
   }
   
   /**

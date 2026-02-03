@@ -18,6 +18,7 @@ import {
   SessionEngineState,
   SessionTimeConfig,
 } from "../SMCInstitutionalTypes";
+import { getLastClosedCandle, isCandleClosed } from "../../../../shared/candleUtils";
 
 /**
  * Configuração padrão de sessões (UTC em minutos)
@@ -93,12 +94,24 @@ export class SessionEngine {
    * @param candles Array de candles M15
    * @returns Estado atualizado
    */
-  processM15Candles(state: SessionEngineState, candles: TrendbarData[]): SessionEngineState {
+  /**
+   * CORREÇÃO P0.1 - LOOK-AHEAD: Agora usa getLastClosedCandle para garantir
+   * que apenas candles FECHADOS são usados para atualização de sessão.
+   */
+  processM15Candles(state: SessionEngineState, candles: TrendbarData[], nowUtcMs: number = Date.now()): SessionEngineState {
     if (candles.length === 0) {
       return state;
     }
     
-    const lastCandle = candles[candles.length - 1];
+    // CORREÇÃO P0.1: Usar getLastClosedCandle para garantir ZERO LOOK-AHEAD
+    const closedCandleResult = getLastClosedCandle(candles, 15, nowUtcMs);
+    
+    if (!closedCandleResult.isConfirmed || !closedCandleResult.candle) {
+      // Nenhum candle M15 fechado disponível
+      return state;
+    }
+    
+    const lastCandle = closedCandleResult.candle;
     const lastCandleTime = lastCandle.timestamp;
     
     // Verificar se é um novo candle (evitar reprocessamento)
@@ -106,7 +119,7 @@ export class SessionEngine {
       return state;
     }
     
-    const now = Date.now();
+    const now = nowUtcMs;
     const currentSession = this.getCurrentSession(lastCandleTime);
     
     // Criar novo estado
@@ -129,15 +142,15 @@ export class SessionEngine {
         };
       }
       
-      // Verificar se mudou de dia (para previousDayHigh/Low)
-      const prevDate = new Date(state.lastUpdateCandleTime);
-      const currDate = new Date(lastCandleTime);
-      if (prevDate.getUTCDate() !== currDate.getUTCDate()) {
-        // Novo dia - atualizar high/low do dia anterior
-        const previousDayCandles = this.getDayCandles(candles, prevDate);
+      // CORREÇÃO P0.4: Verificar se mudou de trading day usando NY Close (21:00 UTC)
+      // Isso resolve o problema da ASIA que cruza 00:00 UTC
+      if (this.hasTradingDayChanged(state.lastUpdateCandleTime, lastCandleTime)) {
+        // Novo trading day - atualizar high/low do trading day anterior
+        const previousDayCandles = this.getPreviousTradingDayCandles(candles, lastCandleTime);
         if (previousDayCandles.length > 0) {
           newState.previousDayHigh = Math.max(...previousDayCandles.map(c => c.high));
           newState.previousDayLow = Math.min(...previousDayCandles.map(c => c.low));
+          console.log(`[SessionEngine] ${this.symbol}: Trading day changed - previousDayHigh: ${newState.previousDayHigh?.toFixed(5)}, previousDayLow: ${newState.previousDayLow?.toFixed(5)}`);
         }
       }
       
@@ -194,19 +207,104 @@ export class SessionEngine {
   
   /**
    * Obtém candles de um dia específico
+   * 
+   * CORREÇÃO P0.4: Implementado "Trading Day" baseado em NY Close (21:00 UTC)
+   * 
+   * Problema original: ASIA cruza 00:00 UTC, quebrando "dia calendário".
+   * Solução: Usar NY Close (21:00 UTC) como divisor de trading day.
+   * 
+   * Trading Day = 21:00 UTC D-1 até 20:59 UTC D0
+   * Isso é o padrão institucional usado por bancos e fundos.
+   * 
+   * Exemplo para 02:00 UTC de 15/Jan:
+   * - Trading Day atual: 14/Jan 21:00 UTC até 15/Jan 20:59 UTC
+   * - Previous Trading Day: 13/Jan 21:00 UTC até 14/Jan 20:59 UTC
    */
   private getDayCandles(candles: TrendbarData[], targetDate: Date): TrendbarData[] {
-    const targetDay = targetDate.getUTCDate();
-    const targetMonth = targetDate.getUTCMonth();
-    const targetYear = targetDate.getUTCFullYear();
+    // Calcular o início e fim do trading day usando NY Close (21:00 UTC)
+    const { tradingDayStart, tradingDayEnd } = this.getTradingDayBounds(targetDate);
     
     return candles.filter(c => {
-      const candleDate = new Date(c.timestamp);
-      return (
-        candleDate.getUTCDate() === targetDay &&
-        candleDate.getUTCMonth() === targetMonth &&
-        candleDate.getUTCFullYear() === targetYear
-      );
+      return c.timestamp >= tradingDayStart && c.timestamp < tradingDayEnd;
+    });
+  }
+  
+  /**
+   * CORREÇÃO P0.4: Calcula os limites do trading day baseado em NY Close
+   * 
+   * NY Close = 21:00 UTC (17:00 EST)
+   * Trading Day = 21:00 UTC D-1 até 20:59 UTC D0
+   * 
+   * @param date Data de referência
+   * @returns Início e fim do trading day em timestamps
+   */
+  private getTradingDayBounds(date: Date): { tradingDayStart: number; tradingDayEnd: number } {
+    const NY_CLOSE_HOUR = 21; // 21:00 UTC = 17:00 EST (NY Close)
+    
+    // Criar uma cópia da data para não modificar a original
+    const d = new Date(date.getTime());
+    
+    // Determinar se estamos antes ou depois do NY Close no dia atual
+    const currentHour = d.getUTCHours();
+    
+    if (currentHour >= NY_CLOSE_HOUR) {
+      // Estamos após NY Close - trading day começou hoje às 21:00
+      d.setUTCHours(NY_CLOSE_HOUR, 0, 0, 0);
+      const tradingDayStart = d.getTime();
+      
+      // Trading day termina amanhã às 21:00
+      d.setUTCDate(d.getUTCDate() + 1);
+      const tradingDayEnd = d.getTime();
+      
+      return { tradingDayStart, tradingDayEnd };
+    } else {
+      // Estamos antes do NY Close - trading day começou ontem às 21:00
+      d.setUTCHours(NY_CLOSE_HOUR, 0, 0, 0);
+      const tradingDayEnd = d.getTime();
+      
+      // Trading day começou ontem às 21:00
+      d.setUTCDate(d.getUTCDate() - 1);
+      const tradingDayStart = d.getTime();
+      
+      return { tradingDayStart, tradingDayEnd };
+    }
+  }
+  
+  /**
+   * CORREÇÃO P0.4: Verifica se houve mudança de trading day
+   * 
+   * Usa NY Close (21:00 UTC) como divisor em vez de meia-noite UTC.
+   * 
+   * @param prevTimestamp Timestamp anterior
+   * @param currTimestamp Timestamp atual
+   * @returns true se mudou de trading day
+   */
+  private hasTradingDayChanged(prevTimestamp: number, currTimestamp: number): boolean {
+    if (prevTimestamp === 0) return false;
+    
+    const prevBounds = this.getTradingDayBounds(new Date(prevTimestamp));
+    const currBounds = this.getTradingDayBounds(new Date(currTimestamp));
+    
+    // Se os limites são diferentes, mudou de trading day
+    return prevBounds.tradingDayStart !== currBounds.tradingDayStart;
+  }
+  
+  /**
+   * CORREÇÃO P0.4: Obtém candles do trading day anterior
+   * 
+   * @param candles Array de candles
+   * @param currentTimestamp Timestamp atual
+   * @returns Candles do trading day anterior
+   */
+  private getPreviousTradingDayCandles(candles: TrendbarData[], currentTimestamp: number): TrendbarData[] {
+    const currentBounds = this.getTradingDayBounds(new Date(currentTimestamp));
+    
+    // Previous trading day termina onde o atual começa
+    const prevTradingDayEnd = currentBounds.tradingDayStart;
+    const prevTradingDayStart = prevTradingDayEnd - (24 * 60 * 60 * 1000); // 24 horas antes
+    
+    return candles.filter(c => {
+      return c.timestamp >= prevTradingDayStart && c.timestamp < prevTradingDayEnd;
     });
   }
   

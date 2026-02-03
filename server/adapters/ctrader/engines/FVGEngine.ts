@@ -23,6 +23,7 @@ import {
   FVGEngineState,
 } from "../SMCInstitutionalTypes";
 import { getPipValue as getCentralizedPipValue, priceToPips as centralizedPriceToPips } from "../../../../shared/normalizationUtils";
+import { getLastNClosedCandles } from "../../../../shared/candleUtils";
 
 /**
  * Configuração do FVGEngine
@@ -71,10 +72,15 @@ export class FVGEngine {
    * @param state Estado atual do FVGEngine
    * @returns Estado atualizado com FVG detectado (se houver)
    */
+  /**
+   * CORREÇÃO P0.1 - LOOK-AHEAD: Agora usa getLastNClosedCandles para garantir
+   * que apenas candles FECHADOS são usados para deteção de FVG.
+   */
   detectFVG(
     candles: TrendbarData[],
     expectedDirection: 'BULLISH' | 'BEARISH',
-    state: FVGEngineState
+    state: FVGEngineState,
+    nowUtcMs: number = Date.now()
   ): FVGEngineState {
     // Se já temos um FVG ativo, não detectar outro
     if (state.activeFVG && state.activeFVG.isValid && !state.activeFVG.mitigated) {
@@ -87,12 +93,21 @@ export class FVGEngine {
     }
     
     const pipValue = getCentralizedPipValue(this.symbol);
-    const now = Date.now();
+    const now = nowUtcMs;
     
-    // Analisar os últimos 3 candles
-    const candle1 = candles[candles.length - 3];
-    const candle2 = candles[candles.length - 2];
-    const candle3 = candles[candles.length - 1];
+    // CORREÇÃO P0.1: Usar getLastNClosedCandles para garantir ZERO LOOK-AHEAD
+    // Obter os últimos 3 candles M5 FECHADOS
+    const closedCandles = getLastNClosedCandles(candles, 3, 5, now);
+    
+    if (closedCandles.length < 3) {
+      // Não temos 3 candles fechados suficientes
+      return state;
+    }
+    
+    // Analisar os últimos 3 candles FECHADOS
+    const candle1 = closedCandles[0];
+    const candle2 = closedCandles[1];
+    const candle3 = closedCandles[2];
     
     let fvg: FVGZone | null = null;
     

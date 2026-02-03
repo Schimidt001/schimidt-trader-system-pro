@@ -217,7 +217,7 @@ SET @preparedStatement = (SELECT IF(
     AND COLUMN_NAME = @columnname
   ) > 0,
   'SELECT 1',
-  'ALTER TABLE smcStrategyConfig ADD COLUMN institutionalModeEnabled BOOLEAN NOT NULL DEFAULT TRUE'
+  'ALTER TABLE smcStrategyConfig ADD COLUMN institutionalModeEnabled BOOLEAN NOT NULL DEFAULT FALSE'
 ));
 PREPARE alterIfNotExists FROM @preparedStatement;
 EXECUTE alterIfNotExists;

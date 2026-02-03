@@ -733,7 +733,8 @@ export class HybridTradingEngine extends EventEmitter {
           circuitBreakerEnabled: smcConfig?.circuitBreakerEnabled ?? true,
           verboseLogging: smcConfig?.verboseLogging ?? true,
           // Campos institucionais
-          institutionalModeEnabled: smcConfig?.institutionalModeEnabled ?? true,
+          // CORREÇÃO P0.5: Default = FALSE para compatibilidade com configs antigas
+          institutionalModeEnabled: smcConfig?.institutionalModeEnabled ?? false,
           minGapPips: smcConfig?.minGapPips ? Number(smcConfig.minGapPips) : 2.0,
           asiaSessionStartUtc: smcConfig?.asiaSessionStartUtc ?? 1380,
           asiaSessionEndUtc: smcConfig?.asiaSessionEndUtc ?? 420,
