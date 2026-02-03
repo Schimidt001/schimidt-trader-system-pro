@@ -217,7 +217,7 @@ export const icmarketsRouter = router({
       rejectionWickPercent: smcConfig?.rejectionWickPercent || "20",
       
       // Filtro de Spread - CORREÇÃO: Valores conforme UI
-      spreadFilterEnabled: smcConfig?.spreadFilterEnabled ?? true,
+      spreadFilterEnabled: Boolean(smcConfig?.spreadFilterEnabled ?? true),
       maxSpreadPips: smcConfig?.maxSpreadPips || "3.0",
       
       // Gestão de Risco Avançada - CORREÇÃO: Valores conforme UI
@@ -225,20 +225,20 @@ export const icmarketsRouter = router({
       rewardRiskRatio: smcConfig?.rewardRiskRatio || "3.0",
       
       // Sessões de Trading - CORREÇÃO: Valores conforme UI
-      sessionFilterEnabled: smcConfig?.sessionFilterEnabled ?? true,
+      sessionFilterEnabled: Boolean(smcConfig?.sessionFilterEnabled ?? true),
       londonSessionStart: smcConfig?.londonSessionStart || "05:00",
       londonSessionEnd: smcConfig?.londonSessionEnd || "12:00",
       nySessionStart: smcConfig?.nySessionStart || "09:00",
       nySessionEnd: smcConfig?.nySessionEnd || "17:00",
       
       // Trailing Stop SMC - CORREÇÃO: Valores conforme UI
-      smcTrailingEnabled: smcConfig?.trailingEnabled ?? true,
+      smcTrailingEnabled: Boolean(smcConfig?.trailingEnabled ?? true),
       smcTrailingTriggerPips: smcConfig?.trailingTriggerPips || "10.0",
       smcTrailingStepPips: smcConfig?.trailingStepPips || "2.0",
       
       // Circuit Breaker e Logging - CORREÇÃO: verboseLogging true por padrão
-      circuitBreakerEnabled: smcConfig?.circuitBreakerEnabled ?? true,
-      verboseLogging: smcConfig?.verboseLogging ?? true,
+      circuitBreakerEnabled: Boolean(smcConfig?.circuitBreakerEnabled ?? true),
+      verboseLogging: Boolean(smcConfig?.verboseLogging ?? true),
       
       // Modo Híbrido
       hybridMode: (smcConfig as any)?.hybridMode || "SMC_ONLY",
@@ -249,21 +249,21 @@ export const icmarketsRouter = router({
       rsiPeriod: rsiConfig?.rsiPeriod ?? 14,
       rsiOversold: rsiConfig?.rsiOversold ?? 30,
       rsiOverbought: rsiConfig?.rsiOverbought ?? 70,
-      vwapEnabled: rsiConfig?.vwapEnabled ?? true,
+      vwapEnabled: Boolean(rsiConfig?.vwapEnabled ?? true),
       rsiRiskPercentage: rsiConfig?.riskPercentage ? Number(rsiConfig.riskPercentage) : 1.0,
       rsiStopLossPips: rsiConfig?.stopLossPips ? Number(rsiConfig.stopLossPips) : 10,
       rsiTakeProfitPips: rsiConfig?.takeProfitPips ? Number(rsiConfig.takeProfitPips) : 20,
       rsiRewardRiskRatio: rsiConfig?.rewardRiskRatio ? Number(rsiConfig.rewardRiskRatio) : 2.0,
       rsiMinCandleBodyPercent: rsiConfig?.minCandleBodyPercent ? Number(rsiConfig.minCandleBodyPercent) : 30,
-      rsiSpreadFilterEnabled: rsiConfig?.spreadFilterEnabled ?? true,
+      rsiSpreadFilterEnabled: Boolean(rsiConfig?.spreadFilterEnabled ?? true),
       rsiMaxSpreadPips: rsiConfig?.maxSpreadPips ? Number(rsiConfig.maxSpreadPips) : 2.0,
-      rsiSessionFilterEnabled: rsiConfig?.sessionFilterEnabled ?? true,
+      rsiSessionFilterEnabled: Boolean(rsiConfig?.sessionFilterEnabled ?? true),
       rsiSessionStart: rsiConfig?.sessionStart ?? "08:00",
       rsiSessionEnd: rsiConfig?.sessionEnd ?? "17:00",
-      rsiTrailingEnabled: rsiConfig?.trailingEnabled ?? false,
+      rsiTrailingEnabled: Boolean(rsiConfig?.trailingEnabled ?? false),
       rsiTrailingTriggerPips: rsiConfig?.trailingTriggerPips ? Number(rsiConfig.trailingTriggerPips) : 15,
       rsiTrailingStepPips: rsiConfig?.trailingStepPips ? Number(rsiConfig.trailingStepPips) : 5,
-      rsiVerboseLogging: rsiConfig?.verboseLogging ?? true,
+      rsiVerboseLogging: Boolean(rsiConfig?.verboseLogging ?? true),
       
       // ORB Trend - Carregar do banco de dados (orbTrendConfig)
       orbActiveSymbols: orbConfig?.activeSymbols || JSON.stringify(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
@@ -282,7 +282,7 @@ export const icmarketsRouter = router({
       
       // ============= CAMPOS INSTITUCIONAIS SMC =============
       // Modo Institucional (OPT-IN)
-      institutionalModeEnabled: smcConfig?.institutionalModeEnabled ?? false,
+      institutionalModeEnabled: Boolean(smcConfig?.institutionalModeEnabled) ?? false,
       // FVG (Fair Value Gap)
       minGapPips: smcConfig?.minGapPips ? Number(smcConfig.minGapPips) : 2.0,
       // Sessões Institucionais (UTC em minutos)
@@ -1747,7 +1747,7 @@ export const icmarketsRouter = router({
       }
       
       const config = {
-        institutionalModeEnabled: smcConfig.institutionalModeEnabled ?? false,
+        institutionalModeEnabled: Boolean(smcConfig.institutionalModeEnabled ?? false),
         minGapPips: smcConfig.minGapPips ? Number(smcConfig.minGapPips) : 2.0,
         asiaSessionStartUtc: smcConfig.asiaSessionStartUtc ?? 1380,
         asiaSessionEndUtc: smcConfig.asiaSessionEndUtc ?? 420,
