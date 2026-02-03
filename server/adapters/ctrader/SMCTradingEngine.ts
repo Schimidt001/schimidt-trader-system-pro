@@ -1472,12 +1472,13 @@ export class SMCTradingEngine extends EventEmitter {
         requiredM15 = (smcConfig.chochM15Lookback || 15) + 10;
         requiredM5 = 20; // M5 é fixo
         
-        // DEBUG: Log dos valores de config (apenas na primeira análise)
-        if (this.analysisCount === 1) {
-          console.log(`[SMCTradingEngine] [DEBUG] Config da UI:`);
+        // DEBUG: Log dos valores de config a cada 10 análises para debug
+        if (this.analysisCount % 10 === 0) {
+          console.log(`[SMCTradingEngine] [DEBUG] ========== CONFIG DA UI ==========`);
           console.log(`[SMCTradingEngine] [DEBUG] swingH1Lookback: ${smcConfig.swingH1Lookback}`);
           console.log(`[SMCTradingEngine] [DEBUG] chochM15Lookback: ${smcConfig.chochM15Lookback}`);
           console.log(`[SMCTradingEngine] [DEBUG] Requisitos calculados: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
+          console.log(`[SMCTradingEngine] [DEBUG] =====================================`);
         }
       }
     }
@@ -1656,12 +1657,13 @@ export class SMCTradingEngine extends EventEmitter {
         requiredM15 = (smcConfig.chochM15Lookback || 15) + 10;
         requiredM5 = 20; // M5 é fixo
         
-        // DEBUG: Log dos valores de config (apenas na primeira análise)
-        if (this.analysisCount === 1) {
-          console.log(`[SMCTradingEngine] [DEBUG] Config da UI:`);
+        // DEBUG: Log dos valores de config a cada 10 análises para debug
+        if (this.analysisCount % 10 === 0) {
+          console.log(`[SMCTradingEngine] [DEBUG] ========== CONFIG DA UI ==========`);
           console.log(`[SMCTradingEngine] [DEBUG] swingH1Lookback: ${smcConfig.swingH1Lookback}`);
           console.log(`[SMCTradingEngine] [DEBUG] chochM15Lookback: ${smcConfig.chochM15Lookback}`);
           console.log(`[SMCTradingEngine] [DEBUG] Requisitos calculados: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
+          console.log(`[SMCTradingEngine] [DEBUG] =====================================`);
         }
       }
     }
