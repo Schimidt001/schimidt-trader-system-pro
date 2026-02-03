@@ -1466,11 +1466,19 @@ export class SMCTradingEngine extends EventEmitter {
     let requiredM5 = 20;
     
     if (this.strategy instanceof SMCStrategy) {
-      const smcConfig = (this.strategy as any).config;
+      const smcConfig = this.strategy.getConfig();
       if (smcConfig) {
         requiredH1 = (smcConfig.swingH1Lookback || 30) + 10;
         requiredM15 = (smcConfig.chochM15Lookback || 15) + 10;
         requiredM5 = 20; // M5 é fixo
+        
+        // DEBUG: Log dos valores de config (apenas na primeira análise)
+        if (this.analysisCount === 1) {
+          console.log(`[SMCTradingEngine] [DEBUG] Config da UI:`);
+          console.log(`[SMCTradingEngine] [DEBUG] swingH1Lookback: ${smcConfig.swingH1Lookback}`);
+          console.log(`[SMCTradingEngine] [DEBUG] chochM15Lookback: ${smcConfig.chochM15Lookback}`);
+          console.log(`[SMCTradingEngine] [DEBUG] Requisitos calculados: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
+        }
       }
     }
     
@@ -1642,11 +1650,19 @@ export class SMCTradingEngine extends EventEmitter {
     let requiredM5 = 20;
     
     if (this.strategy instanceof SMCStrategy) {
-      const smcConfig = (this.strategy as any).config;
+      const smcConfig = this.strategy.getConfig();
       if (smcConfig) {
         requiredH1 = (smcConfig.swingH1Lookback || 30) + 10;
         requiredM15 = (smcConfig.chochM15Lookback || 15) + 10;
         requiredM5 = 20; // M5 é fixo
+        
+        // DEBUG: Log dos valores de config (apenas na primeira análise)
+        if (this.analysisCount === 1) {
+          console.log(`[SMCTradingEngine] [DEBUG] Config da UI:`);
+          console.log(`[SMCTradingEngine] [DEBUG] swingH1Lookback: ${smcConfig.swingH1Lookback}`);
+          console.log(`[SMCTradingEngine] [DEBUG] chochM15Lookback: ${smcConfig.chochM15Lookback}`);
+          console.log(`[SMCTradingEngine] [DEBUG] Requisitos calculados: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
+        }
       }
     }
     
