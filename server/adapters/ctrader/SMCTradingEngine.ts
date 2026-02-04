@@ -20,6 +20,7 @@ import { TrendbarPeriod, TradeSide } from "./CTraderClient";
 import { ITradingStrategy, IMultiTimeframeStrategy, StrategyType, SignalResult, MultiTimeframeData } from "./ITradingStrategy";
 import { strategyFactory } from "./StrategyFactory";
 import { SMCStrategy, SMCStrategyConfig } from "./SMCStrategy";
+import { InstitutionalLogger } from "./InstitutionalLogger";
 import { RiskManager, createRiskManager, RiskManagerConfig, DEFAULT_RISK_CONFIG } from "./RiskManager";
 import { getDb, insertSystemLog, type LogLevel, type LogCategory } from "../../db";
 import { smcStrategyConfig, icmarketsConfig } from "../../../drizzle/schema";
@@ -121,6 +122,7 @@ export class SMCTradingEngine extends EventEmitter {
   private config: SMCTradingEngineConfig;
   private strategy: ITradingStrategy | null = null;
   private riskManager: RiskManager | null = null;
+  private institutionalLogger: InstitutionalLogger | null = null;
   
   // Estado do trading
   private _isRunning: boolean = false;
@@ -869,6 +871,29 @@ export class SMCTradingEngine extends EventEmitter {
       console.log(`[SMCTradingEngine] Inicializando logger estruturado para SMC Strategy...`);
       this.strategy.initializeLogger(this.config.userId, this.config.botId);
       console.log(`[SMCTradingEngine] ✅ Logger estruturado inicializado com sucesso`);
+      
+      // CORREÇÃO 2026-02-04: Integrar InstitutionalLogger se modo institucional estiver ativado
+      const strategyConfig = this.strategy.getConfig();
+      if (strategyConfig.institutionalModeEnabled) {
+        this.institutionalLogger = new InstitutionalLogger(this.config.userId, this.config.botId);
+        this.strategy.setInstitutionalLogCallback(this.institutionalLogger.createLogCallback());
+        console.log(`[SMCTradingEngine] ✅ InstitutionalLogger integrado ao SMCStrategy`);
+        
+        // Emitir log SMC_INST_STATUS no boot para cada símbolo
+        for (const symbol of this.config.symbols) {
+          const fsmState = this.strategy.getInstitutionalFSMState(symbol);
+          const tradesCount = this.strategy.getInstitutionalTradesThisSession?.(symbol) ?? 0;
+          
+          this.institutionalLogger.logStatus(
+            symbol,
+            true, // enabled
+            'OFF_SESSION', // session inicial (será atualizado no primeiro candle)
+            fsmState || 'IDLE',
+            tradesCount,
+            strategyConfig.maxTradesPerSession
+          );
+        }
+      }
     }
   }
   
