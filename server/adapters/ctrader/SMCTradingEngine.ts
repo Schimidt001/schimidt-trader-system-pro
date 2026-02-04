@@ -1817,6 +1817,15 @@ export class SMCTradingEngine extends EventEmitter {
       mtfStrategy.updateTimeframeData("M5", mtfData.m5!);
     }
     
+    // CORREÇÃO P0 2026-02-04: Processar candles no modo institucional
+    // Isso permite que pools de liquidez sejam construídos e logs POOLS_BUILT sejam emitidos
+    if (this.institutionalLogger && this.strategy instanceof SMCStrategy) {
+      const institutionalManager = (this.strategy as any).institutionalManager;
+      if (institutionalManager && m15Data.length > 0 && m5Data.length > 0) {
+        await institutionalManager.processCandles(symbol, m15Data, m5Data);
+      }
+    }
+    
     // Analisar sinal
     const signal = this.strategy.analyzeSignal(mtfData.m5!, mtfData);
     
