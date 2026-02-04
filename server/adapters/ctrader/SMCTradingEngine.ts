@@ -1817,33 +1817,9 @@ export class SMCTradingEngine extends EventEmitter {
       mtfStrategy.updateTimeframeData("M5", mtfData.m5!);
     }
     
-    // CORREÇÃO P0 2026-02-04: Processar candles no modo institucional
-    // Isso permite que pools de liquidez sejam construídos e logs POOLS_BUILT sejam emitidos
-    // DEBUG LOGS para identificar por que processCandles não está funcionando
-    console.log(`[DEBUG_POOLS] ${symbol}: institutionalLogger exists: ${!!this.institutionalLogger}`);
-    console.log(`[DEBUG_POOLS] ${symbol}: strategy instanceof SMCStrategy: ${this.strategy instanceof SMCStrategy}`);
-    
-    if (this.institutionalLogger && this.strategy instanceof SMCStrategy) {
-      // CORREÇÃO: SMCStrategy usa institutionalManagers (Map), não institutionalManager (propriedade)
-      const smcStrategy = this.strategy as any;
-      const institutionalManager = smcStrategy.institutionalManagers?.get(symbol);
-      console.log(`[DEBUG_POOLS] ${symbol}: institutionalManager exists: ${!!institutionalManager}`);
-      console.log(`[DEBUG_POOLS] ${symbol}: m15Data.length=${m15Data.length}, m5Data.length=${m5Data.length}`);
-      
-      if (institutionalManager && m15Data.length > 0 && m5Data.length > 0) {
-        console.log(`[DEBUG_POOLS] ${symbol}: ✅ Calling processCandles...`);
-        try {
-          await institutionalManager.processCandles(symbol, m15Data, m5Data);
-          console.log(`[DEBUG_POOLS] ${symbol}: ✅ processCandles completed successfully`);
-        } catch (error) {
-          console.error(`[DEBUG_POOLS] ${symbol}: ❌ processCandles failed:`, error);
-        }
-      } else {
-        console.log(`[DEBUG_POOLS] ${symbol}: ❌ Skipping processCandles - manager=${!!institutionalManager}, m15=${m15Data.length}, m5=${m5Data.length}`);
-      }
-    } else {
-      console.log(`[DEBUG_POOLS] ${symbol}: ❌ Skipping - logger=${!!this.institutionalLogger}, isSMCStrategy=${this.strategy instanceof SMCStrategy}`);
-    }
+    // NOTA: processCandles() é chamado automaticamente pela SMCStrategy.analyzeSignal()
+    // NÃO devemos chamá-lo aqui, pois a estratégia já o faz com os parâmetros corretos
+    // (m15Data, m5Data, state, currentPrice)
     
     // Analisar sinal
     const signal = this.strategy.analyzeSignal(mtfData.m5!, mtfData);
