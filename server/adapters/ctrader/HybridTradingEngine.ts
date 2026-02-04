@@ -974,9 +974,10 @@ export class HybridTradingEngine extends EventEmitter {
     const MAX_RETRIES = 3;
     
     // Requisitos mínimos com folga
+    // CORREÇÃO AUDITORIA 2026-02-04: Aumentado M5/M15 para suportar swingH1Lookback até 40
     const REQUIRED_H1 = 60;  // 50 + 10 folga
-    const REQUIRED_M15 = 40; // 30 + 10 folga
-    const REQUIRED_M5 = 30;  // 20 + 10 folga
+    const REQUIRED_M15 = 50; // 40 + 10 folga (CORRIGIDO: era 40)
+    const REQUIRED_M5 = 50;  // 40 + 10 folga (CORRIGIDO: era 30)
     
     const successSymbols: string[] = [];
     const failedSymbols: string[] = [];
@@ -1040,7 +1041,7 @@ export class HybridTradingEngine extends EventEmitter {
             successSymbols.push(symbol);
             symbolSuccess = true;
           } else {
-            console.warn(`[HybridEngine] ⚠️ ${symbol}: Dados insuficientes - H1=${h1Candles.length}/50, M15=${m15Candles.length}/30, M5=${m5Candles.length}/20`);
+            console.warn(`[HybridEngine] ⚠️ ${symbol}: Dados insuficientes - H1=${h1Candles.length}/50, M15=${m15Candles.length}/40, M5=${m5Candles.length}/40`);
             if (attempt === MAX_RETRIES) {
               // Na última tentativa, aceitar dados parciais
               console.warn(`[SMC_INST_WARMUP_PARTIAL] ${symbol}: H1=${h1Candles.length} M15=${m15Candles.length} M5=${m5Candles.length}`);
@@ -1329,10 +1330,11 @@ export class HybridTradingEngine extends EventEmitter {
     const m5Data = this.timeframeData.m5.get(symbol) || [];
     
     // CORREÇÃO P0 WARM-UP: Logar BLOCK_REASON explícito quando símbolo é ignorado por falta de dados
-    if (h1Data.length < 50 || m15Data.length < 30 || m5Data.length < 20) {
+    // CORREÇÃO AUDITORIA 2026-02-04: Aumentado mínimos para suportar swingH1Lookback até 40
+    if (h1Data.length < 50 || m15Data.length < 40 || m5Data.length < 40) {
       // Log estruturado a cada 100 análises para não poluir
       if (this.analysisCount % 100 === 1) {
-        console.log(`[SMC_INST_BLOCK] ${symbol}: BLOCK_REASON=INSUFFICIENT_CANDLES H1=${h1Data.length}/50 M15=${m15Data.length}/30 M5=${m5Data.length}/20`);
+        console.log(`[SMC_INST_BLOCK] ${symbol}: BLOCK_REASON=INSUFFICIENT_CANDLES H1=${h1Data.length}/50 M15=${m15Data.length}/40 M5=${m5Data.length}/40`);
       }
       return false;
     }

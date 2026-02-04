@@ -981,15 +981,19 @@ export class SMCTradingEngine extends EventEmitter {
     const RATE_LIMIT_RETRY_DELAY = 5000; // 5s de espera se receber Rate Limit
     
     // CORREÇÃO P0 2026-02-04: QUANTIDADES FIXAS para warm-up obrigatório
-    // Valores alinhados com PR #16 (HybridTradingEngine)
+    // CORREÇÃO AUDITORIA 2026-02-04: Aumentado M5 para 50 candles
+    // Motivo: SMCStrategy usa Math.max(30, swingH1Lookback) para validar candles
+    // Se swingH1Lookback=40 (configurável via UI), precisa de 40 candles M5
+    // Valores com folga de +10 para garantir margem de segurança
     const REQUIRED_H1 = 60;   // 50 + 10 folga
-    const REQUIRED_M15 = 40;  // 30 + 10 folga
-    const REQUIRED_M5 = 30;   // 20 + 10 folga
+    const REQUIRED_M15 = 50;  // 40 + 10 folga (CORRIGIDO: era 40)
+    const REQUIRED_M5 = 50;   // 40 + 10 folga (CORRIGIDO: era 30)
     
     // Mínimos absolutos (sem folga) para validação
+    // CORREÇÃO AUDITORIA 2026-02-04: Aumentado para suportar swingH1Lookback até 40
     const MIN_H1 = 50;
-    const MIN_M15 = 30;
-    const MIN_M5 = 20;
+    const MIN_M15 = 40;  // CORRIGIDO: era 30
+    const MIN_M5 = 40;   // CORRIGIDO: era 20
     
     console.log(`[SMCTradingEngine] 📊 Requisitos de Warm-Up: H1=${REQUIRED_H1} (min ${MIN_H1}), M15=${REQUIRED_M15} (min ${MIN_M15}), M5=${REQUIRED_M5} (min ${MIN_M5})`);
     
