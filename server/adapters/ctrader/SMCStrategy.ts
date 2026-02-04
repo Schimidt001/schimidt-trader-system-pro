@@ -545,7 +545,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     
     // ETAPA 3: Detectar CHoCH (apenas se sweep confirmado)
     if (state.sweepConfirmed) {
-      this.detectCHoCH(state);
+      this.detectCHoCH(state, Date.now());
       
       // LOG ESTRUTURADO: Status do CHoCH
       if (this.logger && this.config.verboseLogging) {
@@ -1495,7 +1495,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
    * - Identificar o último topo (Lower High) que impulsionou o preço
    * - CHoCH ocorre quando o preço rompe e fecha ACIMA desse topo
    */
-  private detectCHoCH(state: SymbolSwarmState): void {
+  private detectCHoCH(state: SymbolSwarmState, nowUtcMs: number = Date.now()): void {
     if (!state.sweepConfirmed || state.chochDetected) return;
     
     const candles = this.m15Data;
@@ -1506,7 +1506,19 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     
     const lookback = this.config.chochM15Lookback;
     const recentCandles = candles.slice(-lookback);
-    const lastCandle = candles[candles.length - 1];
+    
+    // CORREÇÃO 2026-02-04: Usar getLastClosedCandle para evitar look-ahead
+    const closedCandleResult = getLastClosedCandle(candles, 15, nowUtcMs);
+    
+    if (!closedCandleResult.isConfirmed || !closedCandleResult.candle) {
+      // Não há candle M15 fechado disponível - aguardar
+      if (this.config.verboseLogging) {
+        console.log(`[SMC-CHoCH] ${this.currentSymbol}: Aguardando candle M15 fechado (look-ahead prevention)`);
+      }
+      return;
+    }
+    
+    const lastCandle = closedCandleResult.candle;
     const pipValue = this.getPipValue();
     const minPipsRequired = this.config.chochMinPips;
     
