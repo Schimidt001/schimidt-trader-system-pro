@@ -475,8 +475,8 @@ export class HybridTradingEngine extends EventEmitter {
       // Inicializar Risk Manager
       await this.initializeRiskManager();
       
-      // Carregar dados históricos
-      await this.loadHistoricalData();
+      // CORREÇÃO P0 WARM-UP: Warm-Up obrigatório
+      await this.warmUpSymbols();
       
       // Subscrever a preços
       await this.subscribeToAllPrices();
@@ -948,25 +948,35 @@ export class HybridTradingEngine extends EventEmitter {
   }
   
   /**
-   * Carrega dados históricos de forma SEQUENCIAL para evitar Rate Limit
+   * CORREÇÃO P0 WARM-UP (2026-02-04): Warm-Up obrigatório por símbolo
    * 
-   * CORREÇÃO 2026-01-13: Mudança de paralelo para sequencial
-   * - Delay de 1.5s entre cada requisição de timeframe
-   * - Delay de 2s entre cada símbolo
-   * - Retry específico para Rate Limit (erro 429) com espera de 5s
-   * - Até 3 tentativas por símbolo antes de descartar
+   * No boot do engine, para cada símbolo ativo, executar getTrendbars com folga (+10)
+   * para garantir que o bot esteja pronto para operar em minutos após deploy/restart.
+   * 
+   * Requisitos mínimos:
+   * - H1: 50 candles (+ 10 folga = 60)
+   * - M15: 30 candles (+ 10 folga = 40)
+   * - M5: 20 candles (+ 10 folga = 30)
+   * 
+   * Aceite: em até 60-120s após boot, todos os símbolos devem emitir:
+   * [SMC_INST_WARMUP_READY] symbol=X H1=n M15=n M5=n
    */
-  private async loadHistoricalData(): Promise<void> {
+  private async warmUpSymbols(): Promise<void> {
     const startTime = Date.now();
-    console.log("[HybridEngine] 🚀 Carregando dados históricos (modo SEQUENCIAL - Anti Rate Limit)...");
-    console.log(`[HybridEngine] Símbolos a carregar: ${this.config.symbols.join(', ')}`);
-    await this.logInfo(`🚀 Iniciando carregamento SEQUENCIAL para ${this.config.symbols.length} ativos`, "SYSTEM");
+    console.log("[HybridEngine] 🔥 WARM-UP OBRIGATÓRIO: Iniciando...");
+    console.log(`[HybridEngine] Símbolos: ${this.config.symbols.join(', ')}`);
+    await this.logInfo(`🔥 WARM-UP: Iniciando para ${this.config.symbols.length} ativos`, "SYSTEM");
     
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
     const DELAY_BETWEEN_REQUESTS = 1500; // 1.5s entre cada requisição de timeframe
     const DELAY_BETWEEN_SYMBOLS = 2000;  // 2s entre cada símbolo
     const RATE_LIMIT_RETRY_DELAY = 5000; // 5s de espera se receber Rate Limit
     const MAX_RETRIES = 3;
+    
+    // Requisitos mínimos com folga
+    const REQUIRED_H1 = 60;  // 50 + 10 folga
+    const REQUIRED_M15 = 40; // 30 + 10 folga
+    const REQUIRED_M5 = 30;  // 20 + 10 folga
     
     const successSymbols: string[] = [];
     const failedSymbols: string[] = [];
@@ -986,7 +996,8 @@ export class HybridTradingEngine extends EventEmitter {
       const symbol = this.config.symbols[i];
       let symbolSuccess = false;
       
-      console.log(`[HybridEngine] [${i + 1}/${this.config.symbols.length}] Baixando ${symbol}...`);
+      console.log(`[HybridEngine] [${i + 1}/${this.config.symbols.length}] 🔥 WARM-UP: ${symbol}...`);
+      const symbolStartTime = Date.now();
       
       // Retry loop para cada símbolo
       for (let attempt = 1; attempt <= MAX_RETRIES && !symbolSuccess; attempt++) {
@@ -995,37 +1006,46 @@ export class HybridTradingEngine extends EventEmitter {
             console.log(`[HybridEngine] 🔄 ${symbol}: Tentativa ${attempt}/${MAX_RETRIES}...`);
           }
           
-          // Carregar H1
-          const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", 250);
+          // Carregar H1 (getTrendbars)
+          const h1FetchStart = Date.now();
+          const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", REQUIRED_H1);
+          const h1FetchTime = Date.now() - h1FetchStart;
           this.timeframeData.h1.set(symbol, h1Candles);
-          console.log(`[HybridEngine] ${symbol} H1: ${h1Candles.length} candles`);
+          console.log(`[HybridEngine] ${symbol} H1: ${h1Candles.length}/${REQUIRED_H1} candles (${h1FetchTime}ms)`);
           await sleep(DELAY_BETWEEN_REQUESTS);
           
-          // Carregar M15
-          const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", 250);
+          // Carregar M15 (getTrendbars)
+          const m15FetchStart = Date.now();
+          const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", REQUIRED_M15);
+          const m15FetchTime = Date.now() - m15FetchStart;
           this.timeframeData.m15.set(symbol, m15Candles);
-          console.log(`[HybridEngine] ${symbol} M15: ${m15Candles.length} candles`);
+          console.log(`[HybridEngine] ${symbol} M15: ${m15Candles.length}/${REQUIRED_M15} candles (${m15FetchTime}ms)`);
           await sleep(DELAY_BETWEEN_REQUESTS);
           
-          // Carregar M5
-          const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", 250);
+          // Carregar M5 (getTrendbars)
+          const m5FetchStart = Date.now();
+          const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", REQUIRED_M5);
+          const m5FetchTime = Date.now() - m5FetchStart;
           this.timeframeData.m5.set(symbol, m5Candles);
-          console.log(`[HybridEngine] ${symbol} M5: ${m5Candles.length} candles`);
+          console.log(`[HybridEngine] ${symbol} M5: ${m5Candles.length}/${REQUIRED_M5} candles (${m5FetchTime}ms)`);
           
-          // Verificar se os dados são suficientes
+          const symbolElapsedTime = Date.now() - symbolStartTime;
+          
+          // Verificar se os dados são suficientes (mínimo sem folga)
           const isValid = h1Candles.length >= 50 && m15Candles.length >= 30 && m5Candles.length >= 20;
           
           if (isValid) {
-            console.log(`[HybridEngine] ✅ ${symbol}: Carregado com sucesso!`);
+            // LOG ESTRUTURADO: WARMUP_READY
+            console.log(`[SMC_INST_WARMUP_READY] ${symbol}: H1=${h1Candles.length} M15=${m15Candles.length} M5=${m5Candles.length} time=${symbolElapsedTime}ms`);
             successSymbols.push(symbol);
             symbolSuccess = true;
           } else {
             console.warn(`[HybridEngine] ⚠️ ${symbol}: Dados insuficientes - H1=${h1Candles.length}/50, M15=${m15Candles.length}/30, M5=${m5Candles.length}/20`);
             if (attempt === MAX_RETRIES) {
               // Na última tentativa, aceitar dados parciais
+              console.warn(`[SMC_INST_WARMUP_PARTIAL] ${symbol}: H1=${h1Candles.length} M15=${m15Candles.length} M5=${m5Candles.length}`);
               successSymbols.push(symbol);
               symbolSuccess = true;
-              console.warn(`[HybridEngine] ⚠️ ${symbol}: Aceitando dados parciais`);
             }
           }
           
@@ -1308,11 +1328,11 @@ export class HybridTradingEngine extends EventEmitter {
     const m15Data = this.timeframeData.m15.get(symbol) || [];
     const m5Data = this.timeframeData.m5.get(symbol) || [];
     
-    // CORREÇÃO CRÍTICA: Logar quando símbolo é ignorado por falta de dados
+    // CORREÇÃO P0 WARM-UP: Logar BLOCK_REASON explícito quando símbolo é ignorado por falta de dados
     if (h1Data.length < 50 || m15Data.length < 30 || m5Data.length < 20) {
-      // Log apenas a cada 100 análises para não poluir
+      // Log estruturado a cada 100 análises para não poluir
       if (this.analysisCount % 100 === 1) {
-        console.log(`[HybridEngine] ⚠️ ${symbol}: Dados insuficientes - H1=${h1Data.length}/50 M15=${m15Data.length}/30 M5=${m5Data.length}/20`);
+        console.log(`[SMC_INST_BLOCK] ${symbol}: BLOCK_REASON=INSUFFICIENT_CANDLES H1=${h1Data.length}/50 M15=${m15Data.length}/30 M5=${m5Data.length}/20`);
       }
       return false;
     }
