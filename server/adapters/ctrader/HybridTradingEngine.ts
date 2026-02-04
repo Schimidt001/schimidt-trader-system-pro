@@ -1261,6 +1261,32 @@ export class HybridTradingEngine extends EventEmitter {
     // Log de resumo a cada 10 ciclos
     if (this.analysisCount % 10 === 0 || this.analysisCount === 1) {
       console.log(`[HybridEngine] 📊 Resumo: ${analyzedCount}/${this.config.symbols.length} analisados | ${skippedCount} ignorados${skippedSymbols.length > 0 ? ` (${skippedSymbols.join(', ')})` : ''}`);
+      
+      // CORREÇÃO 2026-02-04: Emitir SMC_INST_STATUS periódico para cada símbolo
+      if (this.institutionalLogger && this.smcStrategy instanceof SMCStrategy) {
+        for (const symbol of this.config.symbols) {
+          const fsmState = this.smcStrategy.getInstitutionalFSMState(symbol);
+          const tradesCount = this.smcStrategy.getSessionTradeCount?.(symbol) ?? 0;
+          const instDebug = this.smcStrategy.getInstitutionalDebugInfo?.(symbol);
+          
+          // Extrair sessão atual do debug info ou usar OFF_SESSION como fallback
+          let currentSession: 'ASIA' | 'LONDON' | 'NY' | 'OFF_SESSION' = 'OFF_SESSION';
+          if (instDebug) {
+            if (instDebug.includes('ASIA')) currentSession = 'ASIA';
+            else if (instDebug.includes('LONDON')) currentSession = 'LONDON';
+            else if (instDebug.includes('NY')) currentSession = 'NY';
+          }
+          
+          this.institutionalLogger.logStatus(
+            symbol,
+            true, // enabled (já sabemos que está habilitado se chegou aqui)
+            currentSession,
+            fsmState || 'IDLE',
+            tradesCount,
+            2 // maxTradesPerSession default
+          );
+        }
+      }
     }
   }
   

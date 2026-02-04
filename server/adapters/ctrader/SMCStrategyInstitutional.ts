@@ -211,6 +211,13 @@ export class SMCInstitutionalManager {
       }
       
       // Contexto inválido - bloquear
+      // CORREÇÃO 2026-02-04: Emitir NO_TRADE para visibilidade
+      this.logDecisionFinal('NO_TRADE', null, {
+        reason: 'context_reject',
+        blockReason: this.contextEngine.getBlockReason(this.state.context),
+        contextGrade: this.state.context.grade,
+        contextBias: this.state.context.bias,
+      });
       if (this.state.fsmState !== 'IDLE') {
         this.transitionTo('IDLE', 'Contexto inválido: ' + this.contextEngine.getBlockReason(this.state.context));
       }
@@ -360,6 +367,13 @@ export class SMCInstitutionalManager {
         
         // Verificar se FVG foi invalidado
         if (this.fvgEngine.isFVGInvalidated(this.state.fvg, currentPrice)) {
+          // CORREÇÃO 2026-02-04: Emitir NO_TRADE para visibilidade
+          this.logDecisionFinal('NO_TRADE', null, {
+            reason: 'fvg_invalidated',
+            fvgHigh: this.state.fvg.activeFVG?.high,
+            fvgLow: this.state.fvg.activeFVG?.low,
+            currentPrice,
+          });
           this.state.fvg = this.fvgEngine.invalidateFVG(this.state.fvg);
           this.transitionTo('IDLE', 'FVG invalidado - preço passou da zona');
         }
@@ -493,6 +507,16 @@ export class SMCInstitutionalManager {
         this.config.maxTradesPerSession,
         true
       );
+    }
+    
+    // CORREÇÃO 2026-02-04: Emitir NO_TRADE quando budget esgotado
+    if (!canTrade) {
+      this.logDecisionFinal('NO_TRADE', null, {
+        reason: 'budget_exhausted',
+        tradesThisSession: this.state.tradesThisSession,
+        maxTradesPerSession: this.config.maxTradesPerSession,
+        session: this.state.session.currentSession,
+      });
     }
     
     return canTrade;
