@@ -1824,7 +1824,9 @@ export class SMCTradingEngine extends EventEmitter {
     console.log(`[DEBUG_POOLS] ${symbol}: strategy instanceof SMCStrategy: ${this.strategy instanceof SMCStrategy}`);
     
     if (this.institutionalLogger && this.strategy instanceof SMCStrategy) {
-      const institutionalManager = (this.strategy as any).institutionalManager;
+      // CORREÇÃO: SMCStrategy usa institutionalManagers (Map), não institutionalManager (propriedade)
+      const smcStrategy = this.strategy as any;
+      const institutionalManager = smcStrategy.institutionalManagers?.get(symbol);
       console.log(`[DEBUG_POOLS] ${symbol}: institutionalManager exists: ${!!institutionalManager}`);
       console.log(`[DEBUG_POOLS] ${symbol}: m15Data.length=${m15Data.length}, m5Data.length=${m5Data.length}`);
       
