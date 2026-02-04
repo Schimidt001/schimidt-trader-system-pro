@@ -131,12 +131,19 @@ export class InstitutionalLogger {
   /**
    * Callback para processar logs do InstitutionalManager
    * Converte logs internos para formato estruturado Railway
+   * 
+   * CORREÇÃO 2026-02-04: Agora também emite logs de transição de FSM
    */
   createLogCallback(): (log: InstitutionalLog) => void {
     return (log: InstitutionalLog) => {
       if (log.type === 'PHASE_TRANSITION') {
-        // Transição de fase - não emitir log estruturado (apenas console.log interno)
-        // SMC_INST_STATUS será emitido manualmente no boot e troca de sessão
+        // CORREÇÃO: Agora emitimos logs de transição de FSM para visibilidade
+        this.logFSMTransition(
+          log.symbol,
+          log.fromState || 'UNKNOWN',
+          log.toState || 'UNKNOWN',
+          log.reason || 'Unknown reason'
+        );
         return;
       }
       
@@ -155,6 +162,62 @@ export class InstitutionalLogger {
         );
       }
     };
+  }
+  
+  /**
+   * CORREÇÃO 2026-02-04: Emite log de transição de FSM
+   * Permite visibilidade completa do fluxo institucional
+   */
+  logFSMTransition(
+    symbol: string,
+    fromState: string,
+    toState: string,
+    reason: string
+  ): void {
+    const log = {
+      type: 'SMC_INST_FSM_TRANSITION',
+      symbol,
+      timestamp: Date.now(),
+      fromState,
+      toState,
+      reason,
+    };
+    
+    // Log estruturado para Railway stdout (nível INFO)
+    console.log(JSON.stringify({
+      level: 'INFO',
+      category: 'INSTITUTIONAL',
+      userId: this.userId,
+      botId: this.botId,
+      ...log,
+    }));
+  }
+  
+  /**
+   * CORREÇÃO 2026-02-04: Emite log de pools construídos
+   * Permite verificar se os pools estão sendo criados corretamente
+   */
+  logPoolsBuilt(
+    symbol: string,
+    poolsCount: number,
+    pools: Array<{ type: string; price: number; swept: boolean }>
+  ): void {
+    const log = {
+      type: 'SMC_INST_POOLS_BUILT',
+      symbol,
+      timestamp: Date.now(),
+      poolsCount,
+      pools: pools.map(p => `${p.type}:${p.price.toFixed(5)}${p.swept ? '(swept)' : ''}`),
+    };
+    
+    // Log estruturado para Railway stdout (nível INFO)
+    console.log(JSON.stringify({
+      level: 'INFO',
+      category: 'INSTITUTIONAL',
+      userId: this.userId,
+      botId: this.botId,
+      ...log,
+    }));
   }
   
   /**

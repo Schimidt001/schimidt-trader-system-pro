@@ -535,13 +535,55 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       });
     }
     
+    // ========== INSTITUCIONAL: PROCESSAR FSM ANTES DO PIPELINE SMC ==========
+    // CORREÇÃO CRÍTICA: O processCandles deve ser chamado ANTES do pipeline SMC
+    // para que a FSM possa avançar independentemente do estado do SMC core.
+    // Isso permite que o módulo institucional funcione corretamente.
+    
+    const instManager = this.institutionalManagers.get(this.currentSymbol);
+    const currentPrice = mtfData?.currentBid || this.getLastPrice();
+    let institutionalReady = false;
+    
+    if (instManager && this.config.institutionalModeEnabled === true) {
+      // LOG: Início do processamento institucional
+      console.log(`[SMC_INST_PROCESS] ${this.currentSymbol}: Iniciando processamento institucional | FSM atual: ${instManager.getFSMState()}`);
+      
+      // Processar candles e atualizar FSM ANTES do pipeline SMC
+      institutionalReady = instManager.processCandles(
+        this.m15Data,
+        this.m5Data,
+        state,
+        currentPrice
+      );
+      
+      // LOG: Status após processamento
+      const fsmStateAfter = instManager.getFSMState();
+      const debugInfo = instManager.getDebugInfo();
+      console.log(`[SMC_INST_PROCESS] ${this.currentSymbol}: FSM após processamento: ${fsmStateAfter} | Ready: ${institutionalReady}`);
+      console.log(`[SMC_INST_PROCESS] ${this.currentSymbol}: ${debugInfo}`);
+      
+      // LOG ESTRUTURADO: Status institucional
+      if (this.logger) {
+        this.logger.logPipelineStatus(
+          this.currentSymbol,
+          "INSTITUTIONAL_FSM",
+          fsmStateAfter === 'WAIT_ENTRY' ? "READY" : "PROCESSING",
+          {
+            fsmState: fsmStateAfter,
+            institutionalReady,
+            debugInfo,
+          }
+        );
+      }
+    }
+    
     // ========== PIPELINE SMC ==========
     
     // ETAPA 1: Identificar Swing Points (H1)
     this.identifySwingPoints(state);
     
     // ETAPA 2: Detectar Sweep
-    const sweepResult = this.detectSweep(state, mtfData?.currentBid || this.getLastPrice());
+    const sweepResult = this.detectSweep(state, currentPrice);
     
     // LOG ESTRUTURADO: Status do Sweep
     if (this.logger && this.config.verboseLogging) {
@@ -605,37 +647,12 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       }
       
       // ========== INSTITUCIONAL: Verificar se FSM permite entrada ==========
-      const instManager = this.institutionalManagers.get(this.currentSymbol);
-      const currentPrice = mtfData?.currentBid || this.getLastPrice();
-      
-      // CORREÇÃO P0.5: Verificar === true para garantir OPT-IN explícito
+      // CORREÇÃO: Agora usamos o instManager já obtido acima
       if (instManager && this.config.institutionalModeEnabled === true) {
-        // LOG ESTRUTURADO: Verificação institucional iniciada
-        if (this.logger && this.config.verboseLogging) {
-          this.logger.logPipelineStatus(
-            this.currentSymbol,
-            "INSTITUTIONAL_CHECK",
-            "PROCESSING",
-            {
-              fsmState: instManager.getFSMState(),
-              institutionalModeEnabled: true,
-            }
-          );
-        }
-        // Processar candles e atualizar FSM
-        const institutionalReady = instManager.processCandles(
-          this.m15Data,
-          this.m5Data,
-          state,
-          currentPrice
-        );
-        
         // Verificar budget de trades por sessão
         if (!instManager.canTradeInSession()) {
           const reason = `Budget esgotado: máx trades/sessão atingido`;
-          if (this.config.verboseLogging) {
-            console.log(`[SMC-INST] ${this.currentSymbol}: ${reason}`);
-          }
+          console.log(`[SMC-INST] ${this.currentSymbol}: ${reason}`);
           return this.createNoSignal(reason);
         }
         
@@ -658,19 +675,15 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
             );
           }
           
-          if (this.config.verboseLogging) {
-            console.log(`[SMC-INST] ${this.currentSymbol}: ${reason}`);
-            console.log(`[SMC-INST] ${this.currentSymbol}: ${instManager.getDebugInfo()}`);
-          }
+          console.log(`[SMC-INST] ${this.currentSymbol}: ${reason}`);
+          console.log(`[SMC-INST] ${this.currentSymbol}: ${instManager.getDebugInfo()}`);
           return this.createNoSignal(reason);
         }
         
         // Verificar se direção é permitida pelo contexto
         if (state.entryDirection && !instManager.isDirectionAllowed(state.entryDirection)) {
           const reason = `Contexto bloqueia ${state.entryDirection}: bias não compatível`;
-          if (this.config.verboseLogging) {
-            console.log(`[SMC-INST] ${this.currentSymbol}: ${reason}`);
-          }
+          console.log(`[SMC-INST] ${this.currentSymbol}: ${reason}`);
           return this.createNoSignal(reason);
         }
         
@@ -687,9 +700,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
           );
         }
         
-        if (this.config.verboseLogging) {
-          console.log(`[SMC-INST] ${this.currentSymbol}: ✅ FSM em WAIT_ENTRY - permitindo análise M5`);
-        }
+        console.log(`[SMC-INST] ${this.currentSymbol}: ✅ FSM em WAIT_ENTRY - permitindo análise M5`);
       }
       
       const entrySignal = this.checkEntryConditions(state, currentPrice);
@@ -2415,6 +2426,33 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     if (!manager) return 0;
     const state = manager.getInstitutionalState();
     return state.tradesThisSession;
+  }
+  
+  /**
+   * CORREÇÃO: Método que estava faltando e era chamado pelo SMCTradingEngine
+   * Obtém o número de trades executados na sessão atual para um símbolo
+   * 
+   * @param symbol Símbolo do ativo
+   * @returns Número de trades na sessão atual
+   */
+  getInstitutionalTradesThisSession(symbol: string): number {
+    const manager = this.institutionalManagers.get(symbol);
+    if (!manager) return 0;
+    const state = manager.getInstitutionalState();
+    return state.tradesThisSession;
+  }
+  
+  /**
+   * CORREÇÃO: Obtém a sessão atual do módulo institucional para um símbolo
+   * 
+   * @param symbol Símbolo do ativo
+   * @returns Tipo da sessão atual ou 'OFF_SESSION' se não disponível
+   */
+  getInstitutionalCurrentSession(symbol: string): string {
+    const manager = this.institutionalManagers.get(symbol);
+    if (!manager) return 'OFF_SESSION';
+    const state = manager.getInstitutionalState();
+    return state.session.currentSession;
   }
 }
 

@@ -874,25 +874,33 @@ export class SMCTradingEngine extends EventEmitter {
       
       // CORREÇÃO 2026-02-04: Integrar InstitutionalLogger se modo institucional estiver ativado
       const strategyConfig = this.strategy.getConfig();
-      if (strategyConfig.institutionalModeEnabled) {
+      console.log(`[SMCTradingEngine] [INST] Verificando modo institucional: ${strategyConfig.institutionalModeEnabled}`);
+      
+      if (strategyConfig.institutionalModeEnabled === true) {
         this.institutionalLogger = new InstitutionalLogger(this.config.userId, this.config.botId);
         this.strategy.setInstitutionalLogCallback(this.institutionalLogger.createLogCallback());
         console.log(`[SMCTradingEngine] ✅ InstitutionalLogger integrado ao SMCStrategy`);
         
         // Emitir log SMC_INST_STATUS no boot para cada símbolo
         for (const symbol of this.config.symbols) {
+          // CORREÇÃO: Usar o método correto que agora existe
           const fsmState = this.strategy.getInstitutionalFSMState(symbol);
-          const tradesCount = this.strategy.getInstitutionalTradesThisSession?.(symbol) ?? 0;
+          const tradesCount = this.strategy.getInstitutionalTradesThisSession(symbol);
+          const currentSession = this.strategy.getInstitutionalCurrentSession(symbol);
+          
+          console.log(`[SMCTradingEngine] [INST] Boot status para ${symbol}: FSM=${fsmState}, Trades=${tradesCount}, Session=${currentSession}`);
           
           this.institutionalLogger.logStatus(
             symbol,
             true, // enabled
-            'OFF_SESSION', // session inicial (será atualizado no primeiro candle)
+            currentSession as any, // sessão atual (pode ser OFF_SESSION no boot)
             fsmState || 'IDLE',
             tradesCount,
-            strategyConfig.maxTradesPerSession
+            strategyConfig.maxTradesPerSession || 3
           );
         }
+      } else {
+        console.log(`[SMCTradingEngine] [INST] Modo institucional DESATIVADO - InstitutionalLogger não será inicializado`);
       }
     }
   }
@@ -1741,8 +1749,15 @@ export class SMCTradingEngine extends EventEmitter {
         // Gravar no banco de dados para auditoria
         await this.logToDatabase("WARN", "SYSTEM", `[SMC_INST_BLOCK] ${symbol}: ${blockReason}`, { 
           symbol, 
-          blockReason,
-          data: { h1: h1Data.length, m15: m15Data.length, m5: m5Data.length, requiredH1, requiredM15, requiredM5 } 
+          data: { 
+            blockReason,
+            h1: h1Data.length, 
+            m15: m15Data.length, 
+            m5: m5Data.length, 
+            requiredH1, 
+            requiredM15, 
+            requiredM5 
+          } 
         });
       }
       return;
