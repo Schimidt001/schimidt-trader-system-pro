@@ -28,6 +28,8 @@ import {
 } from "./ITradingStrategy";
 // REFATORAÇÃO: Importar módulo centralizado de normalização de pips
 import { getPipValue as getCentralizedPipValue, priceToPips as centralizedPriceToPips } from "../../../shared/normalizationUtils";
+// CORREÇÃO 2026-02-04: Importar getLastClosedCandle para prevenir look-ahead
+import { getLastClosedCandle } from "../../../shared/candleUtils";
 
 // INSTITUCIONAL: Importar módulo de integração institucional
 import {
