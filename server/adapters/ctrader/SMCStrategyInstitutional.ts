@@ -170,6 +170,18 @@ export class SMCInstitutionalManager {
     
     const now = Date.now();
     
+    // CORREÇÃO P0 - BOOTSTRAP: Popular previousSession no boot
+    if (!this.state.session.previousSession && m15Candles.length > 0) {
+      this.state.session = this.sessionEngine.bootstrapPreviousSession(
+        this.state.session,
+        m15Candles,
+        now
+      );
+      
+      // LOG ESTRUTURADO: Boot institucional
+      console.log(`[SMC_INST_BOOT] ${this.symbol}: nowUtc=${new Date(now).toISOString()}, currentSession=${this.state.session.currentSession}, previousSession=${this.state.session.previousSession?.type || 'null'}`);
+    }
+    
     // CORREÇÃO P0.3: Detectar mudança de sessão ANTES de atualizar
     const previousSession = this.state.session.currentSession;
     
@@ -226,12 +238,19 @@ export class SMCInstitutionalManager {
     
     // 4. Construir pools de liquidez
     // CORREÇÃO P0.2: Passar pools existentes para preservar estado de sweep
+    const poolsBeforeCount = this.state.liquidityPools.length;
     this.state.liquidityPools = this.liquidityEngine.buildLiquidityPools(
       this.state.session,
       swarmState.swingHighs,
       swarmState.swingLows,
       this.state.liquidityPools // Passar pools existentes para merge
     );
+    
+    // LOG ESTRUTURADO: Pools construídos (1x por sessão ou boot)
+    if (poolsBeforeCount === 0 && this.state.liquidityPools.length > 0) {
+      const poolsSummary = this.state.liquidityPools.map(p => `${p.type}:${p.price.toFixed(5)}`).join(', ');
+      console.log(`[SMC_INST_POOLS_BUILT] ${this.symbol}: poolsBuiltCount=${this.state.liquidityPools.length}, pools=[${poolsSummary}]`);
+    }
     
     // 5. Verificar timeouts
     this.checkTimeouts();
@@ -457,6 +476,9 @@ export class SMCInstitutionalManager {
     this.state.fsmState = newState;
     this.state.fsmStateChangedAt = now;
     
+    // LOG ESTRUTURADO: Transição FSM
+    console.log(`[SMC_INST_FSM_TRANSITION] ${this.symbol}: ${oldState} → ${newState} | ${reason}`);
+    
     // Resetar estados específicos em certas transições
     if (newState === 'IDLE') {
       this.resetForNewSetup();
@@ -614,7 +636,8 @@ export class SMCInstitutionalManager {
       this.logger.logInstitutionalDecision(this.symbol, decision, direction, metadata || {});
     } else {
       // Fallback para console
-      console.log(`[SMC-INST] ${this.symbol}: DECISION_FINAL | ${decision} | ${direction || 'N/A'}`);
+      const metadataStr = metadata ? JSON.stringify(metadata) : '';
+      console.log(`[SMC_INST_DECISION] ${this.symbol}: ${decision} | ${direction || 'N/A'} | ${metadataStr}`);
     }
     
     // Callback
