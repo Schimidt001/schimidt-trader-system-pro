@@ -19,6 +19,7 @@ import {
   SessionTimeConfig,
 } from "../SMCInstitutionalTypes";
 import { getLastClosedCandle, isCandleClosed } from "../../../../shared/candleUtils";
+import { getLastCompletedSession, createSessionDataFromWindow } from "./sessionBootstrap";
 
 /**
  * Configuração padrão de sessões (UTC em minutos)
@@ -361,6 +362,113 @@ export class SessionEngine {
     }
     
     return parts.join(' | ');
+  }
+  
+  /**
+   * CORREÇÃO P0 - BOOTSTRAP: Popula previousSession no boot
+   * 
+   * Permite que o bot comece a operar imediatamente após o boot,
+   * sem depender de mudança de sessão.
+   * 
+   * @param state Estado atual (pode ser vazio)
+   * @param candles Array de candles M15 históricos (mínimo 24h)
+   * @param nowUtcMs Timestamp atual em milissegundos (UTC)
+   * @returns Estado atualizado com previousSession populada
+   */
+  bootstrapPreviousSession(
+    state: SessionEngineState,
+    candles: TrendbarData[],
+    nowUtcMs: number = Date.now()
+  ): SessionEngineState {
+    // Se já temos previousSession, não fazer bootstrap
+    if (state.previousSession) {
+      return state;
+    }
+    
+    // Calcular a última sessão completa
+    const lastCompletedWindow = getLastCompletedSession(nowUtcMs, this.config);
+    
+    // Criar SessionData a partir dos candles históricos
+    const previousSession = createSessionDataFromWindow(lastCompletedWindow, candles);
+    
+    if (!previousSession) {
+      console.warn(`[SessionEngine] ${this.symbol}: BOOTSTRAP FALHOU - Não há candles suficientes para a sessão ${lastCompletedWindow.type}`);
+      return state;
+    }
+    
+    // Calcular previousDayHigh/Low
+    const previousDayCandles = this.getPreviousTradingDayCandles(candles, nowUtcMs);
+    let previousDayHigh: number | null = null;
+    let previousDayLow: number | null = null;
+    
+    if (previousDayCandles.length > 0) {
+      previousDayHigh = Math.max(...previousDayCandles.map(c => c.high));
+      previousDayLow = Math.min(...previousDayCandles.map(c => c.low));
+    }
+    
+    // Identificar sessão atual
+    const currentSession = this.getCurrentSession(nowUtcMs);
+    
+    // Criar currentSessionData se estamos em uma sessão válida
+    let currentSessionData: SessionData | null = null;
+    if (currentSession !== 'OFF_SESSION' && candles.length > 0) {
+      // Filtrar candles da sessão atual
+      const now = new Date(nowUtcMs);
+      const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const sessionStartMinutes = this.getSessionStartMinutes(currentSession);
+      const sessionStart = new Date(todayStart);
+      sessionStart.setUTCMinutes(sessionStartMinutes);
+      
+      const currentSessionCandles = candles.filter(c => c.timestamp >= sessionStart.getTime());
+      if (currentSessionCandles.length > 0) {
+        const firstCandle = currentSessionCandles[0];
+        const lastCandle = currentSessionCandles[currentSessionCandles.length - 1];
+        const high = Math.max(...currentSessionCandles.map(c => c.high));
+        const low = Math.min(...currentSessionCandles.map(c => c.low));
+        
+        currentSessionData = {
+          type: currentSession,
+          high,
+          low,
+          range: high - low,
+          openPrice: firstCandle.open,
+          closePrice: lastCandle.close,
+          startTime: firstCandle.timestamp,
+          endTime: lastCandle.timestamp,
+          isComplete: false,
+          candleCount: currentSessionCandles.length,
+        };
+      }
+    }
+    
+    console.log(`[SessionEngine] ${this.symbol}: ✅ BOOTSTRAP COMPLETO - previousSession: ${previousSession.type}, currentSession: ${currentSession}`);
+    
+    return {
+      ...state,
+      currentSession,
+      currentSessionData,
+      previousSession,
+      previousDayHigh,
+      previousDayLow,
+      lastUpdateTime: nowUtcMs,
+      lastUpdateCandleTime: candles.length > 0 ? candles[candles.length - 1].timestamp : 0,
+    };
+  }
+  
+  /**
+   * Obtém os minutos UTC de início de uma sessão
+   */
+  private getSessionStartMinutes(session: SessionType): number {
+    switch (session) {
+      case 'ASIA':
+        return this.config.asiaStart;
+      case 'LONDON':
+        return this.config.londonStart;
+      case 'NY':
+        return this.config.nyStart;
+      default:
+        return 0;
+    }
   }
   
   /**

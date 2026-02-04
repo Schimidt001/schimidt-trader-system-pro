@@ -343,6 +343,9 @@ export class LiquidityEngine {
         pool.sweptCandle = lastClosedCandle.timestamp;
         pool.sweepDirection = 'HIGH'; // CORREÇÃO P0.2: Registrar direção
         
+        // LOG ESTRUTURADO: Sweep detectado
+        console.log(`[SMC_INST_SWEEP] ${this.symbol}: poolKey=${pool.poolKey}, price=${pool.price.toFixed(5)}, direction=HIGH, timestamp=${new Date(pool.sweptAt!).toISOString()}`);
+        
         return {
           detected: true,
           confirmed: true,
@@ -375,6 +378,9 @@ export class LiquidityEngine {
         pool.sweptAt = Date.now();
         pool.sweptCandle = lastClosedCandle.timestamp;
         pool.sweepDirection = 'LOW'; // CORREÇÃO P0.2: Registrar direção
+        
+        // LOG ESTRUTURADO: Sweep detectado
+        console.log(`[SMC_INST_SWEEP] ${this.symbol}: poolKey=${pool.poolKey}, price=${pool.price.toFixed(5)}, direction=LOW, timestamp=${new Date(pool.sweptAt!).toISOString()}`);
         
         return {
           detected: true,

@@ -108,6 +108,10 @@ export interface SMCStrategyConfig extends BaseStrategyConfig {
   // Logging
   verboseLogging: boolean;
   
+  // CORREÇÃO P0: Supressão de logs clássicos quando institucional estiver ON
+  /** Suprimir logs clássicos do SMC quando modo institucional está habilitado */
+  suppressClassicLogs?: boolean;
+  
   // ============= MODO INSTITUCIONAL =============
   /** Habilitar modo institucional (FSM, FVG, Context, Sessions) */
   institutionalModeEnabled?: boolean;
@@ -303,6 +307,11 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   constructor(config: Partial<SMCStrategyConfig> = {}) {
     this.config = { ...DEFAULT_SMC_CONFIG, ...config };
     
+    // CORREÇÃO P0: Ativar suppressClassicLogs automaticamente quando institucional estiver ON
+    if (this.config.institutionalModeEnabled && this.config.suppressClassicLogs === undefined) {
+      this.config.suppressClassicLogs = true;
+    }
+    
     // Garantir que activeSymbols seja um array (pode vir como string JSON do banco)
     if (typeof this.config.activeSymbols === 'string') {
       try {
@@ -365,16 +374,19 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     this.initializeSwarmStates();
     
     // Log de inicialização com configurações carregadas (detalhado)
-    console.log(`[SMC] ========== CONFIGURAÇÕES CARREGADAS ==========`);
-    console.log(`[SMC] Structure Timeframe: ${this.config.structureTimeframe}`);
-    console.log(`[SMC] CHoCH Min Pips: ${this.config.chochMinPips}`);
-    console.log(`[SMC] CHoCH Accept Wick Break: ${this.config.chochAcceptWickBreak}`);
-    console.log(`[SMC] Sweep Buffer Pips: ${this.config.sweepBufferPips}`);
-    console.log(`[SMC] Risk %: ${this.config.riskPercentage}`);
-    console.log(`[SMC] Max Open Trades: ${this.config.maxOpenTrades}`);
-    console.log(`[SMC] Reward:Risk Ratio: ${this.config.rewardRiskRatio}`);
-    console.log(`[SMC] Ativos monitorados: ${this.config.activeSymbols.join(', ')}`);
-    console.log(`[SMC] ================================================`);
+    // CORREÇÃO P0: Suprimir se institucional estiver ON
+    if (!this.config.suppressClassicLogs) {
+      console.log(`[SMC] ========== CONFIGURAÇÕES CARREGADAS ==========`);
+      console.log(`[SMC] Structure Timeframe: ${this.config.structureTimeframe}`);
+      console.log(`[SMC] CHoCH Min Pips: ${this.config.chochMinPips}`);
+      console.log(`[SMC] CHoCH Accept Wick Break: ${this.config.chochAcceptWickBreak}`);
+      console.log(`[SMC] Sweep Buffer Pips: ${this.config.sweepBufferPips}`);
+      console.log(`[SMC] Risk %: ${this.config.riskPercentage}`);
+      console.log(`[SMC] Max Open Trades: ${this.config.maxOpenTrades}`);
+      console.log(`[SMC] Reward:Risk Ratio: ${this.config.rewardRiskRatio}`);
+      console.log(`[SMC] Ativos monitorados: ${this.config.activeSymbols.join(', ')}`);
+      console.log(`[SMC] ================================================`);
+    }
   }
   
   // ============= MÉTODOS PÚBLICOS DE LOGGING =============
@@ -475,7 +487,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
     if (this.config.spreadFilterEnabled && mtfData?.currentSpreadPips !== undefined) {
       if (mtfData.currentSpreadPips > this.config.maxSpreadPips) {
         const reason = `Spread alto: ${mtfData.currentSpreadPips.toFixed(1)} pips > max ${this.config.maxSpreadPips} pips`;
-        if (this.config.verboseLogging) {
+        if (this.config.verboseLogging && !this.config.suppressClassicLogs) {
           console.log(`[SMC] ${this.currentSymbol}: BLOQUEADO | ${reason}`);
         }
         
@@ -585,7 +597,9 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       if (this.config.spreadFilterEnabled && mtfData?.currentSpreadPips !== undefined) {
         if (mtfData.currentSpreadPips > this.config.maxSpreadPips) {
           const reason = `Entrada bloqueada: Spread ${mtfData.currentSpreadPips.toFixed(1)} pips > max ${this.config.maxSpreadPips} pips`;
-          console.log(`[SMC] ${this.currentSymbol}: ${reason}`);
+          if (!this.config.suppressClassicLogs) {
+            console.log(`[SMC] ${this.currentSymbol}: ${reason}`);
+          }
           return this.createNoSignal(reason);
         }
       }
@@ -738,7 +752,7 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       stopLoss = swingHigh.price + (this.config.stopLossBufferPips * pipValue) + spreadBuffer;
       stopLossPips = Math.abs(stopLoss - entryPrice) / pipValue;
       
-      if (this.config.verboseLogging && currentSpreadPips > 0) {
+      if (this.config.verboseLogging && currentSpreadPips > 0 && !this.config.suppressClassicLogs) {
         console.log(`[SMC] SELL SL ajustado: SwingHigh=${swingHigh.price.toFixed(5)} + Buffer=${this.config.stopLossBufferPips}pips + Spread=${currentSpreadPips.toFixed(1)}pips = SL=${stopLoss.toFixed(5)}`);
       }
     } else if (direction === TradeSide.BUY && state.swingLows.length > 0) {
