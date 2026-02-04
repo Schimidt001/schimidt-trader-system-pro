@@ -920,42 +920,45 @@ export class SMCTradingEngine extends EventEmitter {
   /**
    * Carrega dados históricos para todos os timeframes e símbolos
    * 
+   * CORREÇÃO P0 2026-02-04: WARM-UP OBRIGATÓRIO
+   * - Implementação portada do PR #16 (HybridTradingEngine)
+   * - Quantidades FIXAS para garantir boot rápido e consistente:
+   *   - H1: 60 candles (50 + 10 folga)
+   *   - M15: 40 candles (30 + 10 folga)
+   *   - M5: 30 candles (20 + 10 folga)
+   * - Logs estruturados: [SMC_INST_WARMUP_READY], [SMC_INST_WARMUP_PARTIAL]
+   * - Métricas de fetch por timeframe (tempo em ms)
+   * - Gate institucional NÃO bloqueia warm-up
+   * 
    * CORREÇÃO 2026-01-13: Implementado Retry Logic e Fail-Safe
    * - Cada símbolo tem até 3 tentativas de download
    * - Falha em um símbolo NÃO interrompe o download dos demais
    * - Delay progressivo entre tentativas (backoff)
    * - Log detalhado de sucesso/falha por símbolo
-   * 
-   * CORREÇÃO AUDITORIA 2026-02-02: Carregamento dinâmico baseado no lookback
-   * - Quantidade de candles agora é calculada com base nos parâmetros de lookback da estratégia
-   * - swingH1Lookback define candles para H1
-   * - chochM15Lookback define candles para M15
-   * - M5 usa valor fixo de 50 candles (suficiente para confirmação de entrada)
    */
   private async loadHistoricalData(): Promise<void> {
-    console.log(`[SMCTradingEngine] 📊 Carregando dados históricos para ${this.config.symbols.length} símbolos...`);
-    console.log(`[SMCTradingEngine] Símbolos: ${JSON.stringify(this.config.symbols)}`);
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log(`[SMCTradingEngine] 🔥 WARM-UP OBRIGATÓRIO INICIADO`);
+    console.log(`[SMCTradingEngine] Símbolos: ${this.config.symbols.length} | ${JSON.stringify(this.config.symbols)}`);
+    console.log("═══════════════════════════════════════════════════════════════");
     
     const MAX_RETRIES = 3;
     const DELAY_BETWEEN_REQUESTS = 1500; // 1.5s entre cada requisição de timeframe
     const DELAY_BETWEEN_SYMBOLS = 2000;  // 2s entre cada símbolo
     const RATE_LIMIT_RETRY_DELAY = 5000; // 5s de espera se receber Rate Limit
     
-    // CORREÇÃO AUDITORIA 2026-02-02: Calcular quantidade de candles baseado no lookback
-    // Obter configuração da estratégia para determinar lookbacks
-    let h1CandleCount = 250;  // Valor padrão
-    let m15CandleCount = 250; // Valor padrão
-    let m5CandleCount = 50;   // Valor fixo para M5 (confirmação de entrada)
+    // CORREÇÃO P0 2026-02-04: QUANTIDADES FIXAS para warm-up obrigatório
+    // Valores alinhados com PR #16 (HybridTradingEngine)
+    const REQUIRED_H1 = 60;   // 50 + 10 folga
+    const REQUIRED_M15 = 40;  // 30 + 10 folga
+    const REQUIRED_M5 = 30;   // 20 + 10 folga
     
-    if (this.strategy instanceof SMCStrategy) {
-      const smcConfig = this.strategy.getConfig();
-      // Adicionar margem de segurança de 50 candles além do lookback
-      h1CandleCount = Math.max(100, (smcConfig.swingH1Lookback || 50) + 50);
-      m15CandleCount = Math.max(50, (smcConfig.chochM15Lookback || 15) + 35);
-      console.log(`[SMCTradingEngine] 📊 Candles dinâmicos baseados no lookback: H1=${h1CandleCount}, M15=${m15CandleCount}, M5=${m5CandleCount}`);
-    } else {
-      console.log(`[SMCTradingEngine] 📊 Usando quantidade padrão de candles: H1=${h1CandleCount}, M15=${m15CandleCount}, M5=${m5CandleCount}`);
-    }
+    // Mínimos absolutos (sem folga) para validação
+    const MIN_H1 = 50;
+    const MIN_M15 = 30;
+    const MIN_M5 = 20;
+    
+    console.log(`[SMCTradingEngine] 📊 Requisitos de Warm-Up: H1=${REQUIRED_H1} (min ${MIN_H1}), M15=${REQUIRED_M15} (min ${MIN_M15}), M5=${REQUIRED_M5} (min ${MIN_M5})`);
     
     // Helper para detectar erro de Rate Limit
     const isRateLimitError = (error: any): boolean => {
@@ -973,7 +976,8 @@ export class SMCTradingEngine extends EventEmitter {
       const symbol = this.config.symbols[i];
       let symbolSuccess = false;
       
-      console.log(`[SMCTradingEngine] [${i + 1}/${this.config.symbols.length}] Baixando dados de ${symbol}...`);
+      console.log(`[SMCTradingEngine] [${i + 1}/${this.config.symbols.length}] 🔄 Warm-Up: ${symbol}...`);
+      const symbolStartTime = Date.now();
       
       // RETRY LOOP: Tentar até MAX_RETRIES vezes
       for (let attempt = 1; attempt <= MAX_RETRIES && !symbolSuccess; attempt++) {
@@ -982,61 +986,47 @@ export class SMCTradingEngine extends EventEmitter {
             console.log(`[SMCTradingEngine] 🔄 ${symbol}: Tentativa ${attempt}/${MAX_RETRIES}...`);
           }
           
-          // Carregar H1 (quantidade baseada no lookback)
-          const h1Candles = await this.adapter.getCandleHistory(symbol, "H1", h1CandleCount);
+          // Carregar H1 (getTrendbars) - CORREÇÃO P0: quantidade fixa
+          const h1FetchStart = Date.now();
+          const h1Candles = await this.adapter.getCandleHistory(symbol, "H1", REQUIRED_H1);
+          const h1FetchTime = Date.now() - h1FetchStart;
           this.timeframeData.h1.set(symbol, h1Candles);
-          
-          if (h1Candles.length > 0) {
-            const lastH1 = h1Candles[h1Candles.length - 1];
-            console.log(`[DEBUG-LOAD] ${symbol} H1 último candle: O=${lastH1.open} H=${lastH1.high} L=${lastH1.low} C=${lastH1.close}`);
-          } else {
-            console.warn(`[DEBUG-LOAD] ${symbol} H1: NENHUM CANDLE RETORNADO!`);
-          }
-          
+          console.log(`[SMCTradingEngine] ${symbol} H1: ${h1Candles.length}/${REQUIRED_H1} candles (${h1FetchTime}ms)`);
           await sleep(DELAY_BETWEEN_REQUESTS);
           
-          // Carregar M15 (quantidade baseada no lookback)
-          const m15Candles = await this.adapter.getCandleHistory(symbol, "M15", m15CandleCount);
+          // Carregar M15 (getTrendbars) - CORREÇÃO P0: quantidade fixa
+          const m15FetchStart = Date.now();
+          const m15Candles = await this.adapter.getCandleHistory(symbol, "M15", REQUIRED_M15);
+          const m15FetchTime = Date.now() - m15FetchStart;
           this.timeframeData.m15.set(symbol, m15Candles);
-          
-          if (m15Candles.length > 0) {
-            const lastM15 = m15Candles[m15Candles.length - 1];
-            console.log(`[DEBUG-LOAD] ${symbol} M15 último candle: O=${lastM15.open} H=${lastM15.high} L=${lastM15.low} C=${lastM15.close}`);
-          } else {
-            console.warn(`[DEBUG-LOAD] ${symbol} M15: NENHUM CANDLE RETORNADO!`);
-          }
-          
+          console.log(`[SMCTradingEngine] ${symbol} M15: ${m15Candles.length}/${REQUIRED_M15} candles (${m15FetchTime}ms)`);
           await sleep(DELAY_BETWEEN_REQUESTS);
           
-          // Carregar M5 (quantidade fixa para confirmação de entrada)
-          const m5Candles = await this.adapter.getCandleHistory(symbol, "M5", m5CandleCount);
+          // Carregar M5 (getTrendbars) - CORREÇÃO P0: quantidade fixa
+          const m5FetchStart = Date.now();
+          const m5Candles = await this.adapter.getCandleHistory(symbol, "M5", REQUIRED_M5);
+          const m5FetchTime = Date.now() - m5FetchStart;
           this.timeframeData.m5.set(symbol, m5Candles);
+          console.log(`[SMCTradingEngine] ${symbol} M5: ${m5Candles.length}/${REQUIRED_M5} candles (${m5FetchTime}ms)`);
           
-          if (m5Candles.length > 0) {
-            const lastM5 = m5Candles[m5Candles.length - 1];
-            console.log(`[DEBUG-LOAD] ${symbol} M5 último candle: O=${lastM5.open} H=${lastM5.high} L=${lastM5.low} C=${lastM5.close}`);
-          } else {
-            console.warn(`[DEBUG-LOAD] ${symbol} M5: NENHUM CANDLE RETORNADO!`);
-          }
+          const symbolElapsedTime = Date.now() - symbolStartTime;
           
-          // Verificar se temos dados suficientes (mínimos baseados no lookback)
-          const minH1 = Math.max(50, h1CandleCount - 50);  // Mínimo = solicitado - margem
-          const minM15 = Math.max(30, m15CandleCount - 20);
-          const minM5 = Math.max(20, m5CandleCount - 10);
-          const hasEnoughData = h1Candles.length >= minH1 && m15Candles.length >= minM15 && m5Candles.length >= minM5;
+          // Verificar se os dados são suficientes (mínimo sem folga)
+          const isValid = h1Candles.length >= MIN_H1 && m15Candles.length >= MIN_M15 && m5Candles.length >= MIN_M5;
           
-          if (hasEnoughData) {
-            console.log(`[SMCTradingEngine] ✅ ${symbol}: H1=${h1Candles.length}, M15=${m15Candles.length}, M5=${m5Candles.length} candles`);
-            symbolSuccess = true;
+          if (isValid) {
+            // LOG ESTRUTURADO P0: WARMUP_READY
+            console.log(`[SMC_INST_WARMUP_READY] ${symbol}: H1=${h1Candles.length} M15=${m15Candles.length} M5=${m5Candles.length} time=${symbolElapsedTime}ms`);
             successfulSymbols.push(symbol);
+            symbolSuccess = true;
           } else {
-            console.warn(`[SMCTradingEngine] ⚠️ ${symbol}: Dados insuficientes (H1=${h1Candles.length}/${minH1}, M15=${m15Candles.length}/${minM15}, M5=${m5Candles.length}/${minM5})`);
-            // Continuar para próxima tentativa se dados insuficientes
+            console.warn(`[SMCTradingEngine] ⚠️ ${symbol}: Dados insuficientes - H1=${h1Candles.length}/${MIN_H1}, M15=${m15Candles.length}/${MIN_M15}, M5=${m5Candles.length}/${MIN_M5}`);
             if (attempt === MAX_RETRIES) {
-              // Na última tentativa, aceitar o que temos
-              symbolSuccess = true;
+              // Na última tentativa, aceitar dados parciais
+              // LOG ESTRUTURADO P0: WARMUP_PARTIAL
+              console.warn(`[SMC_INST_WARMUP_PARTIAL] ${symbol}: H1=${h1Candles.length} M15=${m15Candles.length} M5=${m5Candles.length} reason=MAX_RETRIES_REACHED`);
               successfulSymbols.push(symbol);
-              console.warn(`[SMCTradingEngine] ⚠️ ${symbol}: Aceitando dados parciais após ${MAX_RETRIES} tentativas`);
+              symbolSuccess = true;
             }
           }
           
@@ -1712,12 +1702,23 @@ export class SMCTradingEngine extends EventEmitter {
     
     // Verificar se temos dados suficientes
     if (h1Data.length < requiredH1 || m15Data.length < requiredM15 || m5Data.length < requiredM5) {
-      // DEBUG: Log de dados insuficientes para o banco de dados
-      const msg = `Dados insuficientes para ${symbol}: H1=${h1Data.length}/${requiredH1} M15=${m15Data.length}/${requiredM15} M5=${m5Data.length}/${requiredM5}`;
-      console.log(`[SMCTradingEngine] ⚠️ ${msg}`);
-      // Gravar no banco apenas a cada 100 análises para não poluir
-      if (this.analysisCount % 100 === 0) {
-        await this.logToDatabase("WARN", "SYSTEM", msg, { symbol, data: { h1: h1Data.length, m15: m15Data.length, m5: m5Data.length, requiredH1, requiredM15, requiredM5 } });
+      // CORREÇÃO P0 2026-02-04: LOG ESTRUTURADO com BLOCK_REASON explícito
+      // Log estruturado a cada 100 análises para não poluir
+      if (this.analysisCount % 100 === 1) {
+        // Determinar qual timeframe está bloqueando
+        let blockReason = "INSUFFICIENT_CANDLES";
+        if (h1Data.length < requiredH1) blockReason = "INSUFFICIENT_CANDLES_H1";
+        else if (m15Data.length < requiredM15) blockReason = "INSUFFICIENT_CANDLES_M15";
+        else if (m5Data.length < requiredM5) blockReason = "INSUFFICIENT_CANDLES_M5";
+        
+        console.log(`[SMC_INST_BLOCK] ${symbol}: BLOCK_REASON=${blockReason} H1=${h1Data.length}/${requiredH1} M15=${m15Data.length}/${requiredM15} M5=${m5Data.length}/${requiredM5}`);
+        
+        // Gravar no banco de dados para auditoria
+        await this.logToDatabase("WARN", "SYSTEM", `[SMC_INST_BLOCK] ${symbol}: ${blockReason}`, { 
+          symbol, 
+          blockReason,
+          data: { h1: h1Data.length, m15: m15Data.length, m5: m5Data.length, requiredH1, requiredM15, requiredM5 } 
+        });
       }
       return;
     }
