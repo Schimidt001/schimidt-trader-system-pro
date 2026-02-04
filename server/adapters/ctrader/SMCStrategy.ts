@@ -1264,8 +1264,9 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       if (swingHigh.swept) continue;
       
       // NOVO: DETECÇÃO EM TEMPO REAL usando currentPrice
-      // Verifica se o preço atual ultrapassou o swing high
-      if (currentPrice > swingHigh.price) {
+      // CORREÇÃO 2026-02-04: Usar sweepBufferPips como filtro mínimo para evitar falsos positivos
+      // Verifica se o preço atual ultrapassou o swing high + buffer configurado
+      if (currentPrice > swingHigh.price + bufferPips) {
         swingHigh.swept = true;
         swingHigh.sweptAt = Date.now();
         
@@ -1368,8 +1369,9 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       if (swingLow.swept) continue;
       
       // NOVO: DETECÇÃO EM TEMPO REAL usando currentPrice
-      // Verifica se o preço atual ultrapassou o swing low (para baixo)
-      if (currentPrice < swingLow.price) {
+      // CORREÇÃO 2026-02-04: Usar sweepBufferPips como filtro mínimo para evitar falsos positivos
+      // Verifica se o preço atual ultrapassou o swing low - buffer configurado (para baixo)
+      if (currentPrice < swingLow.price - bufferPips) {
         swingLow.swept = true;
         swingLow.sweptAt = Date.now();
         

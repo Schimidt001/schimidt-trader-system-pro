@@ -738,7 +738,8 @@ export class HybridTradingEngine extends EventEmitter {
           verboseLogging: smcConfig?.verboseLogging ?? true,
           // Campos institucionais
           // CORREÇÃO P0.5: Default = FALSE para compatibilidade com configs antigas
-          institutionalModeEnabled: smcConfig?.institutionalModeEnabled ?? false,
+          // CORREÇÃO 2026-02-04: Converter explicitamente para boolean (valor do MySQL pode vir como 1, "1", true)
+          institutionalModeEnabled: smcConfig?.institutionalModeEnabled === true || smcConfig?.institutionalModeEnabled === 1 || smcConfig?.institutionalModeEnabled === '1' || smcConfig?.institutionalModeEnabled === 'true',
           minGapPips: smcConfig?.minGapPips ? Number(smcConfig.minGapPips) : 2.0,
           asiaSessionStartUtc: smcConfig?.asiaSessionStartUtc ?? 1380,
           asiaSessionEndUtc: smcConfig?.asiaSessionEndUtc ?? 420,
