@@ -1497,39 +1497,16 @@ export class SMCTradingEngine extends EventEmitter {
     if (this.strategy instanceof SMCStrategy) {
       const smcConfig = this.strategy.getConfig();
       
-      // DEBUG: Verificar se smcConfig existe
-      if (this.analysisCount % 10 === 0) {
-        console.log(`[SMCTradingEngine] [DEBUG] ========== VERIFICANDO CONFIG ==========`);
-        console.log(`[SMCTradingEngine] [DEBUG] strategy instanceof SMCStrategy: ${this.strategy instanceof SMCStrategy}`);
-        console.log(`[SMCTradingEngine] [DEBUG] smcConfig existe: ${!!smcConfig}`);
-        console.log(`[SMCTradingEngine] [DEBUG] smcConfig: ${JSON.stringify(smcConfig)}`);
-        console.log(`[SMCTradingEngine] [DEBUG] ==========================================`);
-      }
+      // OTIMIZAÇÃO: Logs de DEBUG removidos para reduzir rate limiting
       
       if (smcConfig) {
         requiredH1 = (smcConfig.swingH1Lookback || 30) + 10;
         requiredM15 = (smcConfig.chochM15Lookback || 15) + 10;
         requiredM5 = 20; // M5 é fixo
         
-        // DEBUG: Log dos valores de config a cada 10 análises para debug
-        if (this.analysisCount % 10 === 0) {
-          console.log(`[SMCTradingEngine] [DEBUG] ========== CONFIG DA UI ==========`);
-          console.log(`[SMCTradingEngine] [DEBUG] swingH1Lookback: ${smcConfig.swingH1Lookback}`);
-          console.log(`[SMCTradingEngine] [DEBUG] chochM15Lookback: ${smcConfig.chochM15Lookback}`);
-          console.log(`[SMCTradingEngine] [DEBUG] Requisitos calculados: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
-          console.log(`[SMCTradingEngine] [DEBUG] =====================================`);
-        }
-      } else {
-        // DEBUG: Config é null!
-        if (this.analysisCount % 10 === 0) {
-          console.log(`[SMCTradingEngine] [DEBUG] ❌ smcConfig é NULL! Usando fallback: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
-        }
+        // OTIMIZAÇÃO: Logs de CONFIG DA UI removidos para reduzir rate limiting
       }
-    } else {
-      // DEBUG: Strategy não é SMCStrategy
-      if (this.analysisCount % 10 === 0) {
-        console.log(`[SMCTradingEngine] [DEBUG] ❌ Strategy não é SMCStrategy! Tipo: ${this.strategy?.constructor.name}`);
-      }
+      // OTIMIZAÇÃO: Logs de fallback removidos para reduzir rate limiting
     }
     
     for (const symbol of this.config.symbols) {
@@ -1702,39 +1679,16 @@ export class SMCTradingEngine extends EventEmitter {
     if (this.strategy instanceof SMCStrategy) {
       const smcConfig = this.strategy.getConfig();
       
-      // DEBUG: Verificar se smcConfig existe
-      if (this.analysisCount % 10 === 0) {
-        console.log(`[SMCTradingEngine] [DEBUG] ========== VERIFICANDO CONFIG ==========`);
-        console.log(`[SMCTradingEngine] [DEBUG] strategy instanceof SMCStrategy: ${this.strategy instanceof SMCStrategy}`);
-        console.log(`[SMCTradingEngine] [DEBUG] smcConfig existe: ${!!smcConfig}`);
-        console.log(`[SMCTradingEngine] [DEBUG] smcConfig: ${JSON.stringify(smcConfig)}`);
-        console.log(`[SMCTradingEngine] [DEBUG] ==========================================`);
-      }
+      // OTIMIZAÇÃO: Logs de DEBUG removidos para reduzir rate limiting
       
       if (smcConfig) {
         requiredH1 = (smcConfig.swingH1Lookback || 30) + 10;
         requiredM15 = (smcConfig.chochM15Lookback || 15) + 10;
         requiredM5 = 20; // M5 é fixo
         
-        // DEBUG: Log dos valores de config a cada 10 análises para debug
-        if (this.analysisCount % 10 === 0) {
-          console.log(`[SMCTradingEngine] [DEBUG] ========== CONFIG DA UI ==========`);
-          console.log(`[SMCTradingEngine] [DEBUG] swingH1Lookback: ${smcConfig.swingH1Lookback}`);
-          console.log(`[SMCTradingEngine] [DEBUG] chochM15Lookback: ${smcConfig.chochM15Lookback}`);
-          console.log(`[SMCTradingEngine] [DEBUG] Requisitos calculados: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
-          console.log(`[SMCTradingEngine] [DEBUG] =====================================`);
-        }
-      } else {
-        // DEBUG: Config é null!
-        if (this.analysisCount % 10 === 0) {
-          console.log(`[SMCTradingEngine] [DEBUG] ❌ smcConfig é NULL! Usando fallback: H1=${requiredH1}, M15=${requiredM15}, M5=${requiredM5}`);
-        }
+        // OTIMIZAÇÃO: Logs de CONFIG DA UI removidos para reduzir rate limiting
       }
-    } else {
-      // DEBUG: Strategy não é SMCStrategy
-      if (this.analysisCount % 10 === 0) {
-        console.log(`[SMCTradingEngine] [DEBUG] ❌ Strategy não é SMCStrategy! Tipo: ${this.strategy?.constructor.name}`);
-      }
+      // OTIMIZAÇÃO: Logs de fallback removidos para reduzir rate limiting
     }
     
     // Verificar se temos dados suficientes
@@ -1874,8 +1828,10 @@ export class SMCTradingEngine extends EventEmitter {
     const analysisEndTime = performance.now();
     const analysisLatency = analysisEndTime - analysisStartTime;
     
-    // Log de performance conforme especificado na auditoria
-    console.log(`[PERFORMANCE] Tick processado em ${analysisLatency.toFixed(2)}ms | ${symbol} | Sinal: ${signal.signal}`);
+    // OTIMIZAÇÃO: Log de performance com throttle (a cada 10 análises ou quando houver sinal)
+    if (signal.signal !== "NONE" || this.analysisCount % 10 === 0) {
+      console.log(`[PERFORMANCE] Tick processado em ${analysisLatency.toFixed(2)}ms | ${symbol} | Sinal: ${signal.signal}`);
+    }
     
     // Atualizar métricas de análise
     this.updateAnalysisPerformanceMetrics(analysisLatency, symbol, signal.signal);

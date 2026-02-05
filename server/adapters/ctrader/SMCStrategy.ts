@@ -955,24 +955,11 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
   }
   
   updateTimeframeData(timeframe: string, candles: TrendbarData[]): void {
-    // DEBUG: Log de atualização de dados
-    console.log(`[DEBUG-MTF] ${this.currentSymbol} | Atualizando ${timeframe}: ${candles.length} candles`);
+    // OTIMIZAÇÃO: Log de atualização removido para reduzir rate limiting
     
-    // DEBUG: Verificar se os candles têm dados válidos
-    if (candles.length > 0) {
-      const first = candles[0];
-      const last = candles[candles.length - 1];
-      console.log(`[DEBUG-MTF] ${this.currentSymbol} | ${timeframe} Primeiro: O=${first.open?.toFixed(5)} H=${first.high?.toFixed(5)} L=${first.low?.toFixed(5)} C=${first.close?.toFixed(5)}`);
-      console.log(`[DEBUG-MTF] ${this.currentSymbol} | ${timeframe} Último: O=${last.open?.toFixed(5)} H=${last.high?.toFixed(5)} L=${last.low?.toFixed(5)} C=${last.close?.toFixed(5)}`);
-      
-      // ALERTA: Verificar se os dados são zeros (problema de API)
-      if (first.open === 0 || first.high === 0 || first.low === 0 || first.close === 0) {
-        console.error(`[ALERTA] ${this.currentSymbol} | ${timeframe} PRIMEIRO CANDLE TEM VALORES ZERO!`);
-      }
-      if (last.open === 0 || last.high === 0 || last.low === 0 || last.close === 0) {
-        console.error(`[ALERTA] ${this.currentSymbol} | ${timeframe} ÚLTIMO CANDLE TEM VALORES ZERO!`);
-      }
-    } else {
+    // OTIMIZAÇÃO: Logs de DEBUG-MTF removidos para reduzir rate limiting
+    // Mantemos apenas alertas críticos de dados inválidos
+    if (candles.length === 0) {
       console.error(`[ALERTA] ${this.currentSymbol} | ${timeframe} ARRAY DE CANDLES VAZIO!`);
     }
     
@@ -1091,12 +1078,10 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       return;
     }
     
-    // ========== DEBUG: Verificar dados antes de processar Swing Points ==========
-    console.log(`[DEBUG-SWING] ${this.currentSymbol} | TF: ${tfLabel} (UI Config) | Candles: ${candles.length} | leftBars: ${leftBars} | rightBars: ${rightBars} | lookback: ${lookback}`);
+    // OTIMIZAÇÃO: Logs de DEBUG-SWING removidos para reduzir rate limiting
     
     // Precisamos de pelo menos leftBars + rightBars + 1 candles
     if (candles.length < leftBars + rightBars + 1) {
-      console.log(`[DEBUG-SWING] ${this.currentSymbol} | ❌ Candles insuficientes: ${candles.length} < ${leftBars + rightBars + 1} (mínimo necessário)`);
       return;
     }
     
@@ -1565,11 +1550,8 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       const movementPips = this.priceToPips(priceDiff);
       const distanceToSwing = this.priceToPips(lastCandle.close - swingLow.price);
       
-      // Log de DEBUG obrigatorio - MELHORADO
-      console.log(`[SMC-CHoCH] ${this.currentSymbol}: CHoCH BEARISH Check`);
-      console.log(`[SMC-CHoCH]   SwingLow: ${swingLow.price.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`);
-      console.log(`[SMC-CHoCH]   Distância ao SwingLow: ${distanceToSwing.toFixed(1)} pips (${lastCandle.close > swingLow.price ? 'ACIMA' : 'ABAIXO'})`);
-      console.log(`[SMC-CHoCH]   Movimento necessário: ${minPipsRequired} pips | Movimento atual: ${movementPips.toFixed(1)} pips`);
+      // OTIMIZAÇÃO: Logs de DEBUG de CHoCH Check removidos para reduzir rate limiting
+      // Mantemos apenas logs de CONFIRMAÇÃO e REJEIÇÃO com REASON
       
       // Verificar se movimento atinge minimo em pips
       // MELHORIA: Suporte a CHoCH por pavio (wick break) quando configurado
@@ -1672,11 +1654,8 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       const movementPips = this.priceToPips(priceDiff);
       const distanceToSwing = this.priceToPips(swingHigh.price - lastCandle.close);
       
-      // Log de DEBUG obrigatorio - MELHORADO
-      console.log(`[SMC-CHoCH] ${this.currentSymbol}: CHoCH BULLISH Check`);
-      console.log(`[SMC-CHoCH]   SwingHigh: ${swingHigh.price.toFixed(5)} | Close: ${lastCandle.close.toFixed(5)}`);
-      console.log(`[SMC-CHoCH]   Distância ao SwingHigh: ${distanceToSwing.toFixed(1)} pips (${lastCandle.close < swingHigh.price ? 'ABAIXO' : 'ACIMA'})`);
-      console.log(`[SMC-CHoCH]   Movimento necessário: ${minPipsRequired} pips | Movimento atual: ${movementPips.toFixed(1)} pips`);
+      // OTIMIZAÇÃO: Logs de DEBUG de CHoCH Check removidos para reduzir rate limiting
+      // Mantemos apenas logs de CONFIRMAÇÃO e REJEIÇÃO com REASON
       
       // Verificar se movimento atinge minimo em pips
       // MELHORIA: Suporte a CHoCH por pavio (wick break) quando configurado

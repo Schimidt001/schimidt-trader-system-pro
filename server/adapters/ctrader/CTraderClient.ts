@@ -591,22 +591,18 @@ export class CTraderClient extends EventEmitter {
   private processEvent(payloadType: number, payload: Uint8Array): void {
     if (!this.protoRoot) return;
     
-    // [DEBUG] Log de todos os eventos recebidos (exceto heartbeat para não poluir)
-    if (payloadType !== PayloadType.PROTO_OA_HEARTBEAT_EVENT && payloadType !== 51) {
-      console.log(`[CTraderClient] [EVENT] Recebido payloadType: ${payloadType}`);
-    }
+    // OTIMIZAÇÃO: Log de eventos removido para reduzir rate limiting
+    // Eventos importantes (EXECUTION, ORDER_ERROR) ainda são logados individualmente
     
     switch (payloadType) {
       case PayloadType.PROTO_OA_SPOT_EVENT: {
         const SpotEvent = this.protoRoot.lookupType("ProtoOASpotEvent");
         const event = SpotEvent.decode(payload) as any;
         
-        // [DEBUG] Verificar tipo do symbolId - pode ser Long do protobuf
+        // Converter symbolId se for Long do protobuf
         let symbolId = event.symbolId;
         if (typeof symbolId === 'object' && symbolId !== null) {
-          // É um Long do protobuf - converter para number
           symbolId = symbolId.toNumber ? symbolId.toNumber() : Number(symbolId);
-          console.log(`[CTraderClient] [SPOT] DEBUG: symbolId era Long, convertido para ${symbolId}`);
         }
         
         // Converter preços do protocolo
@@ -632,9 +628,8 @@ export class CTraderClient extends EventEmitter {
           break; // Não emitir tick com spread negativo
         }
         
-        // [DEBUG] Log do tick válido recebido
-        const symbolName = this.symbolIdToName.get(symbolId) || `ID:${symbolId}`;
-        console.log(`[CTraderClient] [SPOT] Tick válido para ${symbolName}: Bid=${bid}, Ask=${ask}`);
+        // OTIMIZAÇÃO: Log de tick removido para reduzir rate limiting
+        // Ticks são logados no SMCTradingEngine com throttle de 5 segundos
         
         const spotData: SpotEvent = {
           symbolId: symbolId, // Usar o ID já convertido

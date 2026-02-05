@@ -232,8 +232,8 @@ export class CTraderAdapter extends BaseBrokerAdapter {
       spread: calculateSpreadPips(spotEvent.bid, spotEvent.ask, symbolName),
     };
     
-    // [PROVA DE VIDA] Log conforme critério de aceitação
-    console.log(`[CTraderAdapter] Tick recebido para ${symbolName}: Bid: ${tick.bid.toFixed(5)}, Ask: ${tick.ask.toFixed(5)}`);
+    // OTIMIZAÇÃO: Log de tick removido para reduzir rate limiting
+    // Ticks são logados no SMCTradingEngine com throttle de 5 segundos
     
     // Atualizar cache
     this.priceCache.set(symbolName, tick);
