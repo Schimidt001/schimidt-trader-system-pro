@@ -845,7 +845,8 @@ export class HybridTradingEngine extends EventEmitter {
         const rsiConfig = rsiConfigs[0];
         
         // CORREÇÃO: Carregar activeSymbols próprios do RSI+VWAP do banco de dados
-        let rsiActiveSymbols = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"];
+        // Default: array vazio (usuário deve selecionar via UI)
+        let rsiActiveSymbols: string[] = [];
         if (rsiConfig?.activeSymbols) {
           try {
             rsiActiveSymbols = typeof rsiConfig.activeSymbols === 'string'

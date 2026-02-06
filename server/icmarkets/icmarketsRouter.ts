@@ -97,7 +97,7 @@ const icmarketsConfigSchema = z.object({
   maxTotalExposurePercent: z.number().default(7.0),
   maxTradesPerSymbol: z.number().default(1),
   // RSI + VWAP Config
-  rsiActiveSymbols: z.string().default('["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]'),
+  rsiActiveSymbols: z.string().default('[]'),
   rsiH1CandleCount: z.number().default(60),
   rsiM15CandleCount: z.number().default(40),
   rsiM5CandleCount: z.number().default(40),
@@ -250,7 +250,8 @@ export const icmarketsRouter = router({
       maxTradesPerSymbol: (smcConfig as any)?.maxTradesPerSymbol || 1,
       
       // RSI + VWAP - CORREÇÃO: Carregar do banco de dados (rsiVwapConfig)
-      rsiActiveSymbols: rsiConfig?.activeSymbols || JSON.stringify(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
+      // Default: array vazio (usuário deve selecionar via UI)
+      rsiActiveSymbols: rsiConfig?.activeSymbols || JSON.stringify([]),
       rsiH1CandleCount: rsiConfig?.h1CandleCount ?? 60,
       rsiM15CandleCount: rsiConfig?.m15CandleCount ?? 40,
       rsiM5CandleCount: rsiConfig?.m5CandleCount ?? 40,

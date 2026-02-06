@@ -196,7 +196,7 @@ export default function SettingsMultiBroker() {
   const [maxTradesPerSession, setMaxTradesPerSession] = useState("2");
 
   // ============= ESTADOS RSI + VWAP (Single Source of Truth) =============
-  const [rsiActiveSymbols, setRsiActiveSymbols] = useState<string[]>(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+  const [rsiActiveSymbols, setRsiActiveSymbols] = useState<string[]>([]);
   const [rsiH1CandleCount, setRsiH1CandleCount] = useState("60");
   const [rsiM15CandleCount, setRsiM15CandleCount] = useState("40");
   const [rsiM5CandleCount, setRsiM5CandleCount] = useState("40");

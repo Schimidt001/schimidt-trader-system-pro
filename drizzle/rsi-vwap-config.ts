@@ -24,7 +24,7 @@ export const rsiVwapConfig = mysqlTable("rsiVwapConfig", {
   
   // ============= ATIVOS MONITORADOS =============
   /** Lista de ativos monitorados pela estratégia RSI+VWAP (JSON array) */
-  activeSymbols: text("activeSymbols").default('["EURUSD","GBPUSD","USDJPY","XAUUSD"]'),
+  activeSymbols: text("activeSymbols").default('[]'),
   
   // ============= QUANTIDADE DE CANDLES POR TIMEFRAME =============
   /** Quantidade de candles H1 para coleta (default: 60) */
