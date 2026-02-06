@@ -1000,38 +1000,79 @@ export class HybridTradingEngine extends EventEmitter {
   
   /**
    * Inicializa o Risk Manager
+   * CORREÇÃO 2026-02-06: Suporta dois modos de sessão
+   * - SINGLE: Horário único (RSI_VWAP_ONLY)
+   * - MULTI: Múltiplas sessões (SMC/HYBRID/ORB)
    */
   private async initializeRiskManager(): Promise<void> {
     const db = await getDb();
     
-    let smcConfig: any = null;
-    if (this.config.mode === HybridMode.SMC_ONLY || this.config.mode === HybridMode.HYBRID) {
-      const result = await db
+    let riskConfig: RiskManagerConfig;
+    
+    // ============= MODO RSI_VWAP_ONLY: Usar configurações do rsiVwapConfig =============
+    if (this.config.mode === HybridMode.RSI_VWAP_ONLY) {
+      const rsiConfigs = await db
         .select()
-        .from(smcStrategyConfig)
+        .from(rsiVwapConfig)
         .where(
           and(
-            eq(smcStrategyConfig.userId, this.config.userId),
-            eq(smcStrategyConfig.botId, this.config.botId)
+            eq(rsiVwapConfig.userId, this.config.userId),
+            eq(rsiVwapConfig.botId, this.config.botId)
           )
         )
         .limit(1);
-      smcConfig = result[0];
+      
+      const rsiConfig = rsiConfigs[0];
+      
+      riskConfig = {
+        userId: this.config.userId,
+        botId: this.config.botId,
+        riskPercentage: rsiConfig?.riskPercentage ? Number(rsiConfig.riskPercentage) : 1.0,
+        maxOpenTrades: this.config.maxPositions,
+        dailyLossLimitPercent: 3.0, // Pode ser adicionado ao rsiVwapConfig no futuro
+        sessionFilterEnabled: rsiConfig?.sessionFilterEnabled ?? true,
+        sessionMode: "SINGLE",
+        sessionStart: rsiConfig?.sessionStart ?? "08:00",
+        sessionEnd: rsiConfig?.sessionEnd ?? "17:00",
+        circuitBreakerEnabled: true,
+      };
+      
+      console.log(`[RsiVwapEngine] Risk Manager configurado em modo SINGLE | Sessão: ${riskConfig.sessionStart}-${riskConfig.sessionEnd}`);
+    } 
+    // ============= MODOS SMC/HYBRID/ORB: Usar configurações do smcStrategyConfig =============
+    else {
+      let smcConfig: any = null;
+      if (this.config.mode === HybridMode.SMC_ONLY || this.config.mode === HybridMode.HYBRID) {
+        const result = await db
+          .select()
+          .from(smcStrategyConfig)
+          .where(
+            and(
+              eq(smcStrategyConfig.userId, this.config.userId),
+              eq(smcStrategyConfig.botId, this.config.botId)
+            )
+          )
+          .limit(1);
+        smcConfig = result[0];
+      }
+      
+      riskConfig = {
+        userId: this.config.userId,
+        botId: this.config.botId,
+        riskPercentage: smcConfig?.riskPercentage ? Number(smcConfig.riskPercentage) : DEFAULT_RISK_CONFIG.riskPercentage,
+        maxOpenTrades: this.config.maxPositions,
+        dailyLossLimitPercent: smcConfig?.dailyLossLimitPercent ? Number(smcConfig.dailyLossLimitPercent) : DEFAULT_RISK_CONFIG.dailyLossLimitPercent,
+        sessionFilterEnabled: smcConfig?.sessionFilterEnabled ?? DEFAULT_RISK_CONFIG.sessionFilterEnabled,
+        sessionMode: "MULTI",
+        londonSessionStart: smcConfig?.londonSessionStart ?? DEFAULT_RISK_CONFIG.londonSessionStart,
+        londonSessionEnd: smcConfig?.londonSessionEnd ?? DEFAULT_RISK_CONFIG.londonSessionEnd,
+        nySessionStart: smcConfig?.nySessionStart ?? DEFAULT_RISK_CONFIG.nySessionStart,
+        nySessionEnd: smcConfig?.nySessionEnd ?? DEFAULT_RISK_CONFIG.nySessionEnd,
+        circuitBreakerEnabled: smcConfig?.circuitBreakerEnabled ?? DEFAULT_RISK_CONFIG.circuitBreakerEnabled,
+      };
+      
+      console.log(`[HybridEngine] Risk Manager configurado em modo MULTI | Londres: ${riskConfig.londonSessionStart}-${riskConfig.londonSessionEnd} | NY: ${riskConfig.nySessionStart}-${riskConfig.nySessionEnd}`);
     }
-    
-    const riskConfig: RiskManagerConfig = {
-      userId: this.config.userId,
-      botId: this.config.botId,
-      riskPercentage: smcConfig?.riskPercentage ? Number(smcConfig.riskPercentage) : DEFAULT_RISK_CONFIG.riskPercentage,
-      maxOpenTrades: this.config.maxPositions,
-      dailyLossLimitPercent: smcConfig?.dailyLossLimitPercent ? Number(smcConfig.dailyLossLimitPercent) : DEFAULT_RISK_CONFIG.dailyLossLimitPercent,
-      sessionFilterEnabled: smcConfig?.sessionFilterEnabled ?? DEFAULT_RISK_CONFIG.sessionFilterEnabled,
-      londonSessionStart: smcConfig?.londonSessionStart ?? DEFAULT_RISK_CONFIG.londonSessionStart,
-      londonSessionEnd: smcConfig?.londonSessionEnd ?? DEFAULT_RISK_CONFIG.londonSessionEnd,
-      nySessionStart: smcConfig?.nySessionStart ?? DEFAULT_RISK_CONFIG.nySessionStart,
-      nySessionEnd: smcConfig?.nySessionEnd ?? DEFAULT_RISK_CONFIG.nySessionEnd,
-      circuitBreakerEnabled: smcConfig?.circuitBreakerEnabled ?? DEFAULT_RISK_CONFIG.circuitBreakerEnabled,
-    };
     
     this.riskManager = createRiskManager(riskConfig);
     

@@ -42,10 +42,19 @@ export interface RiskManagerConfig {
   
   // Sessões de trading
   sessionFilterEnabled: boolean;
-  londonSessionStart: string;
-  londonSessionEnd: string;
-  nySessionStart: string;
-  nySessionEnd: string;
+  
+  // Modo de sessão: MULTI (SMC/HYBRID/ORB) ou SINGLE (RSI_VWAP_ONLY)
+  sessionMode?: "MULTI" | "SINGLE";
+  
+  // Modo MULTI: Sessões de Londres e NY (SMC, HYBRID, ORB)
+  londonSessionStart?: string;
+  londonSessionEnd?: string;
+  nySessionStart?: string;
+  nySessionEnd?: string;
+  
+  // Modo SINGLE: Horário único (RSI_VWAP_ONLY)
+  sessionStart?: string;
+  sessionEnd?: string;
   
   // Circuit breaker
   circuitBreakerEnabled: boolean;
@@ -206,7 +215,13 @@ export class RiskManager {
       // Calcular próxima sessão
       const nextSession = this.getNextTradingSession(brasiliaTime);
       
-      console.log(`[RiskManager] 🚫 Filtro de Sessão | Hora atual (Brasília): ${currentTime} | Londres: ${this.config.londonSessionStart}-${this.config.londonSessionEnd} | NY: ${this.config.nySessionStart}-${this.config.nySessionEnd}`);
+      // Logs específicos por modo
+      if (this.config.sessionMode === "SINGLE") {
+        console.log(`[RiskManager] 🚫 Filtro de Sessão | Hora atual (Brasília): ${currentTime} | Sessão: ${this.config.sessionStart}-${this.config.sessionEnd}`);
+      } else {
+        console.log(`[RiskManager] 🚫 Filtro de Sessão | Hora atual (Brasília): ${currentTime} | Londres: ${this.config.londonSessionStart}-${this.config.londonSessionEnd} | NY: ${this.config.nySessionStart}-${this.config.nySessionEnd}`);
+      }
+      
       console.log(`[RiskManager] ⏰ Próxima sessão: ${nextSession.name} às ${nextSession.startTime} (em ${nextSession.minutesUntil} minutos)`);
       
       return {
@@ -531,6 +546,9 @@ export class RiskManager {
   
   /**
    * Calcula a próxima sessão de trading
+   * Suporta dois modos:
+   * - SINGLE: Retorna próxima sessão única (RSI_VWAP_ONLY)
+   * - MULTI: Retorna próxima sessão entre Londres e NY (SMC/HYBRID/ORB)
    */
   private getNextTradingSession(brasiliaTime: Date): { name: string; startTime: string; minutesUntil: number } {
     const currentHour = brasiliaTime.getHours();
@@ -541,6 +559,46 @@ export class RiskManager {
       const [hours, minutes] = timeStr.split(":").map(Number);
       return hours * 60 + minutes;
     };
+    
+    // Modo SINGLE: Sessão única (RSI_VWAP_ONLY)
+    if (this.config.sessionMode === "SINGLE") {
+      if (!this.config.sessionStart || !this.config.sessionEnd) {
+        return {
+          name: "SESSÃO",
+          startTime: "N/A",
+          minutesUntil: 0,
+        };
+      }
+      
+      const sessionStart = parseTime(this.config.sessionStart);
+      
+      if (currentTimeMinutes < sessionStart) {
+        // Próxima sessão é hoje
+        return {
+          name: "SESSÃO",
+          startTime: this.config.sessionStart,
+          minutesUntil: sessionStart - currentTimeMinutes,
+        };
+      } else {
+        // Próxima sessão é amanhã
+        const minutesUntilMidnight = 24 * 60 - currentTimeMinutes;
+        const minutesUntilSession = minutesUntilMidnight + sessionStart;
+        return {
+          name: "SESSÃO",
+          startTime: this.config.sessionStart,
+          minutesUntil: minutesUntilSession,
+        };
+      }
+    }
+    
+    // Modo MULTI: Múltiplas sessões (SMC/HYBRID/ORB)
+    if (!this.config.londonSessionStart || !this.config.nySessionStart) {
+      return {
+        name: "N/A",
+        startTime: "N/A",
+        minutesUntil: 0,
+      };
+    }
     
     const londonStart = parseTime(this.config.londonSessionStart);
     const nyStart = parseTime(this.config.nySessionStart);
@@ -574,6 +632,9 @@ export class RiskManager {
   
   /**
    * Verifica se está dentro do horário de trading
+   * Suporta dois modos:
+   * - SINGLE: Horário único (sessionStart - sessionEnd) para RSI_VWAP_ONLY
+   * - MULTI: Múltiplas sessões (Londres e NY) para SMC/HYBRID/ORB
    */
   private isWithinTradingSession(): boolean {
     const now = new Date();
@@ -592,6 +653,26 @@ export class RiskManager {
       const [hours, minutes] = timeStr.split(":").map(Number);
       return hours * 60 + minutes;
     };
+    
+    // Modo SINGLE: Horário único (RSI_VWAP_ONLY)
+    if (this.config.sessionMode === "SINGLE") {
+      if (!this.config.sessionStart || !this.config.sessionEnd) {
+        console.error("[RiskManager] Modo SINGLE configurado mas sessionStart/sessionEnd não definidos");
+        return false;
+      }
+      
+      const sessionStart = parseTime(this.config.sessionStart);
+      const sessionEnd = parseTime(this.config.sessionEnd);
+      
+      return currentTimeMinutes >= sessionStart && currentTimeMinutes <= sessionEnd;
+    }
+    
+    // Modo MULTI: Múltiplas sessões (SMC/HYBRID/ORB)
+    if (!this.config.londonSessionStart || !this.config.londonSessionEnd || 
+        !this.config.nySessionStart || !this.config.nySessionEnd) {
+      console.error("[RiskManager] Modo MULTI configurado mas sessões Londres/NY não definidas");
+      return false;
+    }
     
     const londonStart = parseTime(this.config.londonSessionStart);
     const londonEnd = parseTime(this.config.londonSessionEnd);
@@ -765,6 +846,7 @@ export const DEFAULT_RISK_CONFIG: Omit<RiskManagerConfig, "userId" | "botId"> = 
   maxOpenTrades: 3,
   dailyLossLimitPercent: 3.0,
   sessionFilterEnabled: true,
+  sessionMode: "MULTI",
   londonSessionStart: "04:00",
   londonSessionEnd: "07:00",
   nySessionStart: "09:30",

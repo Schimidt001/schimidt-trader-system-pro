@@ -923,6 +923,7 @@ export class SMCTradingEngine extends EventEmitter {
     }
     
     // CORRECAO: Usar ?? em vez de || para preservar strings vazias e valores falsy validos
+    // CORREÇÃO 2026-02-06: Adicionar sessionMode MULTI para SMC
     const riskConfig: RiskManagerConfig = {
       userId: this.config.userId,
       botId: this.config.botId,
@@ -930,6 +931,7 @@ export class SMCTradingEngine extends EventEmitter {
       maxOpenTrades: smcConfig?.maxOpenTrades ?? DEFAULT_RISK_CONFIG.maxOpenTrades,
       dailyLossLimitPercent: smcConfig?.dailyLossLimitPercent ? Number(smcConfig.dailyLossLimitPercent) : DEFAULT_RISK_CONFIG.dailyLossLimitPercent,
       sessionFilterEnabled: smcConfig?.sessionFilterEnabled ?? DEFAULT_RISK_CONFIG.sessionFilterEnabled,
+      sessionMode: "MULTI",
       londonSessionStart: smcConfig?.londonSessionStart ?? DEFAULT_RISK_CONFIG.londonSessionStart,
       londonSessionEnd: smcConfig?.londonSessionEnd ?? DEFAULT_RISK_CONFIG.londonSessionEnd,
       nySessionStart: smcConfig?.nySessionStart ?? DEFAULT_RISK_CONFIG.nySessionStart,
