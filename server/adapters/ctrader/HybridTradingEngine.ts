@@ -242,6 +242,9 @@ export class HybridTradingEngine extends EventEmitter {
   // Subscrições
   private priceSubscriptions: Set<string> = new Set();
   
+  // RSI+VWAP: Candle counts configuráveis (carregados do banco)
+  private rsiCandleCounts: { h1: number; m15: number; m5: number } = { h1: 60, m15: 40, m5: 40 };
+  
   // Cache
   private lastTickPrice: number | null = null;
   private lastTickTime: number | null = null;
@@ -447,18 +450,41 @@ export class HybridTradingEngine extends EventEmitter {
       throw new Error("Não conectado ao IC Markets. Conecte primeiro.");
     }
     
+    // CORREÇÃO: Nome do robô baseado no modo (não genérico "HÍBRIDO")
+    const modeNames: Record<string, string> = {
+      [HybridMode.SMC_ONLY]: "SMC INSTITUCIONAL",
+      [HybridMode.RSI_VWAP_ONLY]: "RSI+VWAP REVERSAL",
+      [HybridMode.HYBRID]: "HÍBRIDO SMC+RSI+VWAP",
+      [HybridMode.ORB_ONLY]: "ORB TREND",
+    };
+    const modeName = modeNames[this.config.mode] || "HÍBRIDO";
+    const logPrefix = this.config.mode === HybridMode.RSI_VWAP_ONLY ? "[RsiVwapEngine]" : "[HybridEngine]";
+    
     console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[HybridEngine] 🚀 INICIANDO MOTOR HÍBRIDO");
-    console.log(`[HybridEngine] Modo: ${this.config.mode}`);
-    console.log(`[HybridEngine] Símbolos: ${this.config.symbols.join(", ")}`);
-    console.log("[HybridEngine] 🔒 CORREÇÃO P0 v5.0: Sistema In-Flight ativo (timeout: 30s)");
+    console.log(`${logPrefix} 🚀 INICIANDO ROBÔ ${modeName}`);
+    console.log(`${logPrefix} Modo: ${this.config.mode}`);
+    console.log(`${logPrefix} Símbolos: ${this.config.symbols.join(", ")}`);
+    console.log(`${logPrefix} 🔒 Sistema In-Flight ativo (timeout: 30s)`);
     console.log("═══════════════════════════════════════════════════════════════");
     
     try {
+      // CORREÇÃO: Reset de dados ao reiniciar - garante dados frescos e atuais
+      this.timeframeData.h1.clear();
+      this.timeframeData.m15.clear();
+      this.timeframeData.m5.clear();
+      this.lastTradedCandleTimestamp.clear();
+      this.consumedStructures.clear();
+      this.inFlightOrdersBySymbol.clear();
+      this.isExecutingOrder.clear();
+      this.lockTimestamps.clear();
+      this.pendingPositions.clear();
+      this.lastTradeTime.clear();
+      console.log(`${logPrefix} 🔄 Dados anteriores resetados para coleta de dados frescos`);
+      
       // CORREÇÃO 2026-01-13: Configurar contexto do usuário no CTraderAdapter
       // Isso permite que o handleExecutionEvent persista posições no banco de dados
       ctraderAdapter.setUserContext(this.config.userId, this.config.botId);
-      console.log("[HybridEngine] ✅ Contexto de usuário configurado no CTraderAdapter");
+      console.log(`${logPrefix} ✅ Contexto de usuário configurado no CTraderAdapter`);
       
       // CORREÇÃO 2026-01-13: Reconciliar posições abertas com a cTrader
       // Sincroniza o banco de dados com as posições reais da corretora
@@ -496,13 +522,13 @@ export class HybridTradingEngine extends EventEmitter {
         symbols: this.config.symbols,
       });
       
-      console.log("[HybridEngine] ✅ Motor híbrido iniciado com sucesso!");
+      console.log(`${logPrefix} ✅ Robô ${modeName} iniciado com sucesso!`);
       
-      // Log para UI
+      // Log para UI - CORREÇÃO: Nome específico por modo
       await this.logInfo(
-        `🚀 ROBÔ HÍBRIDO INICIADO | Modo: ${this.config.mode} | Símbolos: ${this.config.symbols.join(", ")}`,
+        `🚀 ROBÔ ${modeName} INICIADO | Modo: ${this.config.mode} | Símbolos: ${this.config.symbols.join(", ")}`,
         "SYSTEM",
-        { mode: this.config.mode, symbols: this.config.symbols, maxPositions: this.config.maxPositions }
+        { mode: this.config.mode, modeName, symbols: this.config.symbols, maxPositions: this.config.maxPositions }
       );
       
     } catch (error) {
@@ -520,9 +546,19 @@ export class HybridTradingEngine extends EventEmitter {
       return;
     }
     
+    // CORREÇÃO: Nome do robô baseado no modo
+    const modeNames: Record<string, string> = {
+      [HybridMode.SMC_ONLY]: "SMC INSTITUCIONAL",
+      [HybridMode.RSI_VWAP_ONLY]: "RSI+VWAP REVERSAL",
+      [HybridMode.HYBRID]: "HÍBRIDO SMC+RSI+VWAP",
+      [HybridMode.ORB_ONLY]: "ORB TREND",
+    };
+    const modeName = modeNames[this.config.mode] || "HÍBRIDO";
+    const logPrefix = this.config.mode === HybridMode.RSI_VWAP_ONLY ? "[RsiVwapEngine]" : "[HybridEngine]";
+    
     console.log("═══════════════════════════════════════════════════════════════");
-    console.log("[HybridEngine] 🛑 PARANDO MOTOR HÍBRIDO");
-    console.log(`[HybridEngine] Análises: ${this.analysisCount} | Trades: ${this.tradesExecuted}`);
+    console.log(`${logPrefix} 🛑 PARANDO ROBÔ ${modeName}`);
+    console.log(`${logPrefix} Análises: ${this.analysisCount} | Trades: ${this.tradesExecuted}`);
     console.log("═══════════════════════════════════════════════════════════════");
     
     this._isRunning = false;
@@ -543,7 +579,7 @@ export class HybridTradingEngine extends EventEmitter {
     
     // CORREÇÃO P0 v5.0: Limpar todos os locks in-flight
     for (const [symbol, inFlight] of this.inFlightOrdersBySymbol.entries()) {
-      console.log(`[HybridEngine] 🔓 Limpando lock in-flight de ${symbol} (correlationId: ${inFlight.correlationId})`);
+      console.log(`${logPrefix} 🔓 Limpando lock in-flight de ${symbol} (correlationId: ${inFlight.correlationId})`);
     }
     this.inFlightOrdersBySymbol.clear();
     
@@ -552,17 +588,26 @@ export class HybridTradingEngine extends EventEmitter {
     this.lockTimestamps.clear();
     this.pendingPositions.clear();
     
+    // CORREÇÃO: Limpar timeframeData para garantir reset completo
+    this.timeframeData.h1.clear();
+    this.timeframeData.m15.clear();
+    this.timeframeData.m5.clear();
+    this.lastTradedCandleTimestamp.clear();
+    this.consumedStructures.clear();
+    this.lastTradeTime.clear();
+    console.log(`${logPrefix} 🔄 Dados de timeframes resetados`);
+    
     this.emit("stopped", {
       analysisCount: this.analysisCount,
       tradesExecuted: this.tradesExecuted,
       runtime: this.startTime ? Date.now() - this.startTime : 0,
     });
     
-    console.log("[HybridEngine] ✅ Motor híbrido parado");
+    console.log(`${logPrefix} ✅ Robô ${modeName} parado`);
     
-    // Log para UI
+    // Log para UI - CORREÇÃO: Nome específico por modo
     await this.logInfo(
-      `🛑 ROBÔ HÍBRIDO PARADO | Análises: ${this.analysisCount} | Trades: ${this.tradesExecuted}`,
+      `🛑 ROBÔ ${modeName} PARADO | Análises: ${this.analysisCount} | Trades: ${this.tradesExecuted}`,
       "SYSTEM"
     );
   }
@@ -799,30 +844,80 @@ export class HybridTradingEngine extends EventEmitter {
         
         const rsiConfig = rsiConfigs[0];
         
-        // CORREÇÃO BUG #2: RSI+VWAP usa os mesmos símbolos configurados no HybridEngine
-        // A tabela rsiVwapConfig não tem campo activeSymbols, então usamos this.config.symbols
-        // que já foi carregado corretamente de smcStrategyConfig.activeSymbols em loadConfigFromDB()
-        const rsiActiveSymbols = this.config.symbols.length > 0 
-          ? this.config.symbols 
-          : ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"];
-        console.log(`[HybridEngine] ℹ️ RSI+VWAP usará os mesmos símbolos do HybridEngine: ${rsiActiveSymbols.join(', ')}`);
+        // CORREÇÃO: Carregar activeSymbols próprios do RSI+VWAP do banco de dados
+        let rsiActiveSymbols = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"];
+        if (rsiConfig?.activeSymbols) {
+          try {
+            rsiActiveSymbols = typeof rsiConfig.activeSymbols === 'string'
+              ? JSON.parse(rsiConfig.activeSymbols)
+              : rsiConfig.activeSymbols;
+          } catch (e) {
+            console.warn("[RsiVwapEngine] Erro ao parsear activeSymbols RSI+VWAP, usando default");
+          }
+        }
+        
+        // CORREÇÃO: Carregar candle counts do banco de dados
+        this.rsiCandleCounts = {
+          h1: rsiConfig?.h1CandleCount ?? 60,
+          m15: rsiConfig?.m15CandleCount ?? 40,
+          m5: rsiConfig?.m5CandleCount ?? 40,
+        };
+        
+        // CORREÇÃO ISOLAMENTO: Quando modo RSI_VWAP_ONLY, sobrescrever this.config.symbols
+        // com os símbolos próprios da estratégia RSI+VWAP (assim como ORB faz)
+        if (this.config.mode === HybridMode.RSI_VWAP_ONLY) {
+          this.config.symbols = rsiActiveSymbols;
+          console.log(`[RsiVwapEngine] ✅ Símbolos do engine sobrescritos com RSI+VWAP: ${rsiActiveSymbols.join(', ')}`);
+          console.log(`[RsiVwapEngine] ✅ Candle counts: H1=${this.rsiCandleCounts.h1}, M15=${this.rsiCandleCounts.m15}, M5=${this.rsiCandleCounts.m5}`);
+        }
         
         const strategyConfig: RsiVwapStrategyConfig = {
+          strategyType: StrategyType.RSI_VWAP_REVERSAL,
           rsiPeriod: rsiConfig?.rsiPeriod ?? 14,
           rsiOverbought: rsiConfig?.rsiOverbought ?? 70,
           rsiOversold: rsiConfig?.rsiOversold ?? 30,
-          vwapPeriod: rsiConfig?.vwapPeriod ?? 20,
-          stopLossPips: rsiConfig?.stopLossPips ?? 15,
-          takeProfitPips: rsiConfig?.takeProfitPips ?? 30,
-          useTrailingStop: rsiConfig?.useTrailingStop ?? false,
-          trailingStopPips: rsiConfig?.trailingStopPips ?? 10,
-          activeSymbols: rsiActiveSymbols, // CORREÇÃO: Passar activeSymbols para a estratégia
+          vwapEnabled: rsiConfig?.vwapEnabled ?? true,
+          riskPercentage: rsiConfig?.riskPercentage ? Number(rsiConfig.riskPercentage) : 1.0,
+          stopLossPips: rsiConfig?.stopLossPips ? Number(rsiConfig.stopLossPips) : 10,
+          takeProfitPips: rsiConfig?.takeProfitPips ? Number(rsiConfig.takeProfitPips) : 20,
+          rewardRiskRatio: rsiConfig?.rewardRiskRatio ? Number(rsiConfig.rewardRiskRatio) : 2.0,
+          minCandleBodyPercent: rsiConfig?.minCandleBodyPercent ? Number(rsiConfig.minCandleBodyPercent) : 30,
+          spreadFilterEnabled: rsiConfig?.spreadFilterEnabled ?? true,
+          maxSpreadPips: rsiConfig?.maxSpreadPips ? Number(rsiConfig.maxSpreadPips) : 2.0,
+          sessionFilterEnabled: rsiConfig?.sessionFilterEnabled ?? true,
+          sessionStart: rsiConfig?.sessionStart ?? "08:00",
+          sessionEnd: rsiConfig?.sessionEnd ?? "17:00",
+          trailingEnabled: rsiConfig?.trailingEnabled ?? false,
+          trailingTriggerPips: rsiConfig?.trailingTriggerPips ? Number(rsiConfig.trailingTriggerPips) : 15,
+          trailingStepPips: rsiConfig?.trailingStepPips ? Number(rsiConfig.trailingStepPips) : 5,
+          verboseLogging: rsiConfig?.verboseLogging ?? true,
+          activeSymbols: rsiActiveSymbols,
         };
         
-        this.rsiVwapStrategy = strategyFactory.createStrategy(StrategyType.RSI_VWAP, strategyConfig);
-        console.log(`[HybridEngine] ✅ Estratégia RSI+VWAP inicializada | Símbolos ativos: ${rsiActiveSymbols.join(', ')}`);
+        this.rsiVwapStrategy = strategyFactory.createStrategy(StrategyType.RSI_VWAP_REVERSAL, strategyConfig);
+        console.log(`[RsiVwapEngine] ✅ Estratégia RSI+VWAP inicializada | Símbolos ativos: ${rsiActiveSymbols.join(', ')}`);
+        
+        // Log estruturado para UI (isolado)
+        if (this.config.mode === HybridMode.RSI_VWAP_ONLY) {
+          await insertSystemLog({
+            userId: this.config.userId,
+            botId: this.config.botId,
+            level: "INFO",
+            category: "STRATEGY",
+            source: "RsiVwapEngine",
+            message: `STRATEGY_ACTIVE=RSI_VWAP_ONLY | Símbolos: ${rsiActiveSymbols.join(', ')} | Candles: H1=${this.rsiCandleCounts.h1} M15=${this.rsiCandleCounts.m15} M5=${this.rsiCandleCounts.m5}`,
+            data: {
+              strategyType: "RSI_VWAP_ONLY",
+              activeSymbols: rsiActiveSymbols,
+              candleCounts: this.rsiCandleCounts,
+              rsiPeriod: strategyConfig.rsiPeriod,
+              rsiOversold: strategyConfig.rsiOversold,
+              rsiOverbought: strategyConfig.rsiOverbought,
+            },
+          });
+        }
       } catch (error) {
-        console.error("[HybridEngine] Erro ao inicializar RSI+VWAP:", error);
+        console.error("[RsiVwapEngine] Erro ao inicializar RSI+VWAP:", error);
       }
     }
     
@@ -973,11 +1068,26 @@ export class HybridTradingEngine extends EventEmitter {
     const RATE_LIMIT_RETRY_DELAY = 5000; // 5s de espera se receber Rate Limit
     const MAX_RETRIES = 3;
     
-    // Requisitos mínimos com folga
-    // CORREÇÃO AUDITORIA 2026-02-04: Aumentado M5/M15 para suportar swingH1Lookback até 40
-    const REQUIRED_H1 = 60;  // 50 + 10 folga
-    const REQUIRED_M15 = 50; // 40 + 10 folga (CORRIGIDO: era 40)
-    const REQUIRED_M5 = 50;  // 40 + 10 folga (CORRIGIDO: era 30)
+    // CORREÇÃO: Requisitos mínimos baseados no modo
+    // RSI_VWAP_ONLY usa seus próprios candle counts (carregados do banco)
+    // SMC/HYBRID/ORB usam requisitos do SMC (50/40/40 + folga)
+    let REQUIRED_H1: number;
+    let REQUIRED_M15: number;
+    let REQUIRED_M5: number;
+    
+    if (this.config.mode === HybridMode.RSI_VWAP_ONLY) {
+      // Usar candle counts específicos do RSI+VWAP (já carregados do banco)
+      REQUIRED_H1 = this.rsiCandleCounts.h1;
+      REQUIRED_M15 = this.rsiCandleCounts.m15;
+      REQUIRED_M5 = this.rsiCandleCounts.m5;
+      console.log(`[RsiVwapEngine] 🔥 WARM-UP com candle counts RSI+VWAP: H1=${REQUIRED_H1}, M15=${REQUIRED_M15}, M5=${REQUIRED_M5}`);
+    } else {
+      // Requisitos do SMC/HYBRID/ORB (50 + 10 folga)
+      REQUIRED_H1 = 60;  // 50 + 10 folga
+      REQUIRED_M15 = 50; // 40 + 10 folga
+      REQUIRED_M5 = 50;  // 40 + 10 folga
+      console.log(`[HybridEngine] 🔥 WARM-UP com candle counts SMC: H1=${REQUIRED_H1}, M15=${REQUIRED_M15}, M5=${REQUIRED_M5}`);
+    }
     
     const successSymbols: string[] = [];
     const failedSymbols: string[] = [];
@@ -1284,7 +1394,8 @@ export class HybridTradingEngine extends EventEmitter {
       console.log(`[HybridEngine] 📊 Resumo: ${analyzedCount}/${this.config.symbols.length} analisados | ${skippedCount} ignorados${skippedSymbols.length > 0 ? ` (${skippedSymbols.join(', ')})` : ''}`);
       
       // CORREÇÃO 2026-02-04: Emitir SMC_INST_STATUS periódico para cada símbolo
-      if (this.institutionalLogger && this.smcStrategy instanceof SMCStrategy) {
+      // CORREÇÃO: Não executar InstitutionalLogger quando modo RSI_VWAP_ONLY
+      if (this.institutionalLogger && this.smcStrategy instanceof SMCStrategy && this.config.mode !== HybridMode.RSI_VWAP_ONLY) {
         for (const symbol of this.config.symbols) {
           const fsmState = this.smcStrategy.getInstitutionalFSMState(symbol);
           const tradesCount = this.smcStrategy.getSessionTradeCount?.(symbol) ?? 0;
@@ -1329,12 +1440,28 @@ export class HybridTradingEngine extends EventEmitter {
     const m15Data = this.timeframeData.m15.get(symbol) || [];
     const m5Data = this.timeframeData.m5.get(symbol) || [];
     
-    // CORREÇÃO P0 WARM-UP: Logar BLOCK_REASON explícito quando símbolo é ignorado por falta de dados
-    // CORREÇÃO AUDITORIA 2026-02-04: Aumentado mínimos para suportar swingH1Lookback até 40
-    if (h1Data.length < 50 || m15Data.length < 40 || m5Data.length < 40) {
+    // CORREÇÃO: Validação de dados baseada no modo
+    // RSI_VWAP_ONLY usa requisitos menores (configuráveis via banco)
+    // SMC/HYBRID/ORB usam requisitos do SMC (50/40/40)
+    let minH1: number, minM15: number, minM5: number;
+    
+    if (this.config.mode === HybridMode.RSI_VWAP_ONLY) {
+      // Usar requisitos do RSI+VWAP (mais flexíveis)
+      minH1 = this.rsiCandleCounts.h1;
+      minM15 = this.rsiCandleCounts.m15;
+      minM5 = this.rsiCandleCounts.m5;
+    } else {
+      // Requisitos do SMC (mais rigorosos)
+      minH1 = 50;
+      minM15 = 40;
+      minM5 = 40;
+    }
+    
+    if (h1Data.length < minH1 || m15Data.length < minM15 || m5Data.length < minM5) {
       // Log estruturado a cada 100 análises para não poluir
       if (this.analysisCount % 100 === 1) {
-        console.log(`[SMC_INST_BLOCK] ${symbol}: BLOCK_REASON=INSUFFICIENT_CANDLES H1=${h1Data.length}/50 M15=${m15Data.length}/40 M5=${m5Data.length}/40`);
+        const logPrefix = this.config.mode === HybridMode.RSI_VWAP_ONLY ? "[RSI_VWAP_BLOCK]" : "[SMC_INST_BLOCK]";
+        console.log(`${logPrefix} ${symbol}: BLOCK_REASON=INSUFFICIENT_CANDLES H1=${h1Data.length}/${minH1} M15=${m15Data.length}/${minM15} M5=${m5Data.length}/${minM5}`);
       }
       return false;
     }
@@ -1999,8 +2126,25 @@ export class HybridTradingEngine extends EventEmitter {
     source: string,
     latencyMs?: number
   ): Promise<void> {
-    const message = `📊 ANÁLISE | ${symbol} | SMC: ${smcSignal || 'N/A'} | RSI+VWAP: ${rsiVwapSignal || 'N/A'} | Final: ${finalSignal} (${source})`;
-    console.log(`[HybridEngine] ${message}`);
+    // CORREÇÃO: Logs específicos por modo - não mostrar SMC quando modo RSI_VWAP_ONLY
+    let message: string;
+    const logPrefix = this.config.mode === HybridMode.RSI_VWAP_ONLY ? "[RsiVwapEngine]" : "[HybridEngine]";
+    
+    if (this.config.mode === HybridMode.RSI_VWAP_ONLY) {
+      // Modo RSI_VWAP_ONLY: mostrar apenas RSI+VWAP
+      message = `📊 ANÁLISE | ${symbol} | RSI+VWAP: ${rsiVwapSignal || 'NONE'} | Final: ${finalSignal} (${source})`;
+    } else if (this.config.mode === HybridMode.ORB_ONLY) {
+      // Modo ORB_ONLY: mostrar apenas ORB
+      message = `📊 ANÁLISE | ${symbol} | ORB: ${finalSignal} (${source})`;
+    } else if (this.config.mode === HybridMode.SMC_ONLY) {
+      // Modo SMC_ONLY: mostrar apenas SMC
+      message = `📊 ANÁLISE | ${symbol} | SMC: ${smcSignal || 'NONE'} | Final: ${finalSignal} (${source})`;
+    } else {
+      // Modo HYBRID: mostrar ambos
+      message = `📊 ANÁLISE | ${symbol} | SMC: ${smcSignal || 'NONE'} | RSI+VWAP: ${rsiVwapSignal || 'NONE'} | Final: ${finalSignal} (${source})`;
+    }
+    
+    console.log(`${logPrefix} ${message}`);
     await this.logToDatabase("INFO", "ANALYSIS", message, {
       symbol,
       signal: finalSignal,

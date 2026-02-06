@@ -3,7 +3,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Info, TrendingUp, Shield, Clock, Target, Activity } from "lucide-react";
+import { Info, TrendingUp, Shield, Clock, Target, Activity, BarChart3 } from "lucide-react";
+import { ICMARKETS_SYMBOLS } from "@/const/icmarkets";
 
 /**
  * Props do componente RsiVwapSettingsClean
@@ -11,6 +12,18 @@ import { Info, TrendingUp, Shield, Clock, Target, Activity } from "lucide-react"
  * O salvamento é controlado pelo componente pai (SettingsMultiBroker)
  */
 interface RsiVwapSettingsCleanProps {
+  // Ativos monitorados
+  activeSymbols: string[];
+  setActiveSymbols: (symbols: string[]) => void;
+  
+  // Quantidade de candles por timeframe
+  h1CandleCount: string;
+  setH1CandleCount: (value: string) => void;
+  m15CandleCount: string;
+  setM15CandleCount: (value: string) => void;
+  m5CandleCount: string;
+  setM5CandleCount: (value: string) => void;
+  
   // Indicadores RSI
   rsiPeriod: string;
   setRsiPeriod: (value: string) => void;
@@ -64,9 +77,17 @@ interface RsiVwapSettingsCleanProps {
 
 /**
  * Componente LIMPO de configurações da estratégia RSI + VWAP Reversal
- * Versão refatorada sem duplicações - cada campo aparece apenas uma vez
+ * Versão refatorada com seleção de ativos e configuração de candles
  */
 export function RsiVwapSettingsClean({
+  activeSymbols,
+  setActiveSymbols,
+  h1CandleCount,
+  setH1CandleCount,
+  m15CandleCount,
+  setM15CandleCount,
+  m5CandleCount,
+  setM5CandleCount,
   rsiPeriod,
   setRsiPeriod,
   rsiOversold,
@@ -109,20 +130,178 @@ export function RsiVwapSettingsClean({
   const oversoldLevel = parseInt(rsiOversold) || 30;
   const overboughtLevel = parseInt(rsiOverbought) || 70;
   
+  const toggleSymbol = (symbolValue: string) => {
+    if (activeSymbols.includes(symbolValue)) {
+      setActiveSymbols(activeSymbols.filter(s => s !== symbolValue));
+    } else {
+      if (activeSymbols.length >= 10) return;
+      setActiveSymbols([...activeSymbols, symbolValue]);
+    }
+  };
+  
   return (
     <div className="space-y-6">
       {/* Indicador Visual de Modo RSI Ativo */}
-      <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-3 flex items-center gap-3">
-        <Activity className="w-5 h-5 text-orange-400" />
+      <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-3 flex items-center gap-3">
+        <Activity className="w-5 h-5 text-cyan-400" />
         <div>
-          <p className="text-sm text-orange-300 font-medium">
+          <p className="text-sm text-cyan-300 font-medium">
             Configurações da Estratégia RSI + VWAP Reversal
           </p>
           <p className="text-xs text-slate-400">
-            Estratégia de reversão à média para operações de alta frequência
+            Estratégia isolada de reversão à média. Opera independentemente das demais estratégias.
           </p>
         </div>
       </div>
+
+      {/* Card de Seleção de Ativos */}
+      <Card className="bg-slate-900/50 border-slate-800 border-l-4 border-l-cyan-500">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <Target className="w-5 h-5 text-cyan-400" />
+            <div>
+              <CardTitle className="text-white">Ativos Monitorados RSI+VWAP</CardTitle>
+              <CardDescription className="text-slate-400">
+                Selecione os pares que a estratégia RSI+VWAP irá analisar (máx. 10)
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Badge className="bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
+              {activeSymbols.length} selecionado{activeSymbols.length !== 1 ? "s" : ""}
+            </Badge>
+            {activeSymbols.length >= 10 && (
+              <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30">
+                Limite atingido
+              </Badge>
+            )}
+          </div>
+          
+          {/* Pares Principais */}
+          <div>
+            <Label className="text-green-400 text-xs font-medium mb-2 block">Pares Principais</Label>
+            <div className="flex flex-wrap gap-2">
+              {ICMARKETS_SYMBOLS.filter(s => s.category === "major").map(sym => (
+                <button
+                  key={sym.value}
+                  onClick={() => toggleSymbol(sym.value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    activeSymbols.includes(sym.value)
+                      ? "bg-cyan-500/30 text-cyan-300 border border-cyan-500/50"
+                      : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
+                  }`}
+                >
+                  {sym.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Pares Menores */}
+          <div>
+            <Label className="text-blue-400 text-xs font-medium mb-2 block">Pares Menores</Label>
+            <div className="flex flex-wrap gap-2">
+              {ICMARKETS_SYMBOLS.filter(s => s.category === "minor").map(sym => (
+                <button
+                  key={sym.value}
+                  onClick={() => toggleSymbol(sym.value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    activeSymbols.includes(sym.value)
+                      ? "bg-cyan-500/30 text-cyan-300 border border-cyan-500/50"
+                      : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
+                  }`}
+                >
+                  {sym.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Pares Exóticos */}
+          <div>
+            <Label className="text-yellow-400 text-xs font-medium mb-2 block">Pares Exóticos</Label>
+            <div className="flex flex-wrap gap-2">
+              {ICMARKETS_SYMBOLS.filter(s => s.category === "exotic").map(sym => (
+                <button
+                  key={sym.value}
+                  onClick={() => toggleSymbol(sym.value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    activeSymbols.includes(sym.value)
+                      ? "bg-cyan-500/30 text-cyan-300 border border-cyan-500/50"
+                      : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600"
+                  }`}
+                >
+                  {sym.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Card de Quantidade de Candles */}
+      <Card className="bg-slate-900/50 border-slate-800 border-l-4 border-l-purple-500">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <BarChart3 className="w-5 h-5 text-purple-400" />
+            <div>
+              <CardTitle className="text-white">Coleta de Dados (Candles)</CardTitle>
+              <CardDescription className="text-slate-400">
+                Quantidade de candles coletados por timeframe para análise RSI+VWAP
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-3 mb-2">
+            <p className="text-xs text-purple-300">
+              <strong>Importante:</strong> A quantidade de candles define o volume de dados históricos coletados. 
+              Valores maiores fornecem mais contexto, mas aumentam o tempo de warm-up. 
+              O RSI precisa de no mínimo <strong>{parseInt(rsiPeriod) || 14} candles</strong> (período RSI) + margem para cálculo.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label className="text-slate-300">Candles H1</Label>
+              <Input
+                type="number"
+                min="20"
+                max="200"
+                value={h1CandleCount}
+                onChange={(e) => setH1CandleCount(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+              />
+              <p className="text-xs text-slate-500">Padrão: 60 candles (2.5 dias)</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-300">Candles M15</Label>
+              <Input
+                type="number"
+                min="20"
+                max="200"
+                value={m15CandleCount}
+                onChange={(e) => setM15CandleCount(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+              />
+              <p className="text-xs text-slate-500">Padrão: 40 candles (10 horas)</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-300">Candles M5</Label>
+              <Input
+                type="number"
+                min="20"
+                max="200"
+                value={m5CandleCount}
+                onChange={(e) => setM5CandleCount(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+              />
+              <p className="text-xs text-slate-500">Padrão: 40 candles (3.3 horas)</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Card de Indicadores RSI com Visualização */}
       <Card className="bg-slate-900/50 border-slate-800 border-l-4 border-l-cyan-500">

@@ -97,6 +97,10 @@ const icmarketsConfigSchema = z.object({
   maxTotalExposurePercent: z.number().default(7.0),
   maxTradesPerSymbol: z.number().default(1),
   // RSI + VWAP Config
+  rsiActiveSymbols: z.string().default('["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]'),
+  rsiH1CandleCount: z.number().default(60),
+  rsiM15CandleCount: z.number().default(40),
+  rsiM5CandleCount: z.number().default(40),
   rsiPeriod: z.number().default(14),
   rsiOversold: z.number().default(30),
   rsiOverbought: z.number().default(70),
@@ -246,6 +250,10 @@ export const icmarketsRouter = router({
       maxTradesPerSymbol: (smcConfig as any)?.maxTradesPerSymbol || 1,
       
       // RSI + VWAP - CORREÇÃO: Carregar do banco de dados (rsiVwapConfig)
+      rsiActiveSymbols: rsiConfig?.activeSymbols || JSON.stringify(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
+      rsiH1CandleCount: rsiConfig?.h1CandleCount ?? 60,
+      rsiM15CandleCount: rsiConfig?.m15CandleCount ?? 40,
+      rsiM5CandleCount: rsiConfig?.m5CandleCount ?? 40,
       rsiPeriod: rsiConfig?.rsiPeriod ?? 14,
       rsiOversold: rsiConfig?.rsiOversold ?? 30,
       rsiOverbought: rsiConfig?.rsiOverbought ?? 70,
@@ -476,7 +484,7 @@ export const icmarketsRouter = router({
 
       // MODO RSI_VWAP_ONLY -> Logar campos RSI
       if (input.hybridMode === "RSI_VWAP_ONLY") {
-        const rsiFields = ["rsiPeriod", "rsiOversold", "rsiOverbought", "vwapEnabled", "rsiRiskPercentage", "rsiStopLossPips", "rsiTakeProfitPips", "rsiRewardRiskRatio", "rsiMinCandleBodyPercent", "rsiSpreadFilterEnabled", "rsiMaxSpreadPips", "rsiSessionFilterEnabled", "rsiSessionStart", "rsiSessionEnd", "rsiTrailingEnabled", "rsiTrailingTriggerPips", "rsiTrailingStepPips", "rsiVerboseLogging"];
+        const rsiFields = ["rsiActiveSymbols", "rsiH1CandleCount", "rsiM15CandleCount", "rsiM5CandleCount", "rsiPeriod", "rsiOversold", "rsiOverbought", "vwapEnabled", "rsiRiskPercentage", "rsiStopLossPips", "rsiTakeProfitPips", "rsiRewardRiskRatio", "rsiMinCandleBodyPercent", "rsiSpreadFilterEnabled", "rsiMaxSpreadPips", "rsiSessionFilterEnabled", "rsiSessionStart", "rsiSessionEnd", "rsiTrailingEnabled", "rsiTrailingTriggerPips", "rsiTrailingStepPips", "rsiVerboseLogging"];
         for (const field of rsiFields) {
           const inputValue = (input as any)[field];
           if (inputValue === undefined) continue;
@@ -578,6 +586,10 @@ export const icmarketsRouter = router({
       await upsertRsiVwapConfig({
         userId: ctx.user.id,
         botId: 1,
+        activeSymbols: input.rsiActiveSymbols,
+        h1CandleCount: input.rsiH1CandleCount,
+        m15CandleCount: input.rsiM15CandleCount,
+        m5CandleCount: input.rsiM5CandleCount,
         rsiPeriod: input.rsiPeriod,
         rsiOversold: input.rsiOversold,
         rsiOverbought: input.rsiOverbought,

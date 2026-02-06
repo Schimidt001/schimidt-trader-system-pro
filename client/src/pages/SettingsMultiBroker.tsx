@@ -196,6 +196,10 @@ export default function SettingsMultiBroker() {
   const [maxTradesPerSession, setMaxTradesPerSession] = useState("2");
 
   // ============= ESTADOS RSI + VWAP (Single Source of Truth) =============
+  const [rsiActiveSymbols, setRsiActiveSymbols] = useState<string[]>(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+  const [rsiH1CandleCount, setRsiH1CandleCount] = useState("60");
+  const [rsiM15CandleCount, setRsiM15CandleCount] = useState("40");
+  const [rsiM5CandleCount, setRsiM5CandleCount] = useState("40");
   const [rsiPeriod, setRsiPeriod] = useState("14");
   const [rsiOversold, setRsiOversold] = useState("30");
   const [rsiOverbought, setRsiOverbought] = useState("70");
@@ -480,6 +484,19 @@ export default function SettingsMultiBroker() {
       setMaxTradesPerSession((icConfig.maxTradesPerSession || 2).toString());
       
       // RSI + VWAP
+      if (icConfig.rsiActiveSymbols) {
+        try {
+          const symbols = typeof icConfig.rsiActiveSymbols === 'string' 
+            ? JSON.parse(icConfig.rsiActiveSymbols) 
+            : icConfig.rsiActiveSymbols;
+          setRsiActiveSymbols(symbols);
+        } catch (e) {
+          setRsiActiveSymbols(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+        }
+      }
+      if (icConfig.rsiH1CandleCount) setRsiH1CandleCount(icConfig.rsiH1CandleCount.toString());
+      if (icConfig.rsiM15CandleCount) setRsiM15CandleCount(icConfig.rsiM15CandleCount.toString());
+      if (icConfig.rsiM5CandleCount) setRsiM5CandleCount(icConfig.rsiM5CandleCount.toString());
       if (icConfig.rsiPeriod) setRsiPeriod(icConfig.rsiPeriod.toString());
       if (icConfig.rsiOversold) setRsiOversold(icConfig.rsiOversold.toString());
       if (icConfig.rsiOverbought) setRsiOverbought(icConfig.rsiOverbought.toString());
@@ -711,6 +728,10 @@ export default function SettingsMultiBroker() {
         instCooldownMinutes: parseInt(instCooldownMinutes) || 20,
         maxTradesPerSession: parseInt(maxTradesPerSession) || 2,
         // RSI + VWAP Config
+        rsiActiveSymbols: JSON.stringify(rsiActiveSymbols),
+        rsiH1CandleCount: parseInt(rsiH1CandleCount) || 60,
+        rsiM15CandleCount: parseInt(rsiM15CandleCount) || 40,
+        rsiM5CandleCount: parseInt(rsiM5CandleCount) || 40,
         rsiPeriod: parseInt(rsiPeriod) || 14,
         rsiOversold: parseInt(rsiOversold) || 30,
         rsiOverbought: parseInt(rsiOverbought) || 70,
@@ -1278,6 +1299,14 @@ export default function SettingsMultiBroker() {
               {/* MODO RSI_VWAP_ONLY: Mostra apenas painel RSI */}
               {operationMode === "RSI_VWAP_ONLY" && (
                 <RsiVwapSettingsClean
+                  activeSymbols={rsiActiveSymbols}
+                  setActiveSymbols={setRsiActiveSymbols}
+                  h1CandleCount={rsiH1CandleCount}
+                  setH1CandleCount={setRsiH1CandleCount}
+                  m15CandleCount={rsiM15CandleCount}
+                  setM15CandleCount={setRsiM15CandleCount}
+                  m5CandleCount={rsiM5CandleCount}
+                  setM5CandleCount={setRsiM5CandleCount}
                   rsiPeriod={rsiPeriod}
                   setRsiPeriod={setRsiPeriod}
                   rsiOversold={rsiOversold}

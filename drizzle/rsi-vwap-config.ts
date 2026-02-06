@@ -8,7 +8,7 @@
  * @version 1.0.0
  */
 
-import { int, mysqlTable, timestamp, varchar, boolean, decimal } from "drizzle-orm/mysql-core";
+import { int, mysqlTable, timestamp, varchar, boolean, decimal, text } from "drizzle-orm/mysql-core";
 
 /**
  * Configurações da estratégia RSI + VWAP Reversal
@@ -21,6 +21,18 @@ export const rsiVwapConfig = mysqlTable("rsiVwapConfig", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   botId: int("botId").notNull().default(1),
+  
+  // ============= ATIVOS MONITORADOS =============
+  /** Lista de ativos monitorados pela estratégia RSI+VWAP (JSON array) */
+  activeSymbols: text("activeSymbols").default('["EURUSD","GBPUSD","USDJPY","XAUUSD"]'),
+  
+  // ============= QUANTIDADE DE CANDLES POR TIMEFRAME =============
+  /** Quantidade de candles H1 para coleta (default: 60) */
+  h1CandleCount: int("h1CandleCount").default(60).notNull(),
+  /** Quantidade de candles M15 para coleta (default: 40) */
+  m15CandleCount: int("m15CandleCount").default(40).notNull(),
+  /** Quantidade de candles M5 para coleta (default: 40) */
+  m5CandleCount: int("m5CandleCount").default(40).notNull(),
   
   // ============= INDICADORES RSI =============
   /** Período do RSI (default: 14) */
