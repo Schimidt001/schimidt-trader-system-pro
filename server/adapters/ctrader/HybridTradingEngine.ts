@@ -1464,9 +1464,11 @@ export class HybridTradingEngine extends EventEmitter {
     
     if (this.config.mode === HybridMode.RSI_VWAP_ONLY) {
       // Usar requisitos do RSI+VWAP (mais flexíveis)
-      minH1 = this.rsiCandleCounts.h1;
-      minM15 = this.rsiCandleCounts.m15;
-      minM5 = this.rsiCandleCounts.m5;
+      // CORREÇÃO: Aceitar pelo menos 75% dos candles solicitados
+      // Isso compensa gaps de mercado (finais de semana, feriados, sessões fechadas)
+      minH1 = Math.ceil(this.rsiCandleCounts.h1 * 0.75);
+      minM15 = Math.ceil(this.rsiCandleCounts.m15 * 0.75);
+      minM5 = Math.ceil(this.rsiCandleCounts.m5 * 0.75);
     } else {
       // Requisitos do SMC (mais rigorosos)
       minH1 = 50;
