@@ -1324,7 +1324,23 @@ export class HybridTradingEngine extends EventEmitter {
     }
     
     existing.sort((a, b) => a.timestamp - b.timestamp);
-    if (existing.length > 300) existing.splice(0, existing.length - 300);
+    
+    // CORREÇÃO: Limitar array baseado nas configurações da UI
+    // Adicionar margem de segurança de 10% para evitar bloqueios por falta de 1-2 candles
+    let maxCandles: number;
+    if (this.config.mode === HybridMode.RSI_VWAP_ONLY) {
+      // Modo RSI+VWAP: usar limites configurados na UI + 10% de margem
+      if (timeframe === 'h1') maxCandles = Math.ceil(this.rsiCandleCounts.h1 * 1.1);
+      else if (timeframe === 'm15') maxCandles = Math.ceil(this.rsiCandleCounts.m15 * 1.1);
+      else maxCandles = Math.ceil(this.rsiCandleCounts.m5 * 1.1);
+    } else {
+      // Outros modos: usar limite padrão de 300
+      maxCandles = 300;
+    }
+    
+    if (existing.length > maxCandles) {
+      existing.splice(0, existing.length - maxCandles);
+    }
     
     this.timeframeData[timeframe].set(symbol, existing);
   }
