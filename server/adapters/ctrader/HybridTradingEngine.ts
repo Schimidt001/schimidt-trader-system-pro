@@ -507,15 +507,18 @@ export class HybridTradingEngine extends EventEmitter {
       // Subscrever a preços
       await this.subscribeToAllPrices();
       
-      // Iniciar loops
-      this.startAnalysisLoop();
-      this.startDataRefreshLoop();
-      
+      // CORREÇÃO 2026-02-12: Setar _isRunning ANTES de iniciar loops
+      // Sem isso, a primeira chamada de performAnalysis() era ignorada
+      // porque _isRunning ainda era false quando startAnalysisLoop() chamava performAnalysis()
       this._isRunning = true;
       this.startTime = Date.now();
       this.analysisCount = 0;
       this.tradesExecuted = 0;
       this.tickCount = 0;
+      
+      // Iniciar loops (agora _isRunning já é true)
+      this.startAnalysisLoop();
+      this.startDataRefreshLoop();
       
       this.emit("started", {
         mode: this.config.mode,
@@ -1159,25 +1162,69 @@ export class HybridTradingEngine extends EventEmitter {
             console.log(`[HybridEngine] 🔄 ${symbol}: Tentativa ${attempt}/${MAX_RETRIES}...`);
           }
           
-          // Carregar H1 (getTrendbars)
+          // CORREÇÃO 2026-02-12: Warm-up com paginação para carregar candles suficientes
+          // A API cTrader retorna no máximo ~49 candles por chamada.
+          // Para valores altos de rsiCandleCounts, precisamos de múltiplas chamadas.
+          
+          // Helper para carregar candles com paginação
+          const loadCandlesWithPagination = async (sym: string, tf: string, required: number): Promise<any[]> => {
+            const allCandles: any[] = [];
+            const tfMs = tf === 'H1' ? 3600000 : tf === 'M15' ? 900000 : 300000;
+            let toTs = Date.now();
+            const MAX_PAGES = 20; // Limite de segurança para evitar loop infinito
+            
+            for (let page = 0; page < MAX_PAGES && allCandles.length < required; page++) {
+              const batchSize = Math.min(required - allCandles.length, 500); // Pedir até 500 por vez
+              const fromTs = toTs - (batchSize * tfMs);
+              
+              const batch = await ctraderAdapter.getCandleHistoryRange(sym, tf, fromTs, toTs, batchSize);
+              if (batch.length === 0) break; // Sem mais dados disponíveis
+              
+              allCandles.unshift(...batch); // Adicionar no início (mais antigos primeiro)
+              
+              // Mover a janela para trás
+              toTs = fromTs - 1;
+              
+              if (batch.length < 10) break; // API retornou poucos dados, provavelmente não há mais
+              
+              if (page < MAX_PAGES - 1 && allCandles.length < required) {
+                await sleep(DELAY_BETWEEN_REQUESTS); // Rate limit entre páginas
+              }
+            }
+            
+            // Remover duplicatas por timestamp e ordenar
+            const uniqueMap = new Map<number, any>();
+            for (const c of allCandles) {
+              uniqueMap.set(c.timestamp, c);
+            }
+            const result = Array.from(uniqueMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+            
+            // Limitar ao número solicitado (manter os mais recentes)
+            if (result.length > required) {
+              return result.slice(result.length - required);
+            }
+            return result;
+          };
+          
+          // Carregar H1 com paginação
           const h1FetchStart = Date.now();
-          const h1Candles = await ctraderAdapter.getCandleHistory(symbol, "H1", REQUIRED_H1);
+          const h1Candles = await loadCandlesWithPagination(symbol, "H1", REQUIRED_H1);
           const h1FetchTime = Date.now() - h1FetchStart;
           this.timeframeData.h1.set(symbol, h1Candles);
           console.log(`[HybridEngine] ${symbol} H1: ${h1Candles.length}/${REQUIRED_H1} candles (${h1FetchTime}ms)`);
           await sleep(DELAY_BETWEEN_REQUESTS);
           
-          // Carregar M15 (getTrendbars)
+          // Carregar M15 com paginação
           const m15FetchStart = Date.now();
-          const m15Candles = await ctraderAdapter.getCandleHistory(symbol, "M15", REQUIRED_M15);
+          const m15Candles = await loadCandlesWithPagination(symbol, "M15", REQUIRED_M15);
           const m15FetchTime = Date.now() - m15FetchStart;
           this.timeframeData.m15.set(symbol, m15Candles);
           console.log(`[HybridEngine] ${symbol} M15: ${m15Candles.length}/${REQUIRED_M15} candles (${m15FetchTime}ms)`);
           await sleep(DELAY_BETWEEN_REQUESTS);
           
-          // Carregar M5 (getTrendbars)
+          // Carregar M5 com paginação
           const m5FetchStart = Date.now();
-          const m5Candles = await ctraderAdapter.getCandleHistory(symbol, "M5", REQUIRED_M5);
+          const m5Candles = await loadCandlesWithPagination(symbol, "M5", REQUIRED_M5);
           const m5FetchTime = Date.now() - m5FetchStart;
           this.timeframeData.m5.set(symbol, m5Candles);
           console.log(`[HybridEngine] ${symbol} M5: ${m5Candles.length}/${REQUIRED_M5} candles (${m5FetchTime}ms)`);
@@ -1420,6 +1467,14 @@ export class HybridTradingEngine extends EventEmitter {
       if (!canOpen.allowed) {
         if (this.analysisCount % 10 === 0) {
           console.log(`[HybridEngine] ⚠️ ${canOpen.reason}`);
+          
+          // CORREÇÃO 2026-02-12: Gravar bloqueio de sessão no banco para a UI
+          await this.logToDatabase("INFO", "ANALYSIS", `⚠️ Análise #${this.analysisCount} bloqueada: ${canOpen.reason}`, {
+            data: {
+              analysisCount: this.analysisCount,
+              blockReason: canOpen.reason
+            }
+          });
         }
         return;
       }
@@ -1449,7 +1504,19 @@ export class HybridTradingEngine extends EventEmitter {
     
     // Log de resumo a cada 10 ciclos
     if (this.analysisCount % 10 === 0 || this.analysisCount === 1) {
-      console.log(`[HybridEngine] 📊 Resumo: ${analyzedCount}/${this.config.symbols.length} analisados | ${skippedCount} ignorados${skippedSymbols.length > 0 ? ` (${skippedSymbols.join(', ')})` : ''}`);
+      const resumoMsg = `📊 Resumo Análise #${this.analysisCount}: ${analyzedCount}/${this.config.symbols.length} analisados | ${skippedCount} ignorados${skippedSymbols.length > 0 ? ` (${skippedSymbols.join(', ')})` : ''}`;
+      console.log(`[HybridEngine] ${resumoMsg}`);
+      
+      // CORREÇÃO 2026-02-12: Gravar resumo no banco para a UI mostrar na aba de LOGS
+      await this.logToDatabase("INFO", "ANALYSIS", resumoMsg, {
+        data: {
+          analysisCount: this.analysisCount,
+          analyzedCount,
+          skippedCount,
+          skippedSymbols,
+          totalSymbols: this.config.symbols.length
+        }
+      });
       
       // CORREÇÃO 2026-02-04: Emitir SMC_INST_STATUS periódico para cada símbolo
       // CORREÇÃO: Não executar InstitutionalLogger quando modo RSI_VWAP_ONLY
@@ -1518,10 +1585,23 @@ export class HybridTradingEngine extends EventEmitter {
     }
     
     if (h1Data.length < minH1 || m15Data.length < minM15 || m5Data.length < minM5) {
-      // Log estruturado a cada 100 análises para não poluir
-      if (this.analysisCount % 100 === 1) {
+      // CORREÇÃO 2026-02-12: Log de bloqueio a cada 10 análises (antes era 100)
+      // E agora também grava no banco para aparecer na aba de LOGS da UI
+      if (this.analysisCount % 10 === 1) {
         const logPrefix = this.config.mode === HybridMode.RSI_VWAP_ONLY ? "[RSI_VWAP_BLOCK]" : "[SMC_INST_BLOCK]";
-        console.log(`${logPrefix} ${symbol}: BLOCK_REASON=INSUFFICIENT_CANDLES H1=${h1Data.length}/${minH1} M15=${m15Data.length}/${minM15} M5=${m5Data.length}/${minM5}`);
+        const blockMsg = `${logPrefix} ${symbol}: BLOCK_REASON=INSUFFICIENT_CANDLES H1=${h1Data.length}/${minH1} M15=${m15Data.length}/${minM15} M5=${m5Data.length}/${minM5}`;
+        console.log(blockMsg);
+        
+        // CORREÇÃO 2026-02-12: Gravar no banco para a UI mostrar na aba de LOGS
+        await this.logToDatabase("WARN", "ANALYSIS", `⚠️ ANÁLISE | ${symbol} | Dados insuficientes: H1=${h1Data.length}/${minH1} M15=${m15Data.length}/${minM15} M5=${m5Data.length}/${minM5}`, {
+          symbol,
+          data: {
+            blockReason: "INSUFFICIENT_CANDLES",
+            h1: { current: h1Data.length, required: minH1 },
+            m15: { current: m15Data.length, required: minM15 },
+            m5: { current: m5Data.length, required: minM5 }
+          }
+        });
       }
       return false;
     }
