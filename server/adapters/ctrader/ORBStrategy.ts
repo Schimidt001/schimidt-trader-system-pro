@@ -84,7 +84,7 @@ export const DEFAULT_ORB_CONFIG: ORBStrategyConfig = {
   strategyType: StrategyType.ORB_TREND,
   
   // Ativos
-  activeSymbols: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"],
+  activeSymbols: [], // CORREÇÃO 2026-02-23: Removido hardcode. Ativos devem vir EXCLUSIVAMENTE do banco de dados (configuração via UI)
   
   // Opening Range
   openingCandles: 3,
@@ -141,13 +141,13 @@ export class ORBStrategy implements IMultiTimeframeStrategy {
       try {
         this.config.activeSymbols = JSON.parse(this.config.activeSymbols);
       } catch (e) {
-        console.warn('[ORB] Erro ao parsear activeSymbols, usando default:', e);
-        this.config.activeSymbols = DEFAULT_ORB_CONFIG.activeSymbols;
+        console.warn('[ORB] Erro ao parsear activeSymbols:', e);
+        this.config.activeSymbols = []; // CORREÇÃO 2026-02-23: Array vazio ao invés de hardcode
       }
     }
     
     if (!Array.isArray(this.config.activeSymbols)) {
-      this.config.activeSymbols = DEFAULT_ORB_CONFIG.activeSymbols;
+      this.config.activeSymbols = []; // CORREÇÃO 2026-02-23: Array vazio ao invés de hardcode
     }
     
     console.log(`[ORB] ========== CONFIGURAÇÕES CARREGADAS ==========`);

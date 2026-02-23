@@ -217,7 +217,7 @@ export const DEFAULT_SMC_CONFIG: SMCStrategyConfig = {
   // Tier 1: EURUSD, XAUUSD, USDJPY, GBPJPY (50% exposição)
   // Tier 2: AUDUSD, USDCAD, EURJPY (30% exposição)
   // Tier 3: NZDUSD, USDCHF, GBPUSD (20% exposição)
-  activeSymbols: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"],
+  activeSymbols: [], // CORREÇÃO 2026-02-23: Removido hardcode. Ativos devem vir EXCLUSIVAMENTE do banco de dados (configuração via UI)
   
   // Timeframe de Estrutura (Swing Points) - OTIMIZADO: M15 para maior frequência
   structureTimeframe: 'M15',
@@ -317,14 +317,14 @@ export class SMCStrategy implements IMultiTimeframeStrategy {
       try {
         this.config.activeSymbols = JSON.parse(this.config.activeSymbols);
       } catch (e) {
-        console.warn('[SMC] Erro ao parsear activeSymbols, usando default:', e);
-        this.config.activeSymbols = DEFAULT_SMC_CONFIG.activeSymbols;
+        console.warn('[SMC] Erro ao parsear activeSymbols:', e);
+        this.config.activeSymbols = []; // CORREÇÃO 2026-02-23: Array vazio ao invés de hardcode
       }
     }
     
     // Garantir que é um array válido
     if (!Array.isArray(this.config.activeSymbols)) {
-      this.config.activeSymbols = DEFAULT_SMC_CONFIG.activeSymbols;
+      this.config.activeSymbols = []; // CORREÇÃO 2026-02-23: Array vazio ao invés de hardcode
     }
     
     // ========== CORREÇÃO: Garantir conversão de tipos numéricos do banco ==========

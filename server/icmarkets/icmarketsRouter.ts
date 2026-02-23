@@ -63,7 +63,7 @@ const icmarketsConfigSchema = z.object({
   // SMC Strategy Config - ATUALIZADO: Valores alinhados com DEFAULT_SMC_CONFIG e UI
   strategyType: z.string().default("SMC_SWARM"),
   structureTimeframe: z.string().default("M15"),  // CORREÇÃO: M15 como padrão (mais sinais)
-  activeSymbols: z.string().default('["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]'),
+  activeSymbols: z.string().default('[]'), // CORREÇÃO 2026-02-23: Removido hardcode. Ativos devem ser configurados via UI
   swingH1Lookback: z.number().default(30),  // CORREÇÃO: 30 conforme UI
   fractalLeftBars: z.number().default(1),   // CORREÇÃO: 1 conforme UI
   fractalRightBars: z.number().default(1),  // CORREÇÃO: 1 conforme UI
@@ -120,7 +120,7 @@ const icmarketsConfigSchema = z.object({
   rsiTrailingStepPips: z.number().default(5),
   rsiVerboseLogging: z.boolean().default(true),
   // ORB Trend Config
-  orbActiveSymbols: z.string().default('["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]'),
+  orbActiveSymbols: z.string().default('[]'), // CORREÇÃO 2026-02-23: Removido hardcode. Ativos devem ser configurados via UI
   orbOpeningCandles: z.number().default(3),
   orbEmaPeriod: z.number().default(200),
   orbSlopeLookbackCandles: z.number().default(10),
@@ -194,7 +194,7 @@ export const icmarketsRouter = router({
       structureTimeframe: smcConfig?.structureTimeframe || "M15",
       
       // Campos SMC (do smcStrategyConfig ou defaults) - CORREÇÃO: Valores alinhados com UI
-      activeSymbols: smcConfig?.activeSymbols || JSON.stringify(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
+      activeSymbols: smcConfig?.activeSymbols || JSON.stringify([]), // CORREÇÃO 2026-02-23: Removido hardcode. Retorna vazio se não configurado
       riskPercentage: smcConfig?.riskPercentage || "2.0",
       maxOpenTrades: smcConfig?.maxOpenTrades || 2,
       dailyLossLimitPercent: smcConfig?.dailyLossLimitPercent || "10.0",
@@ -275,7 +275,7 @@ export const icmarketsRouter = router({
       rsiVerboseLogging: Boolean(rsiConfig?.verboseLogging ?? true),
       
       // ORB Trend - Carregar do banco de dados (orbTrendConfig)
-      orbActiveSymbols: orbConfig?.activeSymbols || JSON.stringify(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]),
+      orbActiveSymbols: orbConfig?.activeSymbols || JSON.stringify([]), // CORREÇÃO 2026-02-23: Removido hardcode. Retorna vazio se não configurado
       orbOpeningCandles: orbConfig?.openingCandles ?? 3,
       orbEmaPeriod: orbConfig?.emaPeriod ?? 200,
       orbSlopeLookbackCandles: orbConfig?.slopeLookbackCandles ?? 10,
@@ -1230,7 +1230,7 @@ export const icmarketsRouter = router({
             
             // ========== LOG DE INÍCIO PARA UI ==========
             const orbConfig = await getORBTrendConfig(ctx.user.id, botId);
-            const activeSymbolsOrb = orbConfig?.activeSymbols ? JSON.parse(orbConfig.activeSymbols) : ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"];
+            const activeSymbolsOrb = orbConfig?.activeSymbols ? JSON.parse(orbConfig.activeSymbols) : []; // CORREÇÃO 2026-02-23: Removido hardcode
             
             await insertSystemLog({
               userId: ctx.user.id,

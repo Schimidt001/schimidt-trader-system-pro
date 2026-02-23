@@ -105,7 +105,7 @@ interface TimeframeData {
 
 const DEFAULT_ENGINE_CONFIG: Omit<SMCTradingEngineConfig, "userId" | "botId"> = {
   strategyType: StrategyType.SMC_SWARM,
-  symbols: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"],
+  symbols: [], // CORREÇÃO 2026-02-23: Removido hardcode. Symbols devem vir EXCLUSIVAMENTE do banco de dados (activeSymbols via UI)
   lots: 0.01,
   maxPositions: 3,
   cooldownMs: 60000,

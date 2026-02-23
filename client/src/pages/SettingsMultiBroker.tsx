@@ -150,7 +150,7 @@ export default function SettingsMultiBroker() {
 
   // ============= ESTADOS SMC STRATEGY (Single Source of Truth) =============
   const [smcStructureTimeframe, setSmcStructureTimeframe] = useState("H1");
-  const [smcActiveSymbols, setSmcActiveSymbols] = useState<string[]>(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+  const [smcActiveSymbols, setSmcActiveSymbols] = useState<string[]>([]); // CORREÇÃO 2026-02-23: Removido hardcode. Será carregado do banco
   const [smcSwingH1Lookback, setSmcSwingH1Lookback] = useState("50");
   const [smcFractalLeftBars, setSmcFractalLeftBars] = useState("2");
   const [smcFractalRightBars, setSmcFractalRightBars] = useState("2");
@@ -220,7 +220,7 @@ export default function SettingsMultiBroker() {
   const [rsiVerboseLogging, setRsiVerboseLogging] = useState(true);
 
   // ============= ESTADOS ORB TREND (Single Source of Truth) =============
-  const [orbActiveSymbols, setOrbActiveSymbols] = useState<string[]>(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+  const [orbActiveSymbols, setOrbActiveSymbols] = useState<string[]>([]); // CORREÇÃO 2026-02-23: Removido hardcode. Será carregado do banco
   const [orbOpeningCandles, setOrbOpeningCandles] = useState("3");
   const [orbEmaPeriod, setOrbEmaPeriod] = useState("200");
   const [orbSlopeLookbackCandles, setOrbSlopeLookbackCandles] = useState("10");
@@ -437,7 +437,7 @@ export default function SettingsMultiBroker() {
             : icConfig.activeSymbols;
           setSmcActiveSymbols(symbols);
         } catch (e) {
-          setSmcActiveSymbols(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+          setSmcActiveSymbols([]); // CORREÇÃO 2026-02-23: Array vazio ao invés de hardcode
         }
       }
       
@@ -491,7 +491,7 @@ export default function SettingsMultiBroker() {
             : icConfig.rsiActiveSymbols;
           setRsiActiveSymbols(symbols);
         } catch (e) {
-          setRsiActiveSymbols(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+          setRsiActiveSymbols([]); // CORREÇÃO 2026-02-23: Array vazio ao invés de hardcode
         }
       }
       if (icConfig.rsiH1CandleCount) setRsiH1CandleCount(icConfig.rsiH1CandleCount.toString());
@@ -524,7 +524,7 @@ export default function SettingsMultiBroker() {
             : icConfig.orbActiveSymbols;
           setOrbActiveSymbols(symbols);
         } catch (e) {
-          setOrbActiveSymbols(["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]);
+          setOrbActiveSymbols([]); // CORREÇÃO 2026-02-23: Array vazio ao invés de hardcode
         }
       }
       if (icConfig.orbOpeningCandles) setOrbOpeningCandles(icConfig.orbOpeningCandles.toString());

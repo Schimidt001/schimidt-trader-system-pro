@@ -105,7 +105,7 @@ interface LockAcquisitionResult {
 
 const DEFAULT_HYBRID_CONFIG: Omit<HybridEngineConfig, "userId" | "botId"> = {
   mode: HybridMode.HYBRID,
-  symbols: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"],
+  symbols: [], // CORREÇÃO 2026-02-23: Removido hardcode. Symbols devem vir EXCLUSIVAMENTE do banco de dados (activeSymbols da estratégia ativa)
   maxPositions: 3,
   cooldownMs: 60000,
   maxSpread: 2.0,
@@ -667,7 +667,7 @@ export class HybridTradingEngine extends EventEmitter {
     try {
       const db = await getDb();
       
-      // Carregar configuração do ICMarkets
+      // Carregar configuração do ICMarkets (maxSpread, etc.)
       const icConfig = await db
         .select()
         .from(icmarketsConfig)
@@ -681,29 +681,63 @@ export class HybridTradingEngine extends EventEmitter {
       
       if (icConfig[0]) {
         const cfg = icConfig[0];
-        if (cfg.symbols) {
-          this.config.symbols = cfg.symbols.split(",").map(s => s.trim()).filter(s => s);
-        }
-        if (cfg.maxPositions) {
-          this.config.maxPositions = cfg.maxPositions;
-        }
-        if (cfg.cooldownMs) {
-          this.config.cooldownMs = cfg.cooldownMs;
-        }
+        // CORREÇÃO 2026-02-23: Removido carregamento de cfg.symbols (campo não existe na tabela icmarketsConfig)
+        // Os símbolos ativos são carregados da tabela da estratégia ativa (smcStrategyConfig, rsiVwapConfig, orbTrendConfig)
+        // via initializeStrategies() que é chamado logo após loadConfigFromDB()
         if (cfg.maxSpread) {
           this.config.maxSpread = Number(cfg.maxSpread);
         }
-        if (cfg.maxTradesPerSymbol) {
-          this.config.maxTradesPerSymbol = cfg.maxTradesPerSymbol;
+      }
+      
+      // CORREÇÃO 2026-02-23: Carregar symbols, maxPositions, maxTradesPerSymbol da tabela smcStrategyConfig
+      // (que é a tabela que contém activeSymbols configurados via UI)
+      const smcConfigs = await db
+        .select()
+        .from(smcStrategyConfig)
+        .where(
+          and(
+            eq(smcStrategyConfig.userId, this.config.userId),
+            eq(smcStrategyConfig.botId, this.config.botId)
+          )
+        )
+        .limit(1);
+      
+      const smcCfg = smcConfigs[0];
+      if (smcCfg) {
+        // Carregar maxPositions (maxOpenTrades no banco)
+        if (smcCfg.maxOpenTrades) {
+          this.config.maxPositions = smcCfg.maxOpenTrades;
+        }
+        // Carregar maxTradesPerSymbol
+        if (smcCfg.maxTradesPerSymbol !== undefined && smcCfg.maxTradesPerSymbol !== null) {
+          this.config.maxTradesPerSymbol = smcCfg.maxTradesPerSymbol;
         }
         
-        console.log("[HybridEngine] Configuração carregada do banco:");
-        console.log(`  - Símbolos: ${this.config.symbols.join(", ")}`);
-        console.log(`  - Max Posições: ${this.config.maxPositions}`);
-        console.log(`  - Max Trades/Símbolo: ${this.config.maxTradesPerSymbol}`);
-        console.log(`  - Cooldown: ${this.config.cooldownMs}ms`);
-        console.log(`  - Max Spread: ${this.config.maxSpread} pips`);
+        // CORREÇÃO 2026-02-23: Carregar activeSymbols do banco como this.config.symbols
+        // Este é o ponto CENTRAL da correção - os symbols do engine devem vir do banco
+        if (smcCfg.activeSymbols) {
+          try {
+            const parsed = typeof smcCfg.activeSymbols === 'string' 
+              ? JSON.parse(smcCfg.activeSymbols) 
+              : smcCfg.activeSymbols;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              this.config.symbols = parsed;
+              console.log(`[HybridEngine] ✅ activeSymbols carregados do banco (smcStrategyConfig): ${this.config.symbols.join(', ')}`);
+            } else {
+              console.warn("[HybridEngine] ⚠️ activeSymbols inválido ou vazio no banco, engine ficará sem símbolos até initializeStrategies()");
+            }
+          } catch (e) {
+            console.warn("[HybridEngine] ⚠️ Erro ao parsear activeSymbols do banco:", e);
+          }
+        }
       }
+      
+      console.log("[HybridEngine] Configuração carregada do banco:");
+      console.log(`  - Símbolos: ${this.config.symbols.join(", ") || '(nenhum - serão carregados em initializeStrategies)'}`);
+      console.log(`  - Max Posições: ${this.config.maxPositions}`);
+      console.log(`  - Max Trades/Símbolo: ${this.config.maxTradesPerSymbol}`);
+      console.log(`  - Cooldown: ${this.config.cooldownMs}ms`);
+      console.log(`  - Max Spread: ${this.config.maxSpread} pips`);
     } catch (error) {
       console.warn("[HybridEngine] Erro ao carregar config do DB, usando defaults:", error);
     }
@@ -731,9 +765,9 @@ export class HybridTradingEngine extends EventEmitter {
         
         const smcConfig = smcConfigs[0];
         
-        // CORREÇÃO BUG #1: Parsear activeSymbols do banco de dados
-        // Segue o mesmo padrão robusto usado na estratégia ORB
-        let smcActiveSymbols = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]; // Default
+        // CORREÇÃO 2026-02-23: Parsear activeSymbols do banco de dados
+        // ZERO HARDCODE - os símbolos devem vir EXCLUSIVAMENTE do banco (configuração via UI)
+        let smcActiveSymbols: string[] = [];
         if (smcConfig?.activeSymbols) {
           try {
             const parsed = typeof smcConfig.activeSymbols === 'string' 
@@ -743,13 +777,21 @@ export class HybridTradingEngine extends EventEmitter {
               smcActiveSymbols = parsed;
               console.log(`[HybridEngine] ✅ activeSymbols SMC carregados do banco: ${smcActiveSymbols.join(', ')}`);
             } else {
-              console.warn("[HybridEngine] ⚠️ activeSymbols SMC inválido (não é array ou está vazio), usando default");
+              console.warn("[HybridEngine] ⚠️ activeSymbols SMC inválido (não é array ou está vazio). Configure os ativos via interface!");
             }
           } catch (e) {
-            console.warn("[HybridEngine] ⚠️ Erro ao parsear activeSymbols SMC, usando default:", e);
+            console.warn("[HybridEngine] ⚠️ Erro ao parsear activeSymbols SMC:", e);
           }
         } else {
-          console.log(`[HybridEngine] ℹ️ activeSymbols SMC não encontrado no banco, usando default: ${smcActiveSymbols.join(', ')}`);
+          console.warn(`[HybridEngine] ⚠️ activeSymbols SMC não encontrado no banco. Configure os ativos via interface!`);
+        }
+        
+        // CORREÇÃO 2026-02-23: Sobrescrever this.config.symbols com os activeSymbols do SMC
+        // Isso garante que o loop de análise (performAnalysis) use os símbolos configurados na UI
+        // Mesmo padrão já usado para RSI_VWAP_ONLY (linha ~906) e ORB_ONLY
+        if (smcActiveSymbols.length > 0) {
+          this.config.symbols = smcActiveSymbols;
+          console.log(`[HybridEngine] ✅ Símbolos do engine sobrescritos com SMC activeSymbols: ${smcActiveSymbols.join(', ')}`);
         }
         
         // CORREÇÃO: Usar campos corretos do SMCStrategyConfig
@@ -875,6 +917,14 @@ export class HybridTradingEngine extends EventEmitter {
           console.log(`[RsiVwapEngine] ✅ Candle counts: H1=${this.rsiCandleCounts.h1}, M15=${this.rsiCandleCounts.m15}, M5=${this.rsiCandleCounts.m5}`);
         }
         
+        // CORREÇÃO 2026-02-23: No modo HYBRID, unir os symbols de RSI com os de SMC
+        // para que o loop de análise (performAnalysis) processe TODOS os ativos configurados
+        if (this.config.mode === HybridMode.HYBRID && rsiActiveSymbols.length > 0) {
+          const combinedSymbols = [...new Set([...this.config.symbols, ...rsiActiveSymbols])];
+          this.config.symbols = combinedSymbols;
+          console.log(`[HybridEngine] ✅ Símbolos COMBINADOS (SMC + RSI): ${combinedSymbols.join(', ')}`);
+        }
+        
         const strategyConfig: RsiVwapStrategyConfig = {
           strategyType: StrategyType.RSI_VWAP_REVERSAL,
           rsiPeriod: rsiConfig?.rsiPeriod ?? 14,
@@ -941,16 +991,28 @@ export class HybridTradingEngine extends EventEmitter {
         
         const orbConfig = orbConfigs[0];
         
-        // Parsear activeSymbols (pode vir como string JSON)
-        let activeSymbols = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"];
+        // CORREÇÃO 2026-02-23: Parsear activeSymbols do banco - ZERO HARDCODE
+        let activeSymbols: string[] = [];
         if (orbConfig?.activeSymbols) {
           try {
-            activeSymbols = typeof orbConfig.activeSymbols === 'string' 
+            const parsed = typeof orbConfig.activeSymbols === 'string' 
               ? JSON.parse(orbConfig.activeSymbols) 
               : orbConfig.activeSymbols;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              activeSymbols = parsed;
+            }
           } catch (e) {
-            console.warn("[HybridEngine] Erro ao parsear activeSymbols ORB, usando default");
+            console.warn("[HybridEngine] Erro ao parsear activeSymbols ORB:", e);
           }
+        }
+        if (activeSymbols.length === 0) {
+          console.warn("[HybridEngine] ⚠️ activeSymbols ORB vazio. Configure os ativos via interface!");
+        }
+        
+        // CORREÇÃO 2026-02-23: Sobrescrever this.config.symbols com os activeSymbols do ORB
+        if (activeSymbols.length > 0) {
+          this.config.symbols = activeSymbols;
+          console.log(`[HybridEngine] ✅ Símbolos do engine sobrescritos com ORB activeSymbols: ${activeSymbols.join(', ')}`);
         }
         
         const strategyConfig: Partial<ORBStrategyConfig> = {
