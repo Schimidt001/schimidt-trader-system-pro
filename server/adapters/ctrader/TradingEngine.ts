@@ -414,6 +414,7 @@ export class TradingEngine extends EventEmitter {
     try {
       const strategyConfig = this.strategy.getConfig();
       
+      // CORREÇÃO 2026-02-24: Passar maxTradesPerSymbol para o KILL SWITCH do CTraderAdapter
       const result = await ctraderAdapter.placeOrder({
         symbol: this.config.symbol,
         direction: signal.signal as "BUY" | "SELL",
@@ -422,7 +423,8 @@ export class TradingEngine extends EventEmitter {
         stopLossPips: strategyConfig.stopLossPips,
         takeProfitPips: strategyConfig.takeProfitPips > 0 ? strategyConfig.takeProfitPips : undefined,
         comment: `TrendSniper ${signal.signal} | Conf: ${signal.confidence}%`,
-      });
+        maxTradesPerSymbol: 1,
+      } as any);
       
       if (result.success) {
         this.lastTradeTime = now;

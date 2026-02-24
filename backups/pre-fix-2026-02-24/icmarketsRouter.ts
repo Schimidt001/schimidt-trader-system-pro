@@ -659,19 +659,6 @@ export const icmarketsRouter = router({
         console.warn(`[ICMARKETS_CONFIG] Nao foi possivel recarregar SMC Engine:`, error);
       }
       
-      // CORREÇÃO 2026-02-24: Recarregar HybridTradingEngine também
-      // Sem isso, alterações de maxTradesPerSymbol não eram aplicadas no HybridEngine
-      // (que roda RSI+VWAP, Híbrida e ORB) até reiniciar o bot manualmente
-      try {
-        const hybridEngine = getHybridTradingEngine(ctx.user.id, 1);
-        if (hybridEngine.isRunning) {
-          await hybridEngine.reloadConfig();
-          console.log(`[ICMARKETS_CONFIG] Hybrid Engine recarregado para usuario ${ctx.user.id}`);
-        }
-      } catch (error) {
-        console.warn(`[ICMARKETS_CONFIG] Nao foi possivel recarregar Hybrid Engine:`, error);
-      }
-      
       // ============= REGISTRAR LOG DE ALTERACOES =============
       if (changes.length > 0) {
         const logMessage = `📈 IC MARKETS CONFIG ALTERADO:\n${changes.map(c => `  • ${c}`).join('\n')}`;

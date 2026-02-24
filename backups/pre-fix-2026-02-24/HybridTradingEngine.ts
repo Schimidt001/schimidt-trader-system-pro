@@ -185,9 +185,6 @@ export class HybridTradingEngine extends EventEmitter {
    */
   private isExecutingOrder: Map<string, boolean> = new Map();
   
-  // CORREÇÃO 2026-02-24: Guard contra overlapping de performAnalysis
-  private _isAnalyzing: boolean = false;
-  
   /**
    * @deprecated Use inFlightOrdersBySymbol.timestamp
    */
@@ -276,26 +273,6 @@ export class HybridTradingEngine extends EventEmitter {
    */
   get isRunning(): boolean {
     return this._isRunning;
-  }
-  
-  /**
-   * CORREÇÃO 2026-02-24: Recarregar configurações do banco de dados
-   * Chamado quando o usuário altera configurações via interface.
-   * Sem isso, alterações de maxTradesPerSymbol não eram aplicadas
-   * até reiniciar o bot manualmente.
-   */
-  async reloadConfig(): Promise<void> {
-    console.log(`[HybridEngine] 🔄 Recarregando configurações do banco de dados...`);
-    await this.loadConfigFromDB();
-    
-    // Atualizar RiskManager com novas configurações
-    if (this.riskManager) {
-      this.riskManager.updateConfig({
-        maxOpenTrades: this.config.maxPositions,
-      });
-    }
-    
-    console.log(`[HybridEngine] ✅ Configurações recarregadas. maxTradesPerSymbol=${this.config.maxTradesPerSymbol}, maxPositions=${this.config.maxPositions}`);
   }
   
   // ============= CORREÇÃO P0 v5.0: MÉTODOS DE CONTROLE IN-FLIGHT =============
@@ -1529,15 +1506,6 @@ export class HybridTradingEngine extends EventEmitter {
   private async performAnalysis(): Promise<void> {
     if (!this._isRunning) return;
     
-    // CORREÇÃO 2026-02-24: Guard contra overlapping de performAnalysis
-    if (this._isAnalyzing) {
-      console.log(`[HybridEngine] ⏭️ Análise anterior ainda em execução, pulando ciclo`);
-      return;
-    }
-    this._isAnalyzing = true;
-    
-    try {
-    
     this.analysisCount++;
     
     // CORREÇÃO P0 v5.0: Executar watchdog para limpar locks expirados
@@ -1638,10 +1606,6 @@ export class HybridTradingEngine extends EventEmitter {
           );
         }
       }
-    }
-    } finally {
-      // CORREÇÃO 2026-02-24: Liberar guard de overlapping
-      this._isAnalyzing = false;
     }
   }
   
@@ -2113,7 +2077,6 @@ export class HybridTradingEngine extends EventEmitter {
       console.log("═══════════════════════════════════════════════════════════════");
       
       try {
-        // CORREÇÃO 2026-02-24: Passar maxTradesPerSymbol para o KILL SWITCH do CTraderAdapter
         const result = await ctraderAdapter.placeOrder({
           symbol,
           direction: signal.signal as "BUY" | "SELL",
@@ -2122,8 +2085,7 @@ export class HybridTradingEngine extends EventEmitter {
           stopLossPips: sltp.stopLossPips,
           takeProfitPips: sltp.takeProfitPips,
           comment: `HYBRID ${combinedSignal.source} ${signal.signal}`,
-          maxTradesPerSymbol: this.config.maxTradesPerSymbol,
-        } as any, this.config.maxSpread);
+        }, this.config.maxSpread);
         
         if (result.success) {
           // ═══════════════════════════════════════════════════════════════

@@ -143,10 +143,6 @@ export class SMCTradingEngine extends EventEmitter {
    */
   private isExecutingOrder: Map<string, boolean> = new Map();
   
-  // CORREÇÃO 2026-02-24: Guard contra overlapping de performAnalysis
-  // Previne que dois ciclos de análise rodem simultaneamente
-  private _isAnalyzing: boolean = false;
-  
   // Cache de dados
   private lastTickPrice: number | null = null;
   private lastTickTime: number | null = null;
@@ -1444,15 +1440,6 @@ export class SMCTradingEngine extends EventEmitter {
   private async performAnalysis(): Promise<void> {
     if (!this._isRunning || !this.strategy) return;
     
-    // CORREÇÃO 2026-02-24: Guard contra overlapping de performAnalysis
-    if (this._isAnalyzing) {
-      console.log(`[SMCTradingEngine] ⏭️ Análise anterior ainda em execução, pulando ciclo`);
-      return;
-    }
-    this._isAnalyzing = true;
-    
-    try {
-    
     const now = Date.now();
     this.lastAnalysisTime = now;
     this.analysisCount++;
@@ -1562,10 +1549,6 @@ export class SMCTradingEngine extends EventEmitter {
         }
       );
     }
-    } finally {
-      // CORREÇÃO 2026-02-24: Liberar guard de overlapping
-      this._isAnalyzing = false;
-    }
   }
   
   /**
@@ -1646,8 +1629,7 @@ export class SMCTradingEngine extends EventEmitter {
         stopLossPips: sltp.stopLossPips,
         takeProfitPips: sltp.takeProfitPips,
         comment: `SMC ${signal.signal} | ${signal.reason.substring(0, 50)}`,
-        maxTradesPerSymbol: this.config.maxTradesPerSymbol,
-      } as any, this.config.maxSpread);
+      }, this.config.maxSpread);
       
       if (result.success) {
         this.tradesExecuted++;
@@ -1911,15 +1893,7 @@ export class SMCTradingEngine extends EventEmitter {
       }
     }
     
-    // CORREÇÃO 2026-02-24: Sincronizar posições com a API antes de verificar
-    try {
-      await this.adapter.reconcilePositions();
-      console.log(`[SMCTradingEngine] 🔄 ${symbol}: Posições sincronizadas com a API`);
-    } catch (reconcileError) {
-      console.warn(`[SMCTradingEngine] ⚠️ ${symbol}: Erro ao sincronizar posições, usando cache:`, reconcileError);
-    }
-    
-    // Verificar posições abertas (cache atualizado após reconcile)
+    // Verificar posições abertas (cache local)
     const openPositions = await this.adapter.getOpenPositions();
     const symbolPositions = openPositions.filter(p => p.symbol === symbol);
     
@@ -2061,7 +2035,6 @@ export class SMCTradingEngine extends EventEmitter {
     
     try {
       // TAREFA B: Passar maxSpread para filtro de spread
-      // CORREÇÃO 2026-02-24: Passar maxTradesPerSymbol para o KILL SWITCH do CTraderAdapter
       const result = await this.adapter.placeOrder({
         symbol,
         direction: signal.signal as "BUY" | "SELL",
@@ -2070,8 +2043,7 @@ export class SMCTradingEngine extends EventEmitter {
         stopLossPips: sltp.stopLossPips,
         takeProfitPips: sltp.takeProfitPips,
         comment: `SMC ${signal.signal} | ${signal.reason.substring(0, 50)}`,
-        maxTradesPerSymbol: this.config.maxTradesPerSymbol,
-      } as any, this.config.maxSpread);
+      }, this.config.maxSpread);
       
       if (result.success) {
         this.lastTradeTime.set(symbol, now);

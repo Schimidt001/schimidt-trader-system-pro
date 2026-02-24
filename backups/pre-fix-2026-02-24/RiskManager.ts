@@ -705,11 +705,7 @@ export class RiskManager {
   async getOpenTradesCountBySymbol(symbol: string): Promise<number> {
     try {
       const db = await getDb();
-      // CORREÇÃO 2026-02-24: FAIL-CLOSED - se não tem DB, bloquear trades
-      if (!db) {
-        console.error(`[RiskManager] ⚠️ FAIL-CLOSED: Banco de dados indisponível para ${symbol}. Bloqueando novas operações.`);
-        return 999;
-      }
+      if (!db) return 0;
       
       const result = await db
         .select({ count: sql<number>`count(*)` })
@@ -727,11 +723,8 @@ export class RiskManager {
       console.log(`[RiskManager] Posições abertas para ${symbol}: ${count}`);
       return count;
     } catch (error) {
-      // CORREÇÃO 2026-02-24: FAIL-CLOSED em vez de FAIL-OPEN
-      // Antes retornava 0 em caso de erro, permitindo trades mesmo com erro de banco
-      // Agora retorna 999 para BLOQUEAR trades quando não consegue verificar
-      console.error(`[RiskManager] ⚠️ FAIL-CLOSED: Erro ao contar trades abertos para ${symbol}. Bloqueando novas operações por segurança.`, error);
-      return 999;
+      console.error(`[RiskManager] Erro ao contar trades abertos para ${symbol}:`, error);
+      return 0;
     }
   }
   

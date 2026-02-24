@@ -1051,23 +1051,6 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     }
     // 📊 ============= FIM DA NORMALIZAÇÃO DE VOLUME =============
     
-    // ============= CORREÇÃO 2026-02-24: VERIFICAÇÃO FINAL DE POSIÇÕES (KILL SWITCH) =============
-    // Última barreira de segurança: verificar se já existe posição aberta para o símbolo
-    // Isso protege contra race conditions em TODAS as engines (SMC, Hybrid, ORB, etc.)
-    // Nota: Esta verificação usa o cache local (rápido), não faz chamada à API
-    {
-      const existingPositions = Array.from(this.openPositions.values()).filter(p => p.symbol === order.symbol);
-      // Limite padrão: 1 posição por ativo (pode ser sobrescrito pelo engine via order.maxTradesPerSymbol)
-      const maxPerSymbol = (order as any).maxTradesPerSymbol || 1;
-      if (existingPositions.length >= maxPerSymbol) {
-        console.warn(`[CTraderAdapter] 🛡️ KILL SWITCH: Já existem ${existingPositions.length} posições para ${order.symbol} (limite: ${maxPerSymbol}). BLOQUEANDO ordem.`);
-        return {
-          success: false,
-          errorMessage: `KILL SWITCH: Já existem ${existingPositions.length} posições abertas para ${order.symbol} (limite: ${maxPerSymbol})`,
-        };
-      }
-    }
-    
     // ============= FILTRO DE SPREAD (TAREFA B) =============
     // Verificar spread atual antes de executar a ordem
     if (maxSpread !== undefined && maxSpread > 0) {
@@ -1468,11 +1451,8 @@ export class CTraderAdapter extends BaseBrokerAdapter {
    * Obtém todas as posições abertas
    */
   async getOpenPositions(): Promise<OpenPosition[]> {
-    // CORREÇÃO 2026-02-24: Retornar cache mesmo quando desconectado
-    // Antes retornava [] quando desconectado, fazendo o engine pensar que não havia posições
-    // e permitindo abertura de novas operações duplicadas.
     if (!this.isConnected()) {
-      console.warn(`[CTraderAdapter] ⚠️ getOpenPositions: Desconectado. Retornando cache com ${this.openPositions.size} posições.`);
+      return [];
     }
     
     return Array.from(this.openPositions.values());
