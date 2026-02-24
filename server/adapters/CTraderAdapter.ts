@@ -816,8 +816,18 @@ export class CTraderAdapter extends BaseBrokerAdapter {
     const symbolId = await this.getSymbolId(symbol);
     const period = TIMEFRAME_MAP[timeframe] || TrendbarPeriod.M15;
     
+    // CORREÇÃO 2026-02-24: Multiplicador de calendário para compensar fins de semana e feriados.
+    // O Forex fecha ~48h/semana. Sem multiplicação, uma janela de 50h na segunda-feira
+    // cobre apenas ~2h de trading (domingo noite + segunda), retornando poucos candles.
+    const CALENDAR_MULTIPLIER: Record<string, number> = {
+      'H1': 2.5, 'H4': 2.5, 'D1': 1.5,
+      'M15': 2.0, 'M30': 2.0,
+      'M1': 1.5, 'M5': 2.0,
+    };
+    const calMult = CALENDAR_MULTIPLIER[timeframe] ?? 2.0;
+    
     const toTimestamp = Date.now();
-    const fromTimestamp = toTimestamp - (count * this.getTimeframeMs(timeframe));
+    const fromTimestamp = toTimestamp - (count * this.getTimeframeMs(timeframe) * calMult);
     
     const trendbars = await this.client.getTrendbars(
       symbolId,

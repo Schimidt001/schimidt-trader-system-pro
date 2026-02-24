@@ -1252,25 +1252,51 @@ export class HybridTradingEngine extends EventEmitter {
           // Para valores altos de rsiCandleCounts, precisamos de múltiplas chamadas.
           
           // Helper para carregar candles com paginação
+          // CORREÇÃO 2026-02-24: Multiplicador de calendário para compensar fins de semana
+          // O Forex fecha ~48h por semana (Sáb+Dom). Para garantir N candles H1, precisamos
+          // de uma janela de calendário ~2.5x maior (ex: 60 candles H1 → janela de 150h).
+          // Sem isso, ao iniciar na segunda-feira, a janela de 60h cobre o fim de semana
+          // e retorna apenas ~41 candles (horas de trading disponíveis), nunca chegando a 60.
+          const CALENDAR_MULTIPLIER: Record<string, number> = {
+            'H1': 2.5,  // 48h de fim de semana em ~120h de janela = ~40% de gap
+            'M15': 2.0, // Menor impacto relativo em janelas menores
+            'M5': 2.0,  // Idem
+          };
           const loadCandlesWithPagination = async (sym: string, tf: string, required: number): Promise<any[]> => {
             const allCandles: any[] = [];
             const tfMs = tf === 'H1' ? 3600000 : tf === 'M15' ? 900000 : 300000;
+            const calMult = CALENDAR_MULTIPLIER[tf] ?? 2.0;
             let toTs = Date.now();
             const MAX_PAGES = 20; // Limite de segurança para evitar loop infinito
+            let consecutiveEmptyPages = 0; // Contador de páginas vazias consecutivas
             
             for (let page = 0; page < MAX_PAGES && allCandles.length < required; page++) {
-              const batchSize = Math.min(required - allCandles.length, 500); // Pedir até 500 por vez
+              const remaining = required - allCandles.length;
+              // Aplicar multiplicador de calendário para cobrir fins de semana e feriados
+              const batchSize = Math.min(Math.ceil(remaining * calMult), 500);
               const fromTs = toTs - (batchSize * tfMs);
               
               const batch = await ctraderAdapter.getCandleHistoryRange(sym, tf, fromTs, toTs, batchSize);
-              if (batch.length === 0) break; // Sem mais dados disponíveis
+              
+              if (batch.length === 0) {
+                // CORREÇÃO: Não quebrar imediatamente em 0 candles — pode ser gap de fim de semana.
+                // Avançar a janela para trás e tentar mais uma vez (máx 2 páginas vazias consecutivas).
+                consecutiveEmptyPages++;
+                if (consecutiveEmptyPages >= 2) break; // Dois gaps consecutivos = sem mais dados históricos
+                toTs = fromTs - 1;
+                if (page < MAX_PAGES - 1) await sleep(DELAY_BETWEEN_REQUESTS);
+                continue;
+              }
+              consecutiveEmptyPages = 0; // Resetar contador ao receber dados
               
               allCandles.unshift(...batch); // Adicionar no início (mais antigos primeiro)
               
               // Mover a janela para trás
               toTs = fromTs - 1;
               
-              if (batch.length < 10) break; // API retornou poucos dados, provavelmente não há mais
+              // Só interromper se retornou muito poucos candles E já temos dados suficientes
+              // (evita quebrar prematuramente em gaps de sessão)
+              if (batch.length < 5 && allCandles.length >= required) break;
               
               if (page < MAX_PAGES - 1 && allCandles.length < required) {
                 await sleep(DELAY_BETWEEN_REQUESTS); // Rate limit entre páginas
